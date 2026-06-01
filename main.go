@@ -302,14 +302,15 @@ func runWizard() {
 
 	fmt.Println("\nStep 3: You're ready!")
 	fmt.Println()
-	fmt.Println("  Start chatting:     gollama chat <model>")
-	fmt.Println("  Open web UI:        gollama serve")
+	fmt.Println("  Web UI:             gollama serve")
+	fmt.Println("  Terminal chat:      gollama chat <model>")
 	fmt.Println("  See all commands:   gollama help")
 	fmt.Println()
-	fmt.Println("Quickstart (chat with your model right now):")
+	fmt.Println("Quickstart:")
 	if choice < len(models) && models[choice].Ref != "" {
 		pulled := models[choice].Ref
-		fmt.Printf("\n  gollama chat %s\n", pulled)
+		fmt.Printf("\n  gollama serve\n")
+		fmt.Printf("  gollama chat %s\n", pulled)
 		fmt.Println()
 	}
 }
@@ -344,19 +345,18 @@ Usage:
   gollama update                 Download/update llama-server binary
   gollama self-update            Update gollama itself
   gollama pull <model>           Download model from HuggingFace
-  gollama list                   List available models
-  gollama serve [port]           Start manager with web UI (default :9080)
+  gollama serve [port]           Web UI + REST API on :9080 (main workflow)
   gollama chat <model> [flags]   Start a terminal chat session
-  gollama run <model> [flags]    Quick-start a model (Ctrl+C to stop)
+  gollama list                   List available models
   gollama ps                     List running instances
   gollama stop <port>            Stop an instance
+  gollama run <model> [flags]    Run a model directly (debug/advanced)
 
 Examples:
+  gollama serve                 # Web UI on http://<ip>:9080
   gollama self-update           # Update gollama binary
   gollama update                # Update llama-server
   gollama pull hf.co/unsloth/gemma-4-E2B-it-GGUF:Q4_K_M
-  gollama chat gemma-4-E2B-it-Q4_K_M.gguf
-  gollama serve
 
 Tip:
   Models are stored in ~/.gollama/models/

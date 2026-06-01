@@ -35,8 +35,7 @@ gollama
 # Or step by step:
 gollama update                  # Install llama-server binary
 gollama pull hf.co/...          # Download a model from HuggingFace
-gollama chat <model>            # Start chatting in the terminal
-gollama serve                   # Open web UI on http://<ip>:9080
+gollama serve                   # Open web UI — manage everything from the browser
 ```
 
 The first-run wizard:
@@ -52,23 +51,24 @@ The first-run wizard:
 | `gollama update` | Download/update llama-server binary |
 | `gollama self-update` | Update gollama itself to the latest version |
 | `gollama pull <model>` | Download a GGUF model from HuggingFace |
-| `gollama list` | List downloaded models with metadata |
+| `gollama serve [port]` | Web UI + REST API on :9080 (main workflow) |
 | `gollama chat <model> [flags]` | Start a terminal chat session (streaming) |
-| `gollama run <model> [flags]` | Run a model server (Ctrl+C to stop) |
-| `gollama serve [port]` | Web UI + REST API on :9080 |
+| `gollama list` | List downloaded models with metadata |
 | `gollama ps` | List running instances |
 | `gollama stop <port>` | Stop an instance |
+| `gollama run <model> [flags]` | Run a model server directly (debug/advanced) |
 
 **Examples:**
 ```bash
-gollama chat gemma-4-E2B-it-Q4_K_M.gguf
-gollama chat Qwopus3.6-27B-v2-Q4_K_M.gguf --flash-attn on
+gollama serve                                    # Web UI on http://<ip>:9080
 gollama pull hf.co/unsloth/gemma-4-E2B-it-GGUF:Q4_K_M
+gollama chat gemma-4-E2B-it-Q4_K_M.gguf          # Terminal chat
+gollama run Qwopus3.6-27B-v2-Q4_K_M.gguf         # Debug/advanced
 ```
 
 ## Terminal Chat (`gollama chat`)
 
-Built-in streaming chat right in your terminal:
+For when you don't need the full web UI — a lightweight streaming chat right in your terminal:
 - **Token streaming** — see tokens as they're generated (SSE)
 - **Reasoning display** — thinking tokens shown in *italic* before the response
 - **Multi-line input** — `/open` to start, `/close` to end
