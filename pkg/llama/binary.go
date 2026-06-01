@@ -1,0 +1,309 @@
+package llama
+
+import (
+	"archive/tar"
+	"compress/gzip"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"time"
+
+	"github.com/majidkorai/gollama/pkg/model"
+)
+
+type BackendOption struct {
+	Name   string
+	Suffix string
+	GPU    bool
+}
+
+func DetectGPUBackends() []BackendOption {
+	var options []BackendOption
+	options = append(options, BackendOption{Name: "CPU", Suffix: "", GPU: false})
+
+	if _, err := exec.LookPath("nvidia-smi"); err == nil {
+		cmd := exec.Command("nvidia-smi", "--query-gpu=name", "--format=csv,noheader")
+		if out, err := cmd.Output(); err == nil {
+			lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+			label := "CUDA"
+			if len(lines) == 1 {
+				label = fmt.Sprintf("CUDA (%s)", strings.TrimSpace(lines[0]))
+			} else if len(lines) > 1 {
+				label = fmt.Sprintf("CUDA (%d GPUs)", len(lines))
+			}
+			options = append(options, BackendOption{
+				Name:   label,
+				Suffix: "-cuda",
+				GPU:    true,
+			})
+		}
+	}
+
+	if _, err := os.Stat("/opt/rocm"); err == nil {
+		options = append(options, BackendOption{
+			Name:   "ROCm",
+			Suffix: "-rocm-7.2",
+			GPU:    true,
+		})
+	}
+
+	options = append(options, BackendOption{Name: "Vulkan", Suffix: "-vulkan", GPU: true})
+
+	return options
+}
+
+func GetReleaseData() (string, map[string]string, error) {
+	resp, err := http.Get("https://api.github.com/repos/ggml-org/llama.cpp/releases/latest")
+	if err != nil {
+		return "", nil, fmt.Errorf("fetching latest release: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var release struct {
+		TagName string `json:"tag_name"`
+		Assets  []struct {
+			Name               string `json:"name"`
+			BrowserDownloadURL string `json:"browser_download_url"`
+		} `json:"assets"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		return "", nil, fmt.Errorf("parsing release: %w", err)
+	}
+
+	assets := make(map[string]string)
+	for _, a := range release.Assets {
+		assets[a.Name] = a.BrowserDownloadURL
+	}
+	return release.TagName, assets, nil
+}
+
+func FindAsset(tagName, kind string, assets map[string]string) (string, error) {
+	osName := runtime.GOOS
+	arch := runtime.GOARCH
+	if arch == "x86_64" || arch == "amd64" {
+		arch = "x64"
+	}
+
+	var candidates []string
+	base := fmt.Sprintf("llama-%s-bin", tagName)
+
+	switch osName {
+	case "linux":
+		candidates = []string{
+			base + "-ubuntu" + kind + "-" + arch,
+			base + "-ubuntu-" + arch + kind,
+			base + "-ubuntu-" + arch,
+		}
+	case "darwin":
+		candidates = []string{base + "-macos-" + arch}
+	case "windows":
+		candidates = []string{
+			base + "-win" + kind + "-" + arch,
+			base + "-win-" + arch + kind,
+			base + "-win-" + arch,
+		}
+	}
+
+	for _, c := range candidates {
+		for name, url := range assets {
+			if name == c+".tar.gz" || name == c+".zip" || strings.HasPrefix(name, c+".") {
+				return url, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("no matching asset for %s/%s (kind=%s)", osName, arch, kind)
+}
+
+func FindLlamaServer() string {
+	self := filepath.Join(model.BinDir(), "llama-server")
+	if _, err := os.Stat(self); err == nil {
+		return self
+	}
+	if path, err := exec.LookPath("llama-server"); err == nil {
+		return path
+	}
+	candidates := []string{
+		"/usr/local/lib/ollama/llama-server",
+		"/usr/local/bin/llama-server",
+		"/home/ollama/llama.cpp/build/bin/llama-server",
+	}
+	for _, c := range candidates {
+		if _, err := os.Stat(c); err == nil {
+			return c
+		}
+	}
+	return "llama-server"
+}
+
+func EnsureLlamaServer() error {
+	self := filepath.Join(model.BinDir(), "llama-server")
+	if _, err := os.Stat(self); err == nil {
+		fmt.Printf("llama-server already installed at %s\n", self)
+		cmd := exec.Command(self, "--version")
+		out, _ := cmd.Output()
+		if len(out) > 0 {
+			fmt.Printf("Version: %s", out)
+		}
+		return nil
+	}
+
+	fmt.Println("llama-server not found.")
+	tagName, assets, err := GetReleaseData()
+	if err != nil {
+		return fmt.Errorf("fetching release info: %w", err)
+	}
+
+	backends := DetectGPUBackends()
+
+	fmt.Println("\nAvailable builds for llama.cpp " + tagName + ":")
+	for i, b := range backends {
+		mark := ""
+		if b.GPU {
+			mark = " 🚀 (recommended)"
+		}
+		if i == 0 {
+			mark = " (fallback)"
+		}
+		fmt.Printf("  [%d] %s%s\n", i, b.Name, mark)
+	}
+	fmt.Printf("\nChoose (0-%d): ", len(backends)-1)
+
+	var choice int
+	fmt.Scanf("%d", &choice)
+	if choice < 0 || choice >= len(backends) {
+		choice = 0
+	}
+
+	selected := backends[choice]
+	fmt.Printf("Selected: %s\n", selected.Name)
+
+	if selected.Suffix == "-cuda" {
+		if runtime.GOOS == "linux" {
+			fmt.Println("\nCUDA pre-built binaries are not available for Linux on the release page.")
+			fmt.Println("However, we can download the Vulkan build which supports NVIDIA GPUs.")
+			fmt.Println("Options:")
+			fmt.Println("  [1] Download Vulkan build (recommended for NVIDIA)")
+			fmt.Println("  [2] Show CUDA build instructions")
+			fmt.Println("  [3] Cancel")
+			fmt.Print("Choose: ")
+			var c int
+			fmt.Scanf("%d", &c)
+			switch c {
+			case 1:
+				selected = backends[len(backends)-1]
+			case 2:
+				fmt.Println(`
+To build llama-server with CUDA:
+
+  git clone https://github.com/ggml-org/llama.cpp
+  cd llama.cpp
+  cmake -B build -DGGML_CUDA=ON
+  cmake --build build -j --target llama-server
+  cp build/bin/llama-server ~/.gollama/bin/
+
+Then run 'gollama update' again.`)
+				return nil
+			default:
+				return fmt.Errorf("installation cancelled")
+			}
+		}
+	}
+
+	url, err := FindAsset(tagName, selected.Suffix, assets)
+	if err != nil {
+		return fmt.Errorf("build not found: %w", err)
+	}
+
+	model.EnsureDir(model.BinDir())
+	tmpFile := filepath.Join(model.BinDir(), "llama-server.tar.gz")
+	defer os.Remove(tmpFile)
+
+	fmt.Printf("Downloading ...\n")
+	dlResp, err := http.Get(url)
+	if err != nil {
+		return fmt.Errorf("downloading: %w", err)
+	}
+	defer dlResp.Body.Close()
+
+	pr := &model.ProgressReader{
+		Reader: dlResp.Body,
+		Total:  dlResp.ContentLength,
+		Name:   "▸",
+		Start:  time.Now(),
+	}
+
+	out, err := os.Create(tmpFile)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(out, pr)
+	out.Close()
+	if err != nil {
+		return fmt.Errorf("downloading: %w", err)
+	}
+
+	gzr, err := gzip.NewReader(tmpFileReader(tmpFile))
+	if err != nil {
+		return fmt.Errorf("extracting: %w", err)
+	}
+	defer gzr.Close()
+
+	extractDir := model.BinDir()
+	tr := tar.NewReader(gzr)
+	found := false
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("extracting: %w", err)
+		}
+		name := filepath.Base(header.Name)
+		if name == "" || name == "." || name == ".." {
+			continue
+		}
+		outFile := filepath.Join(extractDir, name)
+		switch header.Typeflag {
+		case tar.TypeDir:
+			os.MkdirAll(outFile, 0755)
+		case tar.TypeSymlink:
+			os.Symlink(header.Linkname, outFile)
+		default:
+			outF, err := os.Create(outFile)
+			if err != nil {
+				return fmt.Errorf("creating %s: %w", name, err)
+			}
+			if _, err := io.Copy(outF, tr); err != nil {
+				outF.Close()
+				return err
+			}
+			outF.Close()
+			os.Chmod(outFile, os.FileMode(header.Mode))
+		}
+		if name == "llama-server" || name == "llama-server.exe" {
+			found = true
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("llama-server not found in downloaded archive")
+	}
+	os.WriteFile(model.VersionFile(), []byte(tagName), 0644)
+	os.WriteFile(model.BackendFile(), []byte(selected.Name), 0644)
+	log.Printf("llama-server installed: version=%s backend=%s path=%s", tagName, selected.Name, self)
+	fmt.Printf("\nllama-server %s (%s) installed to %s\n", tagName, selected.Name, self)
+	return nil
+}
+
+func tmpFileReader(path string) io.ReadCloser {
+	r, _ := os.Open(path)
+	return r
+}
