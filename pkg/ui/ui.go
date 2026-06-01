@@ -65,7 +65,7 @@ body {
 .sidebar .bottom { border-top:1px solid var(--border); padding:8px; margin-top:auto; }
 
 /* ── Main ────────────────────────────────────────────── */
-.main { flex:1; overflow-y:auto; padding:24px 32px; max-width:1200px; }
+.main { flex:1; overflow-y:auto; padding:28px 36px; }
 .view { display:none; }
 .view.active { display:block; }
 
@@ -75,7 +75,7 @@ body {
 .page-header p { color:var(--muted); font-size:13px; margin-top:2px; }
 
 /* ── Metrics ──────────────────────────────────────────── */
-.metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; margin-bottom:28px; }
+.metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:14px; margin-bottom:28px; }
 .metric-card {
   background:var(--card); border:1px solid var(--border); border-radius:var(--radius);
   padding:16px 18px; transition:border-color .2s;
@@ -98,7 +98,7 @@ body {
 .card-body { padding:16px; }
 
 /* ── Instance Card ────────────────────────────────────── */
-.instance-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:12px; }
+.instance-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(380px,1fr)); gap:14px; }
 .inst-card {
   background:var(--card); border:1px solid var(--border); border-radius:var(--radius);
   border-left:3px solid var(--green); padding:16px; transition:border-color .2s;
