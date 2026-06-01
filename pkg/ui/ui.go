@@ -67,8 +67,11 @@ button.small { width:auto; padding:4px 10px; font-size:11px; border-radius:6px; 
 .model-row .name { font-size:13px; color:var(--text); }
 .model-row .info { font-size:11px; color:var(--muted); margin-top:2px; }
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+@keyframes spin { to{transform:rotate(360deg)} }
 .loading { animation:pulse 1.5s infinite; }
 .chat-loading { animation:pulse 1.2s infinite; display:inline-block; letter-spacing:4px; font-size:18px; line-height:1; color:var(--muted); }
+.spinner { display:inline-block; width:14px; height:14px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .6s linear infinite; vertical-align:middle; margin-right:6px; }
+.refreshing { opacity:.5; pointer-events:none; transition:opacity .2s; }
 @media(max-width:768px){.card-row{flex-direction:column}.grid{grid-template-columns:1fr}}
 </style>
 </head>
@@ -146,8 +149,12 @@ async function loadModels(){
 }
 
 async function loadModelList(){
-  var r=await fetch('/api/v1/models'),m=await r.json(),c=document.getElementById('modelList');
-  document.getElementById('modelCount').textContent='('+m.length+')';
+  var c=document.getElementById('modelList'),mc=document.getElementById('modelCount');
+  mc.innerHTML='<span class="spinner"></span>';
+  c.classList.add('refreshing');
+  var r=await fetch('/api/v1/models'),m=await r.json();
+  c.classList.remove('refreshing');
+  mc.textContent='('+m.length+')';
   if(!m.length){c.innerHTML='<div class="text-sm">No models downloaded</div>';return;}
   c.innerHTML=m.map(function(x){
     var name=x.name||'?',size=x.size?fmtSize(x.size):'?';
@@ -179,8 +186,12 @@ async function deleteModel(name){
 }
 
 async function loadInstances(){
-  var r=await fetch('/api/v1/instances'),list=await r.json(),c=document.getElementById('instances');
-  document.getElementById('instanceCount').textContent='('+list.length+')';
+  var c=document.getElementById('instances'),ic=document.getElementById('instanceCount');
+  ic.innerHTML='<span class="spinner"></span>';
+  c.classList.add('refreshing');
+  var r=await fetch('/api/v1/instances'),list=await r.json();
+  c.classList.remove('refreshing');
+  ic.textContent='('+list.length+')';
   if(!list.length){c.innerHTML='<div class="text-sm">No running instances</div>';return;}
   c.innerHTML=list.map(function(i){
     var sc=i.status=='running'?'':' stopped';
@@ -197,14 +208,17 @@ async function loadInstances(){
 }
 
 async function launchInstance(){
-  var m=document.getElementById('modelSelect').value,p=parseInt(document.getElementById('portInput').value),f=[];
+  var btn=document.querySelector('.card:nth-child(2) .mt-8'),m=document.getElementById('modelSelect').value,p=parseInt(document.getElementById('portInput').value),f=[];
   document.querySelectorAll('.flag-input').forEach(function(el){(el.value.trim().split(/\s+/)).forEach(function(v){if(v)f.push(v);});});
   if(!m){alert('Select a model');return;}
-  var r=await fetch('/api/v1/instances',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:m,port:p,flags:f})});
-  if(!r.ok){var e=await r.text();alert('Error: '+e);return;}
-  var i=await r.json();
-  document.getElementById('portInput').value=(i.port||0)+1;
-  loadInstances();refreshChatSelector();
+  var orig=btn.textContent;btn.disabled=true;btn.textContent='Launching...';
+  try{
+    var r=await fetch('/api/v1/instances',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:m,port:p,flags:f})});
+    if(!r.ok){var e=await r.text();alert('Error: '+e);return;}
+    var i=await r.json();
+    document.getElementById('portInput').value=(i.port||0)+1;
+    loadInstances();refreshChatSelector();
+  }finally{btn.disabled=false;btn.textContent=orig;}
 }
 
 async function stopInstance(p){
