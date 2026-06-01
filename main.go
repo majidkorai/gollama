@@ -194,9 +194,7 @@ func main() {
 				os.Exit(1)
 			}
 			fmt.Printf("Started %s on port %d (PID %d)\n", inst.Model, inst.Port, inst.PID)
-			ip := localIP()
-			fmt.Printf("Chat:     http://%s:%d\n", ip, inst.Port)
-			fmt.Printf("Web UI:   http://%s:9080 (via gollama serve)\n", ip)
+			fmt.Printf("Chat: http://%s:%d\n", localIP(), inst.Port)
 			fmt.Println("Press Ctrl+C to stop")
 
 			sigCh := make(chan os.Signal, 1)
