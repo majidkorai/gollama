@@ -6,12 +6,23 @@ Pull any model from HuggingFace, launch it on any port with any llama-server fla
 
 ## Install
 
-**One-liner** (requires curl):
+**Linux & macOS** (requires curl):
 ```bash
 curl -fsSL https://raw.githubusercontent.com/majidkorai/gollama/main/install.sh | sh
 ```
 
-This downloads a pre-built binary for your platform, or falls back to building from source if Go is installed.
+**Windows** (Git Bash, WSL, or PowerShell):
+```powershell
+# PowerShell
+iwr -useb https://raw.githubusercontent.com/majidkorai/gollama/main/install.ps1 | iex
+```
+
+Or with Git Bash:
+```bash
+curl -fsSL https://raw.githubusercontent.com/majidkorai/gollama/main/install.sh | sh
+```
+
+The script downloads a pre-built binary (linux/darwin/windows × amd64/arm64) or falls back to building from source.
 
 **Manual build:**
 ```bash

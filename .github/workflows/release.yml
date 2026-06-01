@@ -18,15 +18,23 @@ jobs:
           - os: linux
             arch: amd64
             runner: ubuntu-latest
+            ext: ""
           - os: linux
             arch: arm64
             runner: ubuntu-24.04-arm
+            ext: ""
           - os: darwin
             arch: amd64
             runner: macos-13
+            ext: ""
           - os: darwin
             arch: arm64
             runner: macos-latest
+            ext: ""
+          - os: windows
+            arch: amd64
+            runner: windows-latest
+            ext: ".exe"
 
     steps:
       - uses: actions/checkout@v4
@@ -36,13 +44,13 @@ jobs:
           go-version: "1.23"
 
       - name: build
-        run: go build -o gollama-${{ matrix.os }}-${{ matrix.arch }} -ldflags="-s -w" .
+        run: go build -o gollama-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }} -ldflags="-s -w" .
 
       - name: upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: gollama-${{ matrix.os }}-${{ matrix.arch }}
-          path: gollama-${{ matrix.os }}-${{ matrix.arch }}
+          path: gollama-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }}
 
   release:
     name: create release
