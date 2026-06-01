@@ -23,6 +23,10 @@ func main() {
 			fmt.Printf("gollama %s\n", version)
 			return
 		}
+		if isFreshInstall() {
+			runWizard()
+			return
+		}
 		printUsage()
 		os.Exit(1)
 	}
@@ -206,6 +210,83 @@ func main() {
 	default:
 		printUsage()
 		os.Exit(1)
+	}
+}
+
+func isFreshInstall() bool {
+	if _, err := os.Stat(model.BinDir()); os.IsNotExist(err) {
+		return true
+	}
+	if _, err := os.Stat(llama.FindLlamaServer()); os.IsNotExist(err) {
+		return true
+	}
+	return false
+}
+
+func runWizard() {
+	fmt.Print(`
+  ╔══════════════════════════════════╗
+  ║       gollama — llama.cpp 🦙     ║
+  ║  one command to run them all     ║
+  ╚══════════════════════════════════╝
+
+`)
+
+	fmt.Print("Let's get you set up in a few steps.\n\n")
+
+	// Step 1: install llama-server
+	fmt.Println("Step 1: Install llama-server")
+	if err := llama.EnsureLlamaServer(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		fmt.Println("You can retry later with: gollama update")
+		return
+	}
+
+	// Step 2: ask about pulling a model
+	fmt.Println("\nStep 2: Pull a model")
+	fmt.Println("gollama needs a GGUF model to run.")
+	models := []struct {
+		Label string
+		Ref   string
+	}{
+		{"gemma-4-E2B-it-GGUF (2B, ~1.6 GB) — fast, great for chat", "hf.co/unsloth/gemma-4-E2B-it-GGUF:Q4_K_M"},
+		{"Qwen2.5-7B-Instruct-GGUF (~4.7 GB) — good balance of speed & quality", "hf.co/Qwen/Qwen2.5-7B-Instruct-GGUF:Q4_K_M"},
+		{"Llama-3.1-8B-Instruct-GGUF (~5.5 GB) — popular general purpose", "hf.co/lmstudio-community/Meta-Llama-3.1-8B-Instruct-GGUF:Q4_K_M"},
+		{"Qwen2.5-14B-Instruct-GGUF (~9 GB) — higher quality, needs more VRAM", "hf.co/Qwen/Qwen2.5-14B-Instruct-GGUF:Q4_K_M"},
+		{"Skip — I'll add my own models later", ""},
+	}
+
+	fmt.Println("Pick a starter model to download:")
+	for i, m := range models {
+		fmt.Printf("  [%d] %s\n", i+1, m.Label)
+	}
+	fmt.Printf("\nChoose (1-%d): ", len(models))
+
+	var choice int
+	fmt.Scanf("%d", &choice)
+	if choice < 1 || choice > len(models) {
+		choice = len(models)
+	}
+	choice--
+
+	if models[choice].Ref != "" {
+		if err := model.PullModel(models[choice].Ref); err != nil {
+			fmt.Fprintf(os.Stderr, "Error pulling model: %v\n", err)
+			fmt.Println("You can retry later with: gollama pull <model>")
+		}
+	}
+
+	fmt.Println("\nStep 3: You're ready!")
+	fmt.Println()
+	fmt.Println("  Start chatting:     gollama chat <model>")
+	fmt.Println("  Open web UI:        gollama serve")
+	fmt.Println("  See all commands:   gollama help")
+	fmt.Println()
+	fmt.Println("Quickstart (chat with your model right now):")
+	if choice < len(models) && models[choice].Ref != "" {
+		pulled := models[choice].Ref
+		fmt.Printf("\n  gollama chat %s\n", pulled)
+		fmt.Println()
 	}
 }
 
