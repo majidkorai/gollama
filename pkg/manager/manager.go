@@ -122,27 +122,6 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string) (*Instan
 		"--host", "0.0.0.0",
 		"--port", strconv.Itoa(port),
 	}
-	isCPU := func() bool {
-		d, _ := os.ReadFile(model.BackendFile())
-		return strings.TrimSpace(string(d)) == "CPU"
-	}()
-	if !isCPU {
-		hasNGL, hasTS := false, false
-		for _, a := range extraArgs {
-			if a == "--n-gpu-layers" || a == "-ngl" {
-				hasNGL = true
-			}
-			if a == "--tensor-split" || a == "-ts" {
-				hasTS = true
-			}
-		}
-		if !hasNGL {
-			args = append(args, "--n-gpu-layers", "99")
-		}
-		if !hasTS {
-			args = append(args, "--tensor-split", "12,8")
-		}
-	}
 	args = append(args, extraArgs...)
 
 	log.Printf("launching llama-server: %s %s", llamaBin, strings.Join(args, " "))
