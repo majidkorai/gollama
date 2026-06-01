@@ -2,9 +2,12 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"os"
+	"os/exec"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -98,7 +101,7 @@ func main() {
 		if len(os.Args) > 2 {
 			port = os.Args[2]
 		}
-		fmt.Printf("gollama starting on :%s\n", port)
+		fmt.Printf("Web UI: http://%s:%s\n", localIP(), port)
 
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
@@ -172,7 +175,9 @@ func main() {
 				os.Exit(1)
 			}
 			fmt.Printf("Started %s on port %d (PID %d)\n", inst.Model, inst.Port, inst.PID)
-			fmt.Printf("Chat: http://localhost:%d\n", inst.Port)
+			ip := localIP()
+			fmt.Printf("Chat:     http://%s:%d\n", ip, inst.Port)
+			fmt.Printf("Web UI:   http://%s:9080 (via gollama serve)\n", ip)
 			fmt.Println("Press Ctrl+C to stop")
 
 			sigCh := make(chan os.Signal, 1)
@@ -288,6 +293,22 @@ func runWizard() {
 		fmt.Printf("\n  gollama chat %s\n", pulled)
 		fmt.Println()
 	}
+}
+
+func localIP() string {
+	hosts := []string{"hostname", "hostname -I"}
+	for _, cmd := range hosts {
+		c := exec.Command("sh", "-c", cmd)
+		out, err := c.Output()
+		if err != nil {
+			continue
+		}
+		ip := strings.Fields(string(out))
+		if len(ip) > 0 && net.ParseIP(ip[0]) != nil {
+			return ip[0]
+		}
+	}
+	return "localhost"
 }
 
 func truncate(s string, n int) string {
