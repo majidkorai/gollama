@@ -137,31 +137,27 @@ button.small { width:auto; padding:4px 10px; font-size:11px; border-radius:6px; 
 </div>
 
 <script>
-async function loadModels(){
-  var r=await fetch('/api/v1/models'),m=await r.json(),s=document.getElementById('modelSelect'),seen={};
-  s.innerHTML='<option value="">— Select model —</option>';
-  if(!m||!m.length){s.innerHTML+='<option value="" disabled>No models found. Use gollama pull.</option>';return;}
-  m.forEach(function(x){
-    var n=x.name||'(unnamed)',src=x.source||'unknown';
-    if(!seen[n]){seen[n]=1;s.innerHTML+='<option value="'+n+'">'+n+' ['+src+']</option>';}
-  });
-  loadModelList();
-}
+var chatPort=0,chatHistory=[];
 
-async function loadModelList(){
-  var c=document.getElementById('modelList'),mc=document.getElementById('modelCount');
+// ── Models — single fetch for both selector + list ─────────────
+async function loadModels(){
+  var mc=document.getElementById('modelCount'),c=document.getElementById('modelList'),s=document.getElementById('modelSelect');
   mc.innerHTML='<span class="spinner"></span>';
   c.classList.add('refreshing');
   var r=await fetch('/api/v1/models'),m=await r.json();
   c.classList.remove('refreshing');
   mc.textContent='('+m.length+')';
-  if(!m.length){c.innerHTML='<div class="text-sm">No models downloaded</div>';return;}
+
+  s.innerHTML='<option value="">— Select model —</option>';
+  if(!m||!m.length){s.innerHTML+='<option value="" disabled>No models found. Use gollama pull.</option>';c.innerHTML='<div class="text-sm">No models downloaded</div>';return;}
+  var seen={};
+  m.forEach(function(x){
+    var n=x.name||'(unnamed)',src=x.source||'unknown';
+    if(!seen[n]){seen[n]=1;s.innerHTML+='<option value="'+n+'">'+n+' ['+src+']</option>';}
+  });
   c.innerHTML=m.map(function(x){
     var name=x.name||'?',size=x.size?fmtSize(x.size):'?';
-    var arch=x.architecture||'';
-    var quant=x.quantization||'';
-    var ctx=x.context_length||0;
-    var badges=[];
+    var arch=x.architecture||'',quant=x.quantization||'',ctx=x.context_length||0,badges=[];
     if(quant)badges.push('<span class="badge badge-blue">'+quant+'</span>');
     if(arch)badges.push('<span class="badge badge-blue">'+arch+'</span>');
     if(ctx)badges.push('<span class="badge badge-green">'+(ctx>999?Math.round(ctx/1000)+'K':'<1K')+' ctx</span>');
@@ -170,28 +166,21 @@ async function loadModelList(){
   }).join('');
 }
 
-function fmtSize(b){
-  if(!b)return'?';
-  if(b>1073741824)return(b/1073741824).toFixed(1)+' GB';
-  if(b>1048576)return(b/1048576).toFixed(0)+' MB';
-  return(b/1024).toFixed(0)+' KB';
-}
-
-async function deleteModel(name){
-  if(!confirm('Delete model "'+name+'"?'))return;
-  var r=await fetch('/api/v1/models/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name})});
-  var d=await r.json();
-  if(d.error){alert('Error: '+d.error);return;}
-  loadModels();loadModelList();
-}
-
+// ── Instances — single fetch for cards + chat selector ─────────
 async function loadInstances(){
-  var c=document.getElementById('instances'),ic=document.getElementById('instanceCount');
+  var ic=document.getElementById('instanceCount'),c=document.getElementById('instances'),cs=document.getElementById('chatInstanceSelect');
   ic.innerHTML='<span class="spinner"></span>';
   c.classList.add('refreshing');
   var r=await fetch('/api/v1/instances'),list=await r.json();
   c.classList.remove('refreshing');
   ic.textContent='('+list.length+')';
+
+  // Update chat selector
+  cs.innerHTML='<option value="">— select running instance —</option>';
+  list.forEach(function(i){var mn=i.model||'?';cs.innerHTML+='<option value="'+i.port+'"'+(chatPort==i.port?' selected':'')+'>'+i.port+' - '+(mn.length>35?mn.slice(0,35)+'...':mn)+'</option>';});
+  if(!list.length){document.getElementById('chatPanel').classList.remove('active');document.getElementById('chatEmpty').style.display='block';}
+
+  // Render instance cards
   if(!list.length){c.innerHTML='<div class="text-sm">No running instances</div>';return;}
   c.innerHTML=list.map(function(i){
     var sc=i.status=='running'?'':' stopped';
@@ -207,6 +196,19 @@ async function loadInstances(){
   }).join('');
 }
 
+function fmtSize(b){
+  if(!b)return'?';
+  if(b>1073741824)return(b/1073741824).toFixed(1)+' GB';
+  if(b>1048576)return(b/1048576).toFixed(0)+' MB';
+  return(b/1024).toFixed(0)+' KB';
+}
+
+async function deleteModel(name){
+  if(!confirm('Delete model "'+name+'"?'))return;
+  await fetch('/api/v1/models/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name})});
+  loadModels();
+}
+
 async function launchInstance(){
   var btn=document.querySelector('.card:nth-child(2) .mt-8'),m=document.getElementById('modelSelect').value,p=parseInt(document.getElementById('portInput').value),f=[];
   document.querySelectorAll('.flag-input').forEach(function(el){(el.value.trim().split(/\s+/)).forEach(function(v){if(v)f.push(v);});});
@@ -217,14 +219,14 @@ async function launchInstance(){
     if(!r.ok){var e=await r.text();alert('Error: '+e);return;}
     var i=await r.json();
     document.getElementById('portInput').value=(i.port||0)+1;
-    loadInstances();refreshChatSelector();
+    loadInstances();
   }finally{btn.disabled=false;btn.textContent=orig;}
 }
 
 async function stopInstance(p){
   if(!confirm('Stop instance on port '+p+'?'))return;
   await fetch('/api/v1/instances/stop?port='+p,{method:'POST'});
-  loadInstances();refreshChatSelector();
+  loadInstances();
   if(chatPort==p){document.getElementById('chatPanel').classList.remove('active');document.getElementById('chatEmpty').style.display='block';}
 }
 
@@ -233,15 +235,6 @@ function addFlag(){
   r.className='flag-row';
   r.innerHTML='<input type="text" placeholder="e.g. --tensor-split 12,8" class="flag-input"><button class="small danger" onclick="this.parentElement.remove()">x</button>';
   c.appendChild(r);
-}
-
-var chatPort=0,chatHistory=[];
-
-async function refreshChatSelector(){
-  var r=await fetch('/api/v1/instances'),list=await r.json(),s=document.getElementById('chatInstanceSelect');
-  s.innerHTML='<option value="">— select running instance —</option>';
-  list.forEach(function(i){var mn=i.model||'?';s.innerHTML+='<option value="'+i.port+'"'+(chatPort==i.port?' selected':'')+'>'+i.port+' - '+(mn.length>35?mn.slice(0,35)+'...':mn)+'</option>';});
-  if(!list.length){document.getElementById('chatPanel').classList.remove('active');document.getElementById('chatEmpty').style.display='block';}
 }
 
 function selectChatInstance(){
@@ -314,9 +307,9 @@ function toggleTheme(){
   if(localStorage.getItem('gollama-theme')==='light'){document.body.classList.add('light');document.getElementById('themeToggle').textContent='☀️';}
 })();
 
-loadModels();loadInstances();refreshChatSelector();
-setInterval(function(){loadInstances();refreshChatSelector();},3000);
-setInterval(function(){loadModelList();},10000);
+loadModels();loadInstances();
+setInterval(function(){loadInstances();},3000);
+setInterval(function(){loadModels();},10000);
 </script>
 
 <div id="logModal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.7);z-index:1000">
