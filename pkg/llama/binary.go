@@ -151,6 +151,9 @@ func EnsureLlamaServer() error {
 		if len(out) > 0 {
 			fmt.Printf("Version: %s", out)
 		}
+		if runtime.GOOS == "linux" {
+			checkDependencies(self)
+		}
 		return nil
 	}
 
