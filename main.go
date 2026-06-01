@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/majidkorai/gollama/pkg/chat"
 	"github.com/majidkorai/gollama/pkg/llama"
 	"github.com/majidkorai/gollama/pkg/manager"
 	"github.com/majidkorai/gollama/pkg/model"
@@ -109,6 +110,46 @@ func main() {
 		<-sigCh
 		fmt.Println("\nshutting down...")
 
+	case "chat":
+		if len(os.Args) < 3 {
+			fmt.Println("Usage: gollama chat <model> [flags...]")
+			os.Exit(1)
+		}
+		if err := llama.EnsureLlamaServer(); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
+		}
+		modelName := os.Args[2]
+		extraArgs := os.Args[3:]
+
+		inst, err := mgr.Start(modelName, 0, extraArgs)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("Waiting for %s on port %d...\n", inst.Model, inst.Port)
+		baseURL := fmt.Sprintf("http://127.0.0.1:%d", inst.Port)
+		if err := chat.WaitForReady(baseURL, 30*time.Second); err != nil {
+			mgr.Stop(inst.Port)
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+		go func() {
+			<-sigCh
+			fmt.Println("\nStopping...")
+			mgr.Stop(inst.Port)
+			os.Exit(0)
+		}()
+
+		c := chat.New(inst.Port)
+		if err := c.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "Chat error: %v\n", err)
+		}
+		mgr.Stop(inst.Port)
+
 	case "run":
 		if len(os.Args) < 3 {
 			fmt.Println("Usage: gollama run <model> [flags...]")
@@ -183,6 +224,7 @@ Usage:
   gollama pull <model>           Download model from HuggingFace
   gollama list                   List available models
   gollama serve [port]           Start manager with web UI (default :9080)
+  gollama chat <model> [flags]   Start a terminal chat session
   gollama run <model> [flags]    Quick-start a model (Ctrl+C to stop)
   gollama ps                     List running instances
   gollama stop <port>            Stop an instance
@@ -190,6 +232,7 @@ Usage:
 Examples:
   gollama update
   gollama pull hf.co/unsloth/gemma-4-E2B-it-GGUF:Q4_K_M
+  gollama chat gemma-4-E2B-it-Q4_K_M.gguf
   gollama run Qwopus3.6-27B-v2-Q4_K_M.gguf --tensor-split 12,8 --flash-attn on
   gollama serve
 
