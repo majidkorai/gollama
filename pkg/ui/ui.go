@@ -8,13 +8,20 @@ const Page = `<!DOCTYPE html>
 <title>gollama</title>
 <style>
 :root {
-  --bg:#0b0b0f; --surface:#121218; --card:#191920; --border:#23232e;
-  --border-hover:#34344a; --text:#ededef; --muted:#7f7f9a; --dim:#555570;
-  --accent:#6366f1; --accent-hover:#818cf8; --accent-bg:#1e1e3a;
-  --green:#22c55e; --green-bg:#064e3b; --red:#ef4444; --red-bg:#450a0a;
-  --amber:#f59e0b; --amber-bg:#451a03; --blue:#60a5fa; --blue-bg:#1a1a3a;
-  --sidebar-w:220px; --radius:10px; --radius-sm:6px;
+  --bg:#0e0e12; --surface:#16161c; --card:#1c1c24; --border:#262630;
+  --border-hover:#34344a; --text:#e8e8ed; --muted:#8888a0; --dim:#5c5c72;
+  --accent:#4a8eff; --accent-hover:#6ba3ff; --accent-bg:#1a2744;
+  --green:#2ed573; --green-bg:#0a2e1a; --red:#ff4757; --red-bg:#2e0a0f;
+  --amber:#ffa502; --amber-bg:#2e1a06; --blue:#4a8eff; --blue-bg:#1a2744;
+  --sidebar-w:220px; --radius:8px; --radius-sm:5px;
   --font: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+}
+.light {
+  --bg:#f5f5f7; --surface:#ffffff; --card:#fafafc; --border:#d4d4dc;
+  --border-hover:#b0b0be; --text:#1a1a24; --muted:#6b6b80; --dim:#8e8ea0;
+  --accent:#4a8eff; --accent-hover:#3578e0; --accent-bg:#e8f0ff;
+  --green:#1a9d52; --green-bg:#e6f7ed; --red:#d63031; --red-bg:#ffe8e8;
+  --amber:#d4890a; --amber-bg:#fff3e0; --blue:#3578e0; --blue-bg:#e8f0ff;
 }
 * { margin:0; padding:0; box-sizing:border-box; }
 html,body { height:100%; }
@@ -152,9 +159,7 @@ button.ghost:hover { background:var(--card); color:var(--text); }
 .chat-loading { animation:pulse 1.2s infinite; display:inline-block; letter-spacing:4px; font-size:16px; line-height:1; color:var(--dim); }
 .reasoning { color:var(--dim); font-style:italic; font-size:12px; border-left:2px solid var(--border); padding-left:10px; margin-bottom:6px; }
 
-/* ── Theme toggle ──────────────────────────────────────── */
-.theme-toggle { position:fixed; bottom:16px; left:16px; z-index:10; width:32px; height:32px; padding:0; font-size:14px; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer; background:var(--card); color:var(--text); border:1px solid var(--border); }
-.theme-toggle:hover { background:var(--border-hover); }
+
 
 /* ── Logs Modal ────────────────────────────────────────── */
 .modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,.7); z-index:100; }
@@ -213,6 +218,9 @@ button.ghost:hover { background:var(--card); color:var(--text); }
       <span class="icon">⚙️</span><span>Settings</span>
     </a>
   </nav>
+  <div class="bottom" style="display:flex;gap:4px;padding:10px 12px">
+    <button class="ghost small" onclick="toggleTheme()" id="themeToggle" style="flex:1;justify-content:center" title="Toggle theme">🌙</button>
+  </div>
 </aside>
 
 <!-- ─── Main ──────────────────────────────────────────── -->
@@ -330,8 +338,7 @@ button.ghost:hover { background:var(--card); color:var(--text); }
   </div>
 </div>
 
-<!-- ── Theme Toggle ───────────────────────────────── -->
-<button class="theme-toggle" onclick="toggleTheme()" id="themeToggle" title="Toggle theme">🌙</button>
+
 
 <script>
 var chatPort=0,chatHistory=[];
