@@ -35,21 +35,33 @@ body {
 .sidebar {
   width:var(--sidebar-w); background:var(--surface); border-right:1px solid var(--border);
   display:flex; flex-direction:column; flex-shrink:0; height:100vh; position:sticky; top:0;
+  transition:width .25s ease;
+  overflow:hidden;
 }
+.sidebar.collapsed { width:56px; }
 .sidebar .logo {
-  padding:20px 18px 16px; font-size:16px; font-weight:700;
-  letter-spacing:-.3px; border-bottom:1px solid var(--border);
+  padding:16px 18px; font-size:16px; font-weight:700; letter-spacing:-.3px;
+  border-bottom:1px solid var(--border); white-space:nowrap; overflow:hidden;
+  display:flex; align-items:center; gap:10px; min-height:52px;
 }
 .sidebar .logo span { color:var(--accent); }
+.sidebar .logo .toggle {
+  font-size:14px; cursor:pointer; background:none; border:none; color:var(--muted);
+  padding:4px; border-radius:4px; flex-shrink:0; line-height:1;
+}
+.sidebar .logo .toggle:hover { color:var(--text); }
 .sidebar nav { flex:1; padding:12px 8px; display:flex; flex-direction:column; gap:2px; }
 .sidebar a {
   display:flex; align-items:center; gap:10px; padding:9px 12px; border-radius:var(--radius-sm);
   color:var(--muted); text-decoration:none; font-size:13px; font-weight:500; cursor:pointer;
-  transition:all .15s;
+  transition:all .15s; white-space:nowrap; overflow:hidden;
 }
 .sidebar a:hover { background:var(--card); color:var(--text); }
 .sidebar a.active { background:var(--accent-bg); color:var(--accent-hover); }
 .sidebar a .icon { font-size:16px; width:20px; text-align:center; flex-shrink:0; }
+.sidebar a .label { transition:opacity .2s; }
+.sidebar.collapsed a .label { opacity:0; }
+.sidebar.collapsed .logo span:not(.toggle) { opacity:0; }
 .sidebar .bottom { border-top:1px solid var(--border); padding:8px; margin-top:auto; }
 
 /* ── Main ────────────────────────────────────────────── */
@@ -203,7 +215,7 @@ button.ghost:hover { background:var(--card); color:var(--text); }
 
 <!-- ─── Sidebar ──────────────────────────────────────── -->
 <aside class="sidebar">
-  <div class="logo">gollama<span>.</span></div>
+  <div class="logo"><button class="toggle" onclick="toggleSidebar()">◀</button><span>gollama</span><span>.</span></div>
   <nav>
     <a class="active" onclick="switchView('dashboard')">
       <span class="icon">📊</span><span>Dashboard</span>
@@ -526,6 +538,20 @@ function fmtSize(b){
   if(b>1048576)return(b/1048576).toFixed(0)+' MB';
   return(b/1024).toFixed(0)+' KB';
 }
+
+// ── Sidebar ──────────────────────────────────────────
+function toggleSidebar(){
+  document.querySelector('.sidebar').classList.toggle('collapsed');
+  var btn=document.querySelector('.sidebar .toggle');
+  btn.textContent=document.querySelector('.sidebar').classList.contains('collapsed')?'▶':'◀';
+  localStorage.setItem('gollama-sidebar',document.querySelector('.sidebar').classList.contains('collapsed')?'collapsed':'');
+}
+(function(){
+  if(localStorage.getItem('gollama-sidebar')==='collapsed'){
+    document.querySelector('.sidebar').classList.add('collapsed');
+    document.querySelector('.sidebar .toggle').textContent='▶';
+  }
+})();
 
 // ── Theme ─────────────────────────────────────────────
 function toggleTheme(){
