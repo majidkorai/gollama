@@ -220,14 +220,15 @@ func populateModelInfo(info *ModelInfo) error {
 	}
 
 	if changed {
-		idx := LoadIndex()
-		if existing, ok := idx[info.Name]; ok {
-			existing.Architecture = info.Architecture
-			existing.Quantization = info.Quantization
-			existing.ContextLength = info.ContextLength
-			idx[info.Name] = existing
-			SaveIndex(idx)
-		}
+		UpdateIndex(func(idx map[string]ModelInfo) error {
+			if existing, ok := idx[info.Name]; ok {
+				existing.Architecture = info.Architecture
+				existing.Quantization = info.Quantization
+				existing.ContextLength = info.ContextLength
+				idx[info.Name] = existing
+			}
+			return nil
+		})
 	}
 
 	return nil

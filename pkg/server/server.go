@@ -79,20 +79,24 @@ func (s *Server) handleModelDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	idx := model.LoadIndex()
-	info, ok := idx[req.Name]
-	if !ok {
+	var blobPath string
+	if err := model.UpdateIndex(func(idx map[string]model.ModelInfo) error {
+		info, ok := idx[req.Name]
+		if !ok {
+			return fmt.Errorf("model not found")
+		}
+		blobPath = info.BlobPath
+		delete(idx, req.Name)
+		return nil
+	}); err != nil {
 		jsonError(w, "model not found", 404)
 		return
 	}
 
-	if err := os.Remove(info.BlobPath); err != nil && !os.IsNotExist(err) {
+	if err := os.Remove(blobPath); err != nil && !os.IsNotExist(err) {
 		jsonError(w, fmt.Sprintf("error deleting file: %v", err), 500)
 		return
 	}
-
-	delete(idx, req.Name)
-	model.SaveIndex(idx)
 
 	log.Printf("model deleted: %s", req.Name)
 	jsonResponse(w, map[string]string{"status": "deleted", "model": req.Name})

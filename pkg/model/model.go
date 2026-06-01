@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -147,7 +148,11 @@ func FormatSize(bytes int64) string {
 	}
 }
 
-func LoadIndex() map[string]ModelInfo {
+var (
+	indexMu sync.RWMutex
+)
+
+func unsafeLoadIndex() map[string]ModelInfo {
 	EnsureDir(GollamaDir())
 	data, err := os.ReadFile(IndexFile())
 	if err != nil {
@@ -160,9 +165,34 @@ func LoadIndex() map[string]ModelInfo {
 	return idx
 }
 
-func SaveIndex(idx map[string]ModelInfo) {
+func unsafeSaveIndex(idx map[string]ModelInfo) {
 	data, _ := json.MarshalIndent(idx, "", "  ")
-	os.WriteFile(IndexFile(), data, 0644)
+	tmp := IndexFile() + ".tmp"
+	os.WriteFile(tmp, data, 0644)
+	os.Rename(tmp, IndexFile())
+}
+
+func LoadIndex() map[string]ModelInfo {
+	indexMu.RLock()
+	defer indexMu.RUnlock()
+	return unsafeLoadIndex()
+}
+
+func SaveIndex(idx map[string]ModelInfo) {
+	indexMu.Lock()
+	defer indexMu.Unlock()
+	unsafeSaveIndex(idx)
+}
+
+func UpdateIndex(fn func(map[string]ModelInfo) error) error {
+	indexMu.Lock()
+	defer indexMu.Unlock()
+	idx := unsafeLoadIndex()
+	if err := fn(idx); err != nil {
+		return err
+	}
+	unsafeSaveIndex(idx)
+	return nil
 }
 
 func ListModels() ([]ModelInfo, error) {
@@ -184,8 +214,10 @@ func ResolveModelBlob(model string) (string, error) {
 		if _, err := os.Stat(info.BlobPath); err == nil {
 			return info.BlobPath, nil
 		}
-		delete(idx, model)
-		SaveIndex(idx)
+		UpdateIndex(func(idx map[string]ModelInfo) error {
+			delete(idx, model)
+			return nil
+		})
 	}
 	if _, err := os.Stat(model); err == nil {
 		return model, nil
@@ -290,9 +322,10 @@ func PullModel(ref string) error {
 		Size:     written,
 	}
 	populateModelInfo(&info)
-	idx := LoadIndex()
-	idx[modelName] = info
-	SaveIndex(idx)
+	UpdateIndex(func(idx map[string]ModelInfo) error {
+		idx[modelName] = info
+		return nil
+	})
 
 	log.Printf("model downloaded: %s (%s) → %s", modelName, FormatSize(written), dest)
 	fmt.Printf("Downloaded %s (%s)\n", modelName, FormatSize(written))
