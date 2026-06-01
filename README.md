@@ -88,8 +88,9 @@ Any llama-server flag works. Common ones:
 - **VRAM**: gollama needs free GPU memory. Stop Ollama (`systemctl stop ollama`)
   before launching instances if both use the same GPUs.
 - **Linux CUDA**: pre-built CUDA binaries are not available for Linux on the
-  llama.cpp release page. Build from source or use the Vulkan build instead.
-  See `gollama update` for build instructions.
+  llama.cpp release page. If CUDA toolkit is detected (`nvcc` in PATH),
+  `gollama update` will clone and build llama-server from source automatically.
+  Otherwise it falls back to Vulkan (also supports NVIDIA GPUs).
 - **Multi-instance**: each instance runs on its own port (8081, 8082, ...).
   Chat with any running instance from the web UI.
 
@@ -111,10 +112,9 @@ MTP testing, or when you need precise control over inference.
 - [x] Instance log capture (stderr written to `~/.gollama/logs/`)
 
 ### Phase 2 — Next
+- [x] Model info display (architecture, quantization, context length)
+- [x] Auto-build CUDA on Linux from source (when nvcc is available)
 - [ ] Presets: save/load flag configurations
-- [ ] Token/s metrics display in web UI
-- [ ] Auto-download CUDA builds for Linux from custom CI
-- [ ] Model info display (architecture, quantization, context length)
 - [ ] Health checks and auto-restart for crashed instances
 
 ### Phase 3 — Future

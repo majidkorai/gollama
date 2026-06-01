@@ -184,36 +184,21 @@ func EnsureLlamaServer() error {
 	selected := backends[choice]
 	fmt.Printf("Selected: %s\n", selected.Name)
 
-	if selected.Suffix == "-cuda" {
-		if runtime.GOOS == "linux" {
-			fmt.Println("\nCUDA pre-built binaries are not available for Linux on the release page.")
-			fmt.Println("However, we can download the Vulkan build which supports NVIDIA GPUs.")
-			fmt.Println("Options:")
-			fmt.Println("  [1] Download Vulkan build (recommended for NVIDIA)")
-			fmt.Println("  [2] Show CUDA build instructions")
-			fmt.Println("  [3] Cancel")
-			fmt.Print("Choose: ")
-			var c int
-			fmt.Scanf("%d", &c)
-			switch c {
-			case 1:
-				selected = backends[len(backends)-1]
-			case 2:
-				fmt.Println(`
-To build llama-server with CUDA:
-
-  git clone https://github.com/ggml-org/llama.cpp
-  cd llama.cpp
-  cmake -B build -DGGML_CUDA=ON
-  cmake --build build -j --target llama-server
-  cp build/bin/llama-server ~/.gollama/bin/
-
-Then run 'gollama update' again.`)
-				return nil
-			default:
-				return fmt.Errorf("installation cancelled")
+	if selected.Suffix == "-cuda" && runtime.GOOS == "linux" {
+		fmt.Println("\nCUDA pre-built binaries are not available for Linux on the release page.")
+		if _, err := exec.LookPath("nvcc"); err == nil {
+			fmt.Println("CUDA toolkit detected. Building from source...")
+			if err := buildLlamaServerCUDA(); err != nil {
+				return fmt.Errorf("build failed: %w", err)
 			}
+			os.WriteFile(model.VersionFile(), []byte(tagName), 0644)
+			os.WriteFile(model.BackendFile(), []byte(selected.Name), 0644)
+			fmt.Printf("\nllama-server %s (%s) built and installed to %s\n", tagName, selected.Name, self)
+			return nil
 		}
+		fmt.Println("CUDA toolkit not found (nvcc missing).")
+		fmt.Println("Falling back to Vulkan build which also supports NVIDIA GPUs.")
+		selected = backends[len(backends)-1]
 	}
 
 	url, err := FindAsset(tagName, selected.Suffix, assets)
@@ -300,6 +285,76 @@ Then run 'gollama update' again.`)
 	os.WriteFile(model.BackendFile(), []byte(selected.Name), 0644)
 	log.Printf("llama-server installed: version=%s backend=%s path=%s", tagName, selected.Name, self)
 	fmt.Printf("\nllama-server %s (%s) installed to %s\n", tagName, selected.Name, self)
+	return nil
+}
+
+func buildLlamaServerCUDA() error {
+	for _, tool := range []string{"git", "cmake", "make", "nvcc"} {
+		if _, err := exec.LookPath(tool); err != nil {
+			return fmt.Errorf("required tool %q not found in PATH", tool)
+		}
+	}
+
+	buildDir, err := os.MkdirTemp("", "gollama-build-*")
+	if err != nil {
+		return fmt.Errorf("creating build dir: %w", err)
+	}
+	defer os.RemoveAll(buildDir)
+
+	fmt.Println("  Cloning llama.cpp...")
+	clone := exec.Command("git", "clone", "--depth", "1",
+		"https://github.com/ggml-org/llama.cpp", filepath.Join(buildDir, "llama.cpp"))
+	clone.Stdout = os.Stdout
+	clone.Stderr = os.Stderr
+	if err := clone.Run(); err != nil {
+		return fmt.Errorf("cloning llama.cpp: %w", err)
+	}
+
+	srcDir := filepath.Join(buildDir, "llama.cpp")
+	fmt.Println("  Configuring with cmake (CUDA)...")
+	cmake := exec.Command("cmake", "-B", "build",
+		"-DGGML_CUDA=ON",
+		"-DCMAKE_CUDA_ARCHITECTURES=all")
+	cmake.Dir = srcDir
+	cmake.Stdout = os.Stdout
+	cmake.Stderr = os.Stderr
+	if err := cmake.Run(); err != nil {
+		return fmt.Errorf("cmake configure failed: %w", err)
+	}
+
+	fmt.Println("  Building llama-server (this may take a while)...")
+	build := exec.Command("cmake", "--build", "build", "-j", "--target", "llama-server")
+	build.Dir = srcDir
+	build.Stdout = os.Stdout
+	build.Stderr = os.Stderr
+	if err := build.Run(); err != nil {
+		return fmt.Errorf("cmake build failed: %w", err)
+	}
+
+	src := filepath.Join(srcDir, "build", "bin", "llama-server")
+	dest := filepath.Join(model.BinDir(), "llama-server")
+	input, err := os.ReadFile(src)
+	if err != nil {
+		return fmt.Errorf("reading built binary: %w", err)
+	}
+	if err := os.WriteFile(dest, input, 0755); err != nil {
+		return fmt.Errorf("writing binary: %w", err)
+	}
+
+	// Also copy any .so files needed by the binary
+	libDir := filepath.Join(srcDir, "build", "bin")
+	entries, _ := os.ReadDir(libDir)
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".so") {
+			data, err := os.ReadFile(filepath.Join(libDir, e.Name()))
+			if err != nil {
+				continue
+			}
+			os.WriteFile(filepath.Join(model.BinDir(), e.Name()), data, 0755)
+		}
+	}
+
+	fmt.Println("  Build complete.")
 	return nil
 }
 
