@@ -355,6 +355,7 @@ button.ghost:hover { background:var(--card); color:var(--text); }
 <script>
 var chatPort=0,chatHistory=[];
 var currentView='dashboard';
+var cachedModelCount=0;
 
 // ── Navigation ──────────────────────────────────────
 function switchView(name){
@@ -366,26 +367,6 @@ function switchView(name){
   if(name=='chat'&&chatPort)selectChatFor(chatPort,'');
 }
 
-// ── Dashboard Metrics ────────────────────────────────
-async function loadMetrics(){
-  var mr=await fetch('/api/v1/models'),ml=await mr.json();
-  document.getElementById('metric-models').textContent=ml.length;
-  var ir=await fetch('/api/v1/instances'),il=await ir.json();
-  var running=il.filter(function(i){return i.status=='running';});
-  document.getElementById('metric-running').textContent=running.length;
-  var bestTps=0;
-  running.forEach(function(i){if(i.tokens_per_sec&&i.tokens_per_sec>bestTps)bestTps=i.tokens_per_sec;});
-  document.getElementById('metric-tps').textContent=bestTps?bestTps.toFixed(1):'—';
-}
-
-// ── Server Info ──────────────────────────────────────
-async function loadServerInfo(){
-  try{
-    var r=await fetch('/api/v1/models'),d=await r.json();
-    document.getElementById('metric-server').textContent='connected';
-  }catch(e){document.getElementById('metric-server').textContent='offline';}
-}
-
 // ── Models ───────────────────────────────────────────
 async function loadModels(){
   var mc=document.getElementById('modelCount'),ml=document.getElementById('modelList');
@@ -393,7 +374,9 @@ async function loadModels(){
   ml.classList.add('refreshing');
   var r=await fetch('/api/v1/models'),m=await r.json();
   ml.classList.remove('refreshing');
+  cachedModelCount=m.length;
   mc.textContent=m.length+' downloaded';
+  document.getElementById('metric-models').textContent=m.length;
 
   s.innerHTML='<option value="">— Select model —</option>';
   if(!m||!m.length){s.innerHTML+='<option value="" disabled>No models found. Use gollama pull.</option>';ml.innerHTML='<div class="card-body"><div class="empty-state"><div class="icon">📦</div><div>No models downloaded yet.</div></div></div>';return;}
@@ -416,11 +399,16 @@ async function deleteModel(name){
   loadModels();loadMetrics();
 }
 
-// ── Instances ────────────────────────────────────────
+// ── Instances + Metrics ──────────────────────────────
 async function loadInstances(){
   var ic=document.getElementById('instanceCount'),c=document.getElementById('instances'),cs=document.getElementById('chatInstanceSelect');
   var r=await fetch('/api/v1/instances'),list=await r.json();
   ic.textContent='('+list.length+')';
+  var running=list.filter(function(i){return i.status=='running';});
+  document.getElementById('metric-running').textContent=running.length;
+  var bestTps=0;
+  running.forEach(function(i){if(i.tokens_per_sec&&i.tokens_per_sec>bestTps)bestTps=i.tokens_per_sec;});
+  document.getElementById('metric-tps').textContent=bestTps?bestTps.toFixed(1):'—';
 
   cs.innerHTML='<option value="">— select a running instance —</option>';
   list.forEach(function(i){var mn=i.model||'?';cs.innerHTML+='<option value="'+i.port+'"'+(chatPort==i.port?' selected':'')+'>'+i.port+' - '+(mn.length>35?mn.slice(0,35)+'...':mn)+'</option>';});
@@ -564,10 +552,17 @@ function toggleTheme(){
   if(localStorage.getItem('gollama-theme')==='light'){document.body.classList.add('light');document.getElementById('themeToggle').textContent='☀️';}
 })();
 
-// ── Init ──────────────────────────────────────────────
-loadModels();loadInstances();loadMetrics();
-setInterval(function(){loadInstances();loadMetrics();},3000);
-setInterval(function(){loadModels();},10000);
+// ── Init (staggered, no pile-up) ─────────────────────
+loadModels();
+setTimeout(loadInstances,100);
+setTimeout(function tick(){
+  loadInstances();
+  setTimeout(tick,3000);
+},2000);
+setTimeout(function tick(){
+  loadModels();
+  setTimeout(tick,10000);
+},5000);
 </script>
 </body>
 </html>`
