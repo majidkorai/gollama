@@ -1,0 +1,65 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build ${{ matrix.os }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+            runner: ubuntu-latest
+          - os: linux
+            arch: arm64
+            runner: ubuntu-24.04-arm
+          - os: darwin
+            arch: amd64
+            runner: macos-13
+          - os: darwin
+            arch: arm64
+            runner: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+
+      - name: build
+        run: go build -o gollama-${{ matrix.os }}-${{ matrix.arch }} -ldflags="-s -w" .
+
+      - name: upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gollama-${{ matrix.os }}-${{ matrix.arch }}
+          path: gollama-${{ matrix.os }}-${{ matrix.arch }}
+
+  release:
+    name: create release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: gollama-*
+          merge-multiple: true
+
+      - name: checksums
+        run: sha256sum gollama-* > checksums.txt
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            gollama-*
+            checksums.txt
+          generate_release_notes: true

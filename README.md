@@ -6,8 +6,14 @@ Pull any model from HuggingFace, launch it on any port with any llama-server fla
 
 ## Install
 
-Build from source:
+**One-liner** (requires curl):
+```bash
+curl -fsSL https://raw.githubusercontent.com/majidkorai/gollama/main/install.sh | sh
+```
 
+This downloads a pre-built binary for your platform, or falls back to building from source if Go is installed.
+
+**Manual build:**
 ```bash
 git clone https://github.com/majidkorai/gollama
 cd gollama
@@ -18,17 +24,14 @@ sudo cp gollama /usr/local/bin/
 ## Quick Start
 
 ```bash
-# 1. Interactive install — detects GPU, choose CPU/CUDA/Vulkan
-gollama update
+# Just run it — first-run wizard handles the rest
+gollama
 
-# 2. Pull a model from HuggingFace
-gollama pull hf.co/unsloth/gemma-4-E2B-it-GGUF:Q4_K_M
-
-# 3. Run with custom flags (blocking, shows output)
-gollama run gemma-4-E2B-it-Q4_K_M.gguf --flash-attn on
-
-# 4. Start the web UI manager
-gollama serve
+# Or if already installed:
+gollama update                  # Install/update llama-server binary
+gollama pull hf.co/...          # Download a model
+gollama chat <model>            # Start chatting in the terminal
+gollama serve                   # Web UI on :9080
 ```
 
 ## Commands
@@ -118,10 +121,11 @@ MTP testing, or when you need precise control over inference.
 - [ ] Health checks and auto-restart for crashed instances
 
 ### Phase 3 — Future
+- [x] Install script (`curl ... | sh`)
+- [x] Pre-built binaries via GitHub Releases (linux/amd64, linux/arm64, darwin/amd64, darwin/arm64)
 - [ ] Multi-host support (distribute across machines)
 - [ ] REST API documentation
 - [ ] VS Code extension integration
-- [ ] Install script (`curl ... | sh`)
 
 ## Building from Source
 
@@ -129,6 +133,7 @@ MTP testing, or when you need precise control over inference.
 git clone https://github.com/majidkorai/gollama
 cd gollama
 go build -o gollama .
+sudo cp gollama /usr/local/bin/
 ```
 ## User interface 
 
