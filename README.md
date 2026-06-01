@@ -1,28 +1,22 @@
 # gollama 🦙
 
-**Spin up GGUF models in seconds** — a single Go binary that downloads, manages, and runs llama.cpp instances with a web UI, REST API, and full flag control.
+**Spin up GGUF models in seconds** — a single Go binary that downloads, manages, and runs llama.cpp instances with a terminal chat, web UI, REST API, and full flag control.
 
-Pull any model from HuggingFace, launch it on any port with any llama-server flag, chat with it — all from your browser or CLI. No dependencies, no Docker, no Python.
+Pull any model from HuggingFace, launch it on any port, chat with it in your terminal or browser — all from one command. No dependencies, no Docker, no Python.
 
 ## Install
 
-**Linux & macOS** (requires curl):
+**Linux & macOS** (one line, no Go required):
 ```bash
 curl -fsSL https://raw.githubusercontent.com/majidkorai/gollama/main/install.sh | sh
 ```
 
-**Windows** (Git Bash, WSL, or PowerShell):
+**Windows** (PowerShell):
 ```powershell
-# PowerShell
 iwr -useb https://raw.githubusercontent.com/majidkorai/gollama/main/install.ps1 | iex
 ```
 
-Or with Git Bash:
-```bash
-curl -fsSL https://raw.githubusercontent.com/majidkorai/gollama/main/install.sh | sh
-```
-
-The script downloads a pre-built binary (linux/darwin/windows × amd64/arm64) or falls back to building from source.
+The script detects your platform, downloads a pre-built binary (linux/darwin/windows × amd64/arm64), and installs it to `/usr/local/bin`. If no pre-built binary exists, it falls back to building from source.
 
 **Manual build:**
 ```bash
@@ -35,54 +29,116 @@ sudo cp gollama /usr/local/bin/
 ## Quick Start
 
 ```bash
-# Just run it — first-run wizard handles the rest
+# First run — interactive wizard handles everything
 gollama
 
-# Or if already installed:
-gollama update                  # Install/update llama-server binary
-gollama pull hf.co/...          # Download a model
+# Or step by step:
+gollama update                  # Install llama-server binary
+gollama pull hf.co/...          # Download a model from HuggingFace
 gollama chat <model>            # Start chatting in the terminal
-gollama serve                   # Web UI on :9080
+gollama serve                   # Open web UI on http://<ip>:9080
 ```
+
+The first-run wizard:
+1. Detects your GPU and downloads the right `llama-server` build
+2. Offers to pull a popular starter model (Gemma, Qwen, Llama, or skip)
+3. Shows next steps to start chatting
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `gollama update` | Interactive install — detects GPU, choose CPU/CUDA/Vulkan/ROCm |
+| `gollama` | First-run wizard (auto-setup if fresh install) |
+| `gollama update` | Install/update llama-server binary |
 | `gollama pull <model>` | Download a GGUF model from HuggingFace |
-| `gollama list` | List downloaded models |
-| `gollama run <model> [flags]` | Run a model on port 8081 (blocking, shows output) |
+| `gollama list` | List downloaded models with metadata |
+| `gollama chat <model> [flags]` | Start a terminal chat session (streaming) |
+| `gollama run <model> [flags]` | Run a model server (Ctrl+C to stop) |
 | `gollama serve [port]` | Web UI + REST API on :9080 |
 | `gollama ps` | List running instances |
 | `gollama stop <port>` | Stop an instance |
-| `gollama --version` | Show version |
+
+**Examples:**
+```bash
+gollama chat gemma-4-E2B-it-Q4_K_M.gguf
+gollama chat Qwopus3.6-27B-v2-Q4_K_M.gguf --flash-attn on
+gollama pull hf.co/unsloth/gemma-4-E2B-it-GGUF:Q4_K_M
+```
+
+## Terminal Chat (`gollama chat`)
+
+Built-in streaming chat right in your terminal:
+- **Token streaming** — see tokens as they're generated (SSE)
+- **Reasoning display** — thinking tokens shown in *italic* before the response
+- **Multi-line input** — `/open` to start, `/close` to end
+- **Chat history** — maintained for context (last 20 messages)
+- **Auto port** — picks a free port, no manual setup
+- **Graceful exit** — Ctrl+C or `/exit` to stop and clean up
+
+```
+$ gollama chat gemma-4-E2B-it-Q4_K_M.gguf
+Waiting for model on port 8081...
+Chatting with llama-server at http://127.0.0.1:8081
+Type /exit or /quit to end the conversation.
+
+>>> What is the capital of France?
+The capital of France is Paris.
+```
 
 ## Web UI
 
-Open **http://localhost:9080** in your browser.
+Open **http://<your-ip>:9080** in your browser.
 
 - **Pull models** — paste a HuggingFace URL and download from the browser
 - **Launch instances** — select a model, set flags, pick a port
 - **Chat** — built-in chat panel with running instances (proxied, no CORS)
-- **Monitor** — running instances with port/PID/status badge
+- **Model info** — architecture, quantization type, and context length shown as badges
+- **Monitor** — running instances with port/PID/status/tokens-per-second
 - **Stop** — one-click instance termination
 - **Logs** — view llama-server stderr directly in the browser
+- **Theme toggle** — dark/light mode
+
+## Configuration
+
+`~/.gollama/config.json` — created automatically on first run with sensible defaults:
+
+```json
+{
+  "default_flags": ["--flash-attn", "on", "--ctx-size", "4096"]
+}
+```
+
+If a GPU is detected, `--n-gpu-layers 99` is added automatically. User-provided flags always override config defaults. Edit the file directly to customize.
 
 ## Custom Flags
 
-Any llama-server flag works. Common ones:
+Any llama-server flag works. Pass them after the model name:
+
+```bash
+gollama chat model.gguf --flash-attn on --ctx-size 8192 --cont-batching
+```
+
+Common flags:
 
 | Flag | Description |
 |------|-------------|
 | `--n-gpu-layers 99` | Offload all layers to GPU |
 | `--tensor-split 12,8` | Manual GPU split (e.g. 3060:12GB, 2080:8GB) |
 | `--ctx-size 4096` | Context window |
-| `--flash-attn on` | Flash attention |
+| `--flash-attn on` | Flash attention (reduces VRAM) |
 | `--cont-batching` | Continuous batching |
 | `--cache-type-k q4_0` | KV cache quantization (reduces VRAM) |
-| `--spec-type draft-mtp` | MTP speculative decoding |
 | `-np N` | Parallel slots |
+
+## Model Metadata
+
+gollama reads GGUF file headers to display model information automatically:
+
+- **Architecture** — llama, gemma, qwen2, etc.
+- **Quantization** — Q4_K_M, Q5_K_M, Q8_0, etc. (20+ types recognized)
+- **Context length** — max tokens the model supports
+
+Metadata is shown in the web UI and populated when downloading or listing models.
 
 ## Architecture
 
@@ -94,59 +150,40 @@ Any llama-server flag works. Common ones:
 │   └── *.gguf              # Downloaded models
 ├── logs/
 │   └── port-NNNN.log       # Instance logs (viewable from web UI)
-└── index.json              # Model registry
+├── index.json              # Model registry (with cached metadata)
+└── config.json             # Default flags configuration
 ```
 
 ## Notes
 
-- **VRAM**: gollama needs free GPU memory. Stop Ollama (`systemctl stop ollama`)
-  before launching instances if both use the same GPUs.
-- **Linux CUDA**: pre-built CUDA binaries are not available for Linux on the
-  llama.cpp release page. If CUDA toolkit is detected (`nvcc` in PATH),
-  `gollama update` will clone and build llama-server from source automatically.
-  Otherwise it falls back to Vulkan (also supports NVIDIA GPUs).
-- **Multi-instance**: each instance runs on its own port (8081, 8082, ...).
-  Chat with any running instance from the web UI.
+- **Ports**: `gollama serve` uses port 9080. `gollama run`/`chat` auto-pick free ports starting from 8081. If a port is busy, the next available port is used automatically.
+- **VRAM**: gollama needs free GPU memory. Stop Ollama (`systemctl stop ollama`) before launching instances if both use the same GPUs.
+- **Linux CUDA**: pre-built CUDA binaries are not available for Linux on the llama.cpp release page. If CUDA toolkit is detected (`nvcc` in PATH), `gollama update` will build llama-server from source automatically with CUDA support. Otherwise it falls back to Vulkan (also supports NVIDIA GPUs).
+- **Dependencies**: On minimal Linux installations, gollama auto-installs missing shared libraries (libgomp1, libatomic1) via apt-get.
+- **Multi-instance**: each instance runs on its own port. Chat with any running instance from the web UI or terminal.
+
+## Project Structure
+
+```
+gollama/
+├── main.go                 # CLI entry point
+├── pkg/
+│   ├── chat/               # Terminal streaming chat
+│   ├── llama/              # llama-server binary management
+│   ├── manager/            # Instance lifecycle
+│   ├── model/              # Model index, HF pull, GGUF parser
+│   ├── server/             # HTTP API + web UI handler
+│   └── ui/                 # Embedded web UI (HTML/CSS/JS)
+├── install.sh              # Linux/macOS one-liner
+├── install.ps1             # Windows one-liner
+└── .github/workflows/
+    └── release.yml         # Auto-build binaries on tags
+```
 
 ## Why gollama?
 
-Ollama hides llama.cpp flags and hardcodes defaults. gollama exposes every
-parameter while keeping convenience — model management, web UI, multi-instance,
-built-in chat, and full llama-server control. Perfect for multi-GPU setups,
-MTP testing, or when you need precise control over inference.
+Ollama hides llama.cpp flags and hardcodes defaults. gollama exposes every parameter while keeping convenience — model management, terminal chat, web UI, multi-instance, and full llama-server control. Perfect for multi-GPU setups, MTP testing, or when you need precise control over inference.
 
-## Development Roadmap
+## User interface
 
-### Phase 1 — Done
-- [x] CLI: `pull`, `list`, `run`, `serve`, `ps`, `stop`, `update`, `--version`
-- [x] Model pull from HuggingFace (direct download, no Ollama dependency)
-- [x] llama-server auto-download with interactive GPU detection
-- [x] Web UI: pull models, launch/stop instances, chat, log viewer
-- [x] CORS-free chat proxy
-- [x] Instance log capture (stderr written to `~/.gollama/logs/`)
-
-### Phase 2 — Next
-- [x] Model info display (architecture, quantization, context length)
-- [x] Auto-build CUDA on Linux from source (when nvcc is available)
-- [ ] Presets: save/load flag configurations
-- [ ] Health checks and auto-restart for crashed instances
-
-### Phase 3 — Future
-- [x] Install script (`curl ... | sh`)
-- [x] Pre-built binaries via GitHub Releases (linux/amd64, linux/arm64, darwin/amd64, darwin/arm64)
-- [ ] Multi-host support (distribute across machines)
-- [ ] REST API documentation
-- [ ] VS Code extension integration
-
-## Building from Source
-
-```bash
-git clone https://github.com/majidkorai/gollama
-cd gollama
-go build -o gollama .
-sudo cp gollama /usr/local/bin/
-```
-## User interface 
-
-<img width="1393" height="709" alt="Screenshot 2026-05-29 at 3 19 03 PM" src="https://github.com/user-attachments/assets/62b986c2-4c6b-40e7-be4e-9ef40140ed86" />
-
+<img width="1393" height="709" alt="gollama web UI" src="https://github.com/user-attachments/assets/62b986c2-4c6b-40e7-be4e-9ef40140ed86" />
