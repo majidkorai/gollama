@@ -101,6 +101,17 @@ func main() {
 		if len(os.Args) > 2 {
 			port = os.Args[2]
 		}
+		portNum, _ := strconv.Atoi(port)
+		if portNum > 0 && !func() bool {
+			ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", portNum))
+			if err != nil {
+				return false
+			}
+			ln.Close()
+			return true
+		}() {
+			fmt.Fprintf(os.Stderr, "Warning: port %s is busy, try a different port\n", port)
+		}
 		fmt.Printf("Web UI: http://%s:%s\n", localIP(), port)
 
 		sigCh := make(chan os.Signal, 1)

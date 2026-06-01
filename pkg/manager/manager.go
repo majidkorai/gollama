@@ -3,6 +3,7 @@ package manager
 import (
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -99,6 +100,16 @@ func (m *Manager) RecoverOrphans() {
 	m.recoverOrphans()
 }
 
+func portAvailable(port int) bool {
+	addr := fmt.Sprintf("127.0.0.1:%d", port)
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return false
+	}
+	ln.Close()
+	return true
+}
+
 func (m *Manager) Start(modelName string, port int, extraArgs []string) (*Instance, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -110,6 +121,23 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string) (*Instan
 
 	if _, exists := m.instances[port]; exists {
 		return nil, fmt.Errorf("port %d is already in use", port)
+	}
+
+	if !portAvailable(port) {
+		// Port taken by another process — find the next free one
+		for i := port + 1; i < port+100; i++ {
+			if _, exists := m.instances[i]; exists {
+				continue
+			}
+			if portAvailable(i) {
+				log.Printf("port %d is busy, using %d instead", port, i)
+				port = i
+				break
+			}
+		}
+		if port > m.nextPort {
+			m.nextPort = port + 1
+		}
 	}
 
 	llamaBin := llama.FindLlamaServer()
