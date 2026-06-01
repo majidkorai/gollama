@@ -48,6 +48,12 @@ func main() {
 			os.Exit(1)
 		}
 
+	case "self-update":
+		if err := llama.SelfUpdate(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
 	case "pull":
 		if len(os.Args) < 3 {
 			fmt.Println("Usage: gollama pull hf.co/user/repo:quant")
@@ -334,6 +340,7 @@ func printUsage() {
 
 Usage:
   gollama update                 Download/update llama-server binary
+  gollama self-update            Update gollama itself
   gollama pull <model>           Download model from HuggingFace
   gollama list                   List available models
   gollama serve [port]           Start manager with web UI (default :9080)
@@ -343,10 +350,10 @@ Usage:
   gollama stop <port>            Stop an instance
 
 Examples:
-  gollama update
+  gollama self-update           # Update gollama binary
+  gollama update                # Update llama-server
   gollama pull hf.co/unsloth/gemma-4-E2B-it-GGUF:Q4_K_M
   gollama chat gemma-4-E2B-it-Q4_K_M.gguf
-  gollama run Qwopus3.6-27B-v2-Q4_K_M.gguf --tensor-split 12,8 --flash-attn on
   gollama serve
 
 Tip:

@@ -49,7 +49,8 @@ The first-run wizard:
 | Command | Description |
 |---------|-------------|
 | `gollama` | First-run wizard (auto-setup if fresh install) |
-| `gollama update` | Install/update llama-server binary |
+| `gollama update` | Download/update llama-server binary |
+| `gollama self-update` | Update gollama itself to the latest version |
 | `gollama pull <model>` | Download a GGUF model from HuggingFace |
 | `gollama list` | List downloaded models with metadata |
 | `gollama chat <model> [flags]` | Start a terminal chat session (streaming) |
@@ -97,6 +98,19 @@ Open **http://<your-ip>:9080** in your browser.
 - **Stop** — one-click instance termination
 - **Logs** — view llama-server stderr directly in the browser
 - **Theme toggle** — dark/light mode
+
+## Updating
+
+gollama has two separate update commands:
+
+- **`gollama self-update`** — updates the `gollama` binary itself. Downloads the latest release from GitHub and replaces the current binary.
+- **`gollama update`** — updates the `llama-server` inference engine. Downloads the latest pre-built binary or rebuilds from source.
+
+Run both to stay fully up to date:
+```bash
+gollama self-update
+gollama update
+```
 
 ## Configuration
 

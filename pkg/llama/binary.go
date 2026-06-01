@@ -121,6 +121,85 @@ func FindAsset(tagName, kind string, assets map[string]string) (string, error) {
 	return "", fmt.Errorf("no matching asset for %s/%s (kind=%s)", osName, arch, kind)
 }
 
+func SelfUpdate() error {
+	rawOS := runtime.GOOS
+	rawArch := runtime.GOARCH
+
+	osMap := map[string]string{"linux": "linux", "darwin": "darwin", "windows": "windows"}
+	archMap := map[string]string{"amd64": "amd64", "x86_64": "amd64", "arm64": "arm64", "aarch64": "arm64"}
+
+	osName, ok := osMap[rawOS]
+	if !ok {
+		return fmt.Errorf("unsupported OS: %s", rawOS)
+	}
+	archName, ok := archMap[rawArch]
+	if !ok {
+		return fmt.Errorf("unsupported architecture: %s", rawArch)
+	}
+
+	exe := ""
+	if osName == "windows" {
+		exe = ".exe"
+	}
+
+	url := fmt.Sprintf("https://github.com/majidkorai/gollama/releases/latest/download/gollama-%s-%s%s", osName, archName, exe)
+
+	self, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("cannot determine executable path: %w", err)
+	}
+
+	fmt.Printf("Downloading gollama update for %s/%s...\n", osName, archName)
+	resp, err := http.Get(url)
+	if err != nil {
+		return fmt.Errorf("downloading update: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("update not found (HTTP %d)", resp.StatusCode)
+	}
+
+	tmpFile := self + ".new"
+	out, err := os.Create(tmpFile)
+	if err != nil {
+		return fmt.Errorf("creating temp file: %w", err)
+	}
+
+	written, err := io.Copy(out, resp.Body)
+	out.Close()
+	if err != nil {
+		os.Remove(tmpFile)
+		return fmt.Errorf("downloading: %w", err)
+	}
+
+	if err := os.Chmod(tmpFile, 0755); err != nil {
+		os.Remove(tmpFile)
+		return fmt.Errorf("setting permissions: %w", err)
+	}
+
+	_ = written
+
+	backup := self + ".old"
+	os.Remove(backup)
+	if err := os.Rename(self, backup); err != nil {
+		os.Remove(tmpFile)
+		return fmt.Errorf("backing up current binary: %w", err)
+	}
+
+	if err := os.Rename(tmpFile, self); err != nil {
+		os.Rename(backup, self)
+		os.Remove(tmpFile)
+		return fmt.Errorf("installing update: %w", err)
+	}
+
+	os.Remove(backup)
+
+	fmt.Printf("Updated to latest gollama (%d bytes)\n", written)
+	fmt.Println("Run 'gollama --version' to verify.")
+	return nil
+}
+
 func FindLlamaServer() string {
 	self := filepath.Join(model.BinDir(), "llama-server")
 	if _, err := os.Stat(self); err == nil {
