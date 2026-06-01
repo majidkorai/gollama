@@ -150,8 +150,15 @@ async function loadModelList(){
   document.getElementById('modelCount').textContent='('+m.length+')';
   if(!m.length){c.innerHTML='<div class="text-sm">No models downloaded</div>';return;}
   c.innerHTML=m.map(function(x){
-    var name=x.name||'?',size=x.size?fmtSize(x.size):'?',q=x.name.match(/[Qq][0-9]_[A-Z0-9_]+|[Bb][Ff]16|[Ff][Pp]16/);
-    return '<div class="model-row"><div><div class="name">'+(name.length>50?name.slice(0,50)+'...':name)+'</div><div class="info">'+size+(q?' | <span class="badge badge-blue">'+q[0].toUpperCase()+'</span>':'')+' ['+(x.source||'?')+']</div></div>'+
+    var name=x.name||'?',size=x.size?fmtSize(x.size):'?';
+    var arch=x.architecture||'';
+    var quant=x.quantization||'';
+    var ctx=x.context_length||0;
+    var badges=[];
+    if(quant)badges.push('<span class="badge badge-blue">'+quant+'</span>');
+    if(arch)badges.push('<span class="badge badge-blue">'+arch+'</span>');
+    if(ctx)badges.push('<span class="badge badge-green">'+(ctx>999?Math.round(ctx/1000)+'K':'<1K')+' ctx</span>');
+    return '<div class="model-row"><div><div class="name">'+(name.length>50?name.slice(0,50)+'...':name)+'</div><div class="info">'+size+' | '+(badges.length?badges.join(' '):'[no metadata]')+' ['+(x.source||'?')+']</div></div>'+
       '<button class="small danger" onclick="deleteModel(\''+name.replace(/\'/g,'')+'\')">🗑</button></div>';
   }).join('');
 }

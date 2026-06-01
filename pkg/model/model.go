@@ -13,12 +13,13 @@ import (
 )
 
 type ModelInfo struct {
-	Name         string `json:"name"`
-	BlobPath     string `json:"blob_path"`
-	Size         int64  `json:"size"`
-	Architecture string `json:"architecture,omitempty"`
-	Quantization string `json:"quantization,omitempty"`
-	Source       string `json:"source,omitempty"`
+	Name          string `json:"name"`
+	BlobPath      string `json:"blob_path"`
+	Size          int64  `json:"size"`
+	Architecture  string `json:"architecture,omitempty"`
+	Quantization  string `json:"quantization,omitempty"`
+	ContextLength uint64 `json:"context_length,omitempty"`
+	Source        string `json:"source,omitempty"`
 }
 
 type Preset struct {
@@ -170,6 +171,7 @@ func ListModels() ([]ModelInfo, error) {
 	for _, info := range idx {
 		if _, err := os.Stat(info.BlobPath); err == nil {
 			info.Source = "local"
+			populateModelInfo(&info)
 			models = append(models, info)
 		}
 	}
@@ -281,13 +283,15 @@ func PullModel(ref string) error {
 		return fmt.Errorf("downloading: %w", err)
 	}
 
-	idx := LoadIndex()
 	modelName := fmt.Sprintf("hf.co/%s:%s", modelID, quant)
-	idx[modelName] = ModelInfo{
+	info := ModelInfo{
 		Name:     modelName,
 		BlobPath: dest,
 		Size:     written,
 	}
+	populateModelInfo(&info)
+	idx := LoadIndex()
+	idx[modelName] = info
 	SaveIndex(idx)
 
 	log.Printf("model downloaded: %s (%s) → %s", modelName, FormatSize(written), dest)
