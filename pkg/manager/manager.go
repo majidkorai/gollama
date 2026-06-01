@@ -30,6 +30,7 @@ type Manager struct {
 }
 
 func NewManager() *Manager {
+	model.LoadConfig()
 	m := &Manager{
 		instances: make(map[int]*Instance),
 		nextPort:  8081,
@@ -122,6 +123,8 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string) (*Instan
 		"--host", "0.0.0.0",
 		"--port", strconv.Itoa(port),
 	}
+	cfg := model.LoadConfig()
+	args = append(args, cfg.DefaultFlags...)
 	args = append(args, extraArgs...)
 
 	log.Printf("launching llama-server: %s %s", llamaBin, strings.Join(args, " "))

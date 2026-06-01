@@ -28,6 +28,53 @@ type Preset struct {
 	Flags []string `json:"flags"`
 }
 
+type Config struct {
+	DefaultFlags []string `json:"default_flags"`
+}
+
+func ConfigFile() string {
+	return filepath.Join(GollamaDir(), "config.json")
+}
+
+func DefaultConfig() *Config {
+	gpuDetected := false
+	if _, err := os.Stat("/dev/nvidia0"); err == nil {
+		gpuDetected = true
+	}
+	if out, err := os.ReadFile(BackendFile()); err == nil {
+		if !strings.EqualFold(strings.TrimSpace(string(out)), "CPU") {
+			gpuDetected = true
+		}
+	}
+
+	flags := []string{"--flash-attn", "on", "--ctx-size", "4096"}
+	if gpuDetected {
+		flags = append([]string{"--n-gpu-layers", "99"}, flags...)
+	}
+	return &Config{DefaultFlags: flags}
+}
+
+func LoadConfig() *Config {
+	EnsureDir(GollamaDir())
+	data, err := os.ReadFile(ConfigFile())
+	if err != nil {
+		cfg := DefaultConfig()
+		SaveConfig(cfg)
+		return cfg
+	}
+	var cfg Config
+	if json.Unmarshal(data, &cfg) != nil || cfg.DefaultFlags == nil {
+		cfg = *DefaultConfig()
+		SaveConfig(&cfg)
+	}
+	return &cfg
+}
+
+func SaveConfig(cfg *Config) {
+	data, _ := json.MarshalIndent(cfg, "", "  ")
+	os.WriteFile(ConfigFile(), data, 0644)
+}
+
 func GollamaDir() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".gollama")
