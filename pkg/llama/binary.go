@@ -283,9 +283,78 @@ func EnsureLlamaServer() error {
 	}
 	os.WriteFile(model.VersionFile(), []byte(tagName), 0644)
 	os.WriteFile(model.BackendFile(), []byte(selected.Name), 0644)
+
+	if runtime.GOOS == "linux" {
+		checkDependencies(self)
+	}
+
 	log.Printf("llama-server installed: version=%s backend=%s path=%s", tagName, selected.Name, self)
 	fmt.Printf("\nllama-server %s (%s) installed to %s\n", tagName, selected.Name, self)
 	return nil
+}
+
+func checkDependencies(binary string) {
+	cmd := exec.Command("ldd", binary)
+	out, err := cmd.Output()
+	if err != nil {
+		return
+	}
+
+	var missing []string
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.Contains(line, "not found") {
+			parts := strings.Fields(line)
+			if len(parts) > 0 {
+				missing = append(missing, parts[0])
+			}
+		}
+	}
+
+	if len(missing) == 0 {
+		return
+	}
+
+	libMap := map[string]string{
+		"libgomp.so.1":    "libgomp1",
+		"libatomic.so.1":  "libatomic1",
+		"libstdc++.so.6":  "libstdc++6",
+		"libm.so.6":       "libc6",
+		"libc.so.6":       "libc6",
+		"libpthread.so.0": "libc6",
+		"librt.so.1":      "libc6",
+		"libdl.so.2":      "libc6",
+	}
+
+	pkgs := make(map[string]bool)
+	for _, lib := range missing {
+		if pkg, ok := libMap[lib]; ok {
+			pkgs[pkg] = true
+		}
+	}
+
+	if len(pkgs) == 0 {
+		fmt.Printf("Warning: missing shared libraries: %s\n", strings.Join(missing, ", "))
+		return
+	}
+
+	pkgList := make([]string, 0, len(pkgs))
+	for p := range pkgs {
+		pkgList = append(pkgList, p)
+	}
+
+	if _, err := exec.LookPath("apt-get"); err != nil {
+		fmt.Printf("Warning: missing packages: %s (install manually: apt install %s)\n",
+			strings.Join(missing, ", "), strings.Join(pkgList, " "))
+		return
+	}
+
+	fmt.Printf("Installing missing dependencies: %s ...\n", strings.Join(pkgList, " "))
+	cmd = exec.Command("apt-get", append([]string{"install", "-y", "-qq"}, pkgList...)...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		fmt.Printf("Warning: failed to install dependencies: %v\n", err)
+	}
 }
 
 func buildLlamaServerCUDA() error {
