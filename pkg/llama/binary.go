@@ -195,8 +195,14 @@ func SelfUpdate() error {
 
 	os.Remove(backup)
 
-	fmt.Printf("Updated to latest gollama (%d bytes)\n", written)
-	fmt.Println("Run 'gollama --version' to verify.")
+	cmd := exec.Command(self, "--version")
+	verOut, _ := cmd.Output()
+	verStr := strings.TrimSpace(string(verOut))
+	if verStr == "" {
+		verStr = "latest"
+	}
+
+	fmt.Printf("Updated gollama to %s (%d bytes)\n", verStr, written)
 	return nil
 }
 

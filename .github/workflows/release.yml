@@ -44,7 +44,7 @@ jobs:
           go-version: "1.23"
 
       - name: build
-        run: go build -o gollama-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }} -ldflags="-s -w" .
+        run: go build -o gollama-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }} -ldflags="-s -w -X main.version=${{ github.ref_name }}" .
 
       - name: upload artifact
         uses: actions/upload-artifact@v4
