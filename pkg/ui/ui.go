@@ -7,210 +7,423 @@ const Page = `<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>gollama</title>
 <style>
-:root { --bg:#0a0a0a; --surface:#1a1a1a; --border:#2a2a2a; --text:#e5e5e5; --muted:#888; --accent:#7c3aed; --accent-hover:#6d28d9; --green:#22c55e; --red:#ef4444; --header-text:#a78bfa; --card-title:#c4b5fd; --input-bg:#0a0a0a; --select-bg:#1a1a1a; --hover-bg:#222; --badge-green-bg:#064e3b; --badge-green-text:#34d399; --badge-red-bg:#450a0a; --badge-red-text:#f87171; --badge-blue-bg:#1a1a3a; --badge-blue-text:#818cf8; --chat-user-bg:#1e293b; }
-.light { --bg:#f5f5f5; --surface:#fff; --border:#ddd; --text:#1a1a1a; --muted:#777; --accent:#7c3aed; --accent-hover:#6d28d9; --green:#16a34a; --red:#dc2626; --header-text:#6d28d9; --card-title:#5b21b6; --input-bg:#f5f5f5; --select-bg:#fff; --hover-bg:#eee; --badge-green-bg:#dcfce7; --badge-green-text:#166534; --badge-red-bg:#fee2e2; --badge-red-text:#991b1b; --badge-blue-bg:#e0e7ff; --badge-blue-text:#4338ca; --chat-user-bg:#e0e7ff; }
+:root {
+  --bg:#0b0b0f; --surface:#121218; --card:#191920; --border:#23232e;
+  --border-hover:#34344a; --text:#ededef; --muted:#7f7f9a; --dim:#555570;
+  --accent:#6366f1; --accent-hover:#818cf8; --accent-bg:#1e1e3a;
+  --green:#22c55e; --green-bg:#064e3b; --red:#ef4444; --red-bg:#450a0a;
+  --amber:#f59e0b; --amber-bg:#451a03; --blue:#60a5fa; --blue-bg:#1a1a3a;
+  --sidebar-w:220px; --radius:10px; --radius-sm:6px;
+  --font: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+}
 * { margin:0; padding:0; box-sizing:border-box; }
-body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; background:var(--bg); color:var(--text); padding:20px; max-width:1400px; margin:0 auto; transition:background .2s,color .2s; }
-h1 { color:var(--header-text); margin-bottom:4px; display:inline-block; font-size:22px; }
-.subtitle { color:var(--muted); font-size:13px; margin-bottom:20px; }
-h2 { color:var(--card-title); margin:0 0 12px 0; font-size:14px; display:flex; align-items:center; gap:8px; }
-.card { background:var(--surface); border-radius:10px; padding:16px; margin-bottom:16px; border:1px solid var(--border); }
-.card-row { display:flex; gap:16px; flex-wrap:wrap; }
-.card-row .card { flex:1; min-width:300px; }
-.label { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; margin-bottom:4px; }
-select, input, button { width:100%; padding:8px 12px; background:var(--input-bg); border:1px solid var(--border); border-radius:8px; color:var(--text); font-size:13px; margin-bottom:8px; outline:none; transition:border-color .2s; }
+html,body { height:100%; }
+body {
+  font-family:var(--font); background:var(--bg); color:var(--text);
+  display:flex; font-size:14px; line-height:1.5;
+  -webkit-font-smoothing:antialiased;
+}
+
+/* ── Sidebar ─────────────────────────────────────────── */
+.sidebar {
+  width:var(--sidebar-w); background:var(--surface); border-right:1px solid var(--border);
+  display:flex; flex-direction:column; flex-shrink:0; height:100vh; position:sticky; top:0;
+}
+.sidebar .logo {
+  padding:20px 18px 16px; font-size:16px; font-weight:700;
+  letter-spacing:-.3px; border-bottom:1px solid var(--border);
+}
+.sidebar .logo span { color:var(--accent); }
+.sidebar nav { flex:1; padding:12px 8px; display:flex; flex-direction:column; gap:2px; }
+.sidebar a {
+  display:flex; align-items:center; gap:10px; padding:9px 12px; border-radius:var(--radius-sm);
+  color:var(--muted); text-decoration:none; font-size:13px; font-weight:500; cursor:pointer;
+  transition:all .15s;
+}
+.sidebar a:hover { background:var(--card); color:var(--text); }
+.sidebar a.active { background:var(--accent-bg); color:var(--accent-hover); }
+.sidebar a .icon { font-size:16px; width:20px; text-align:center; flex-shrink:0; }
+.sidebar .bottom { border-top:1px solid var(--border); padding:8px; margin-top:auto; }
+
+/* ── Main ────────────────────────────────────────────── */
+.main { flex:1; overflow-y:auto; padding:24px 32px; max-width:1200px; }
+.view { display:none; }
+.view.active { display:block; }
+
+/* ── Page Header ─────────────────────────────────────── */
+.page-header { margin-bottom:24px; }
+.page-header h1 { font-size:20px; font-weight:700; letter-spacing:-.3px; }
+.page-header p { color:var(--muted); font-size:13px; margin-top:2px; }
+
+/* ── Metrics ──────────────────────────────────────────── */
+.metrics { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; margin-bottom:28px; }
+.metric-card {
+  background:var(--card); border:1px solid var(--border); border-radius:var(--radius);
+  padding:16px 18px; transition:border-color .2s;
+}
+.metric-card:hover { border-color:var(--border-hover); }
+.metric-card .label { font-size:12px; color:var(--muted); font-weight:500; margin-bottom:4px; }
+.metric-card .value { font-size:22px; font-weight:700; letter-spacing:-.5px; }
+.metric-card .sub { font-size:12px; color:var(--dim); margin-top:2px; }
+
+/* ── Section ──────────────────────────────────────────── */
+.section { margin-bottom:28px; }
+.section-header {
+  display:flex; align-items:center; justify-content:space-between; margin-bottom:12px;
+}
+.section-header h2 { font-size:14px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.5px; }
+.section-header .badge { font-size:11px; color:var(--dim); font-weight:500; }
+
+/* ── Cards ────────────────────────────────────────────── */
+.card { background:var(--card); border:1px solid var(--border); border-radius:var(--radius); }
+.card-body { padding:16px; }
+
+/* ── Instance Card ────────────────────────────────────── */
+.instance-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(340px,1fr)); gap:12px; }
+.inst-card {
+  background:var(--card); border:1px solid var(--border); border-radius:var(--radius);
+  border-left:3px solid var(--green); padding:16px; transition:border-color .2s;
+}
+.inst-card:hover { border-color:var(--border-hover); }
+.inst-card.stopped { border-left-color:var(--dim); opacity:.5; }
+.inst-card.error { border-left-color:var(--red); }
+.inst-card .title { font-size:13px; font-weight:600; word-break:break-all; }
+.inst-card .meta { font-size:12px; color:var(--dim); margin-top:6px; display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+.inst-card .actions { margin-top:12px; display:flex; gap:6px; flex-wrap:wrap; }
+
+/* ── Quick Launch ──────────────────────────────────────── */
+.launch-row { display:grid; grid-template-columns:1fr 120px auto; gap:10px; align-items:end; margin-bottom:10px; }
+.launch-row .field { display:flex; flex-direction:column; gap:4px; }
+.launch-row .field label { font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:.5px; font-weight:600; }
+
+/* ── Forms ─────────────────────────────────────────────── */
+select, input[type=text], input[type=number] {
+  width:100%; padding:8px 10px; background:var(--surface); border:1px solid var(--border);
+  border-radius:var(--radius-sm); color:var(--text); font-size:13px; outline:none;
+  transition:border-color .2s; font-family:var(--font);
+}
 select:focus, input:focus { border-color:var(--accent); }
-select option { background:var(--select-bg); }
-button { background:linear-gradient(135deg,var(--accent),var(--accent-hover)); border:none; cursor:pointer; font-weight:600; font-size:13px; transition:all .2s; padding:8px 16px; border-radius:8px; color:#fff; }
-button:hover { transform:translateY(-1px); box-shadow:0 4px 14px rgba(124,58,237,.3); }
-button.secondary { background:var(--border); color:var(--text); box-shadow:none; }
-button.secondary:hover { transform:none; background:var(--hover-bg); }
-button.danger { background:linear-gradient(135deg,var(--red),#b91c1c); }
-button.danger:hover { box-shadow:0 4px 14px rgba(220,38,38,.3); }
-button.small { width:auto; padding:4px 10px; font-size:11px; border-radius:6px; }
-#themeToggle { width:36px; height:36px; padding:0; font-size:16px; border-radius:50%; display:flex; align-items:center; justify-content:center; float:right; cursor:pointer; background:var(--border); color:var(--text); border:1px solid var(--border); }
-#themeToggle:hover { background:var(--hover-bg); transform:none; box-shadow:none; }
-.flag-row { display:flex; gap:8px; margin-bottom:4px; }
-.flag-row input { flex:1; margin-bottom:0; }
-.flag-row button { width:auto; }
-.mt-8 { margin-top:8px; }
-.text-sm { font-size:12px; color:var(--muted); }
-.text-xs { font-size:11px; color:var(--muted); }
-.flex { display:flex; justify-content:space-between; align-items:center; }
-.badge { display:inline-block; padding:2px 8px; border-radius:6px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.3px; }
-.badge-green { background:var(--badge-green-bg); color:var(--badge-green-text); }
-.badge-red { background:var(--badge-red-bg); color:var(--badge-red-text); }
-.badge-blue { background:var(--badge-blue-bg); color:var(--badge-blue-text); }
-.grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:12px; }
-.inst-card { border-left:4px solid var(--green); padding:14px; background:var(--surface); border-radius:0 10px 10px 0; border:1px solid var(--border); border-left-width:4px; transition:all .2s; }
-.inst-card:hover { border-color:var(--hover-bg); }
-.inst-card.stopped { border-left-color:var(--red); opacity:.6; }
-.inst-card .title { font-weight:600; font-size:13px; word-break:break-all; }
-.inst-card .meta { font-size:11px; color:var(--muted); margin-top:6px; display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
-.inst-card .actions { margin-top:10px; display:flex; gap:6px; flex-wrap:wrap; }
-.chat-msgs { flex:1; overflow-y:auto; padding:12px; background:var(--bg); border-radius:8px; margin-bottom:8px; font-size:13px; line-height:1.6; }
-.chat-msgs .msg { margin-bottom:10px; padding:8px 12px; border-radius:10px; max-width:85%; line-height:1.5; }
-.chat-msgs .user { background:var(--chat-user-bg); margin-left:auto; border-bottom-right-radius:4px; }
-.chat-msgs .assistant { background:var(--surface); border:1px solid var(--border); border-bottom-left-radius:4px; }
-.chat-msgs .system { background:transparent; color:var(--muted); font-style:italic; font-size:11px; text-align:center; max-width:100%; }
+select { cursor:pointer; }
+
+/* ── Buttons ───────────────────────────────────────────── */
+button {
+  padding:8px 16px; border-radius:var(--radius-sm); border:none; font-size:13px;
+  font-weight:600; cursor:pointer; transition:all .15s; font-family:var(--font);
+}
+button.primary { background:var(--accent); color:#fff; }
+button.primary:hover { background:var(--accent-hover); }
+button.secondary { background:var(--border); color:var(--text); }
+button.secondary:hover { background:var(--border-hover); }
+button.danger { background:var(--red); color:#fff; }
+button.danger:hover { opacity:.85; }
+button.small { padding:5px 10px; font-size:11px; }
+button:disabled { opacity:.4; cursor:default; }
+button.ghost { background:transparent; color:var(--muted); padding:6px 8px; }
+button.ghost:hover { background:var(--card); color:var(--text); }
+
+/* ── Badge ──────────────────────────────────────────────── */
+.badge { display:inline-block; padding:2px 7px; border-radius:4px; font-size:10px; font-weight:700; letter-spacing:.3px; }
+.badge-green { background:var(--green-bg); color:var(--green); }
+.badge-red { background:var(--red-bg); color:var(--red); }
+.badge-amber { background:var(--amber-bg); color:var(--amber); }
+.badge-blue { background:var(--blue-bg); color:var(--blue); }
+
+/* ── Flag rows ─────────────────────────────────────────── */
+.flag-row { display:flex; gap:6px; margin-bottom:4px; }
+.flag-row input { flex:1; }
+.flag-row button { flex-shrink:0; }
+
+/* ── Empty state ───────────────────────────────────────── */
+.empty-state { text-align:center; padding:40px 20px; color:var(--dim); }
+.empty-state .icon { font-size:32px; margin-bottom:8px; }
+
+/* ── Chat ──────────────────────────────────────────────── */
+.chat-container { display:flex; flex-direction:column; height:calc(100vh - 48px); }
+.chat-header { padding-bottom:12px; margin-bottom:12px; border-bottom:1px solid var(--border); }
+.chat-header select { width:auto; min-width:200px; }
+.chat-msgs { flex:1; overflow-y:auto; padding:4px 0; margin-bottom:10px; }
+.chat-msgs .msg { margin-bottom:10px; padding:10px 14px; border-radius:10px; max-width:80%; line-height:1.6; font-size:13px; }
+.chat-msgs .user { background:var(--accent-bg); margin-left:auto; border-bottom-right-radius:4px; }
+.chat-msgs .assistant { background:var(--card); border:1px solid var(--border); border-bottom-left-radius:4px; }
+.chat-msgs .system { background:transparent; color:var(--dim); font-style:italic; font-size:12px; text-align:center; max-width:100%; }
 .chat-input-row { display:flex; gap:8px; }
-.chat-input-row input { flex:1; margin-bottom:0; }
-.chat-input-row button { width:auto; padding:8px 20px; }
-.empty-state { text-align:center; padding:40px 20px; color:var(--muted); }
-.empty-state .icon { font-size:36px; margin-bottom:10px; }
-.chat-panel { display:none; }
-.chat-panel.active { display:flex; flex-direction:column; height:400px; }
-.instance-selector { display:flex; gap:8px; align-items:center; margin-bottom:12px; }
-.instance-selector select { margin-bottom:0; }
-.model-row { display:flex; justify-content:space-between; align-items:center; padding:8px 10px; border-radius:6px; transition:background .2s; }
-.model-row:hover { background:var(--hover-bg); }
-.model-row .name { font-size:13px; color:var(--text); }
-.model-row .info { font-size:11px; color:var(--muted); margin-top:2px; }
-@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+.chat-input-row input { flex:1; }
+.chat-input-row button { flex-shrink:0; }
+.chat-loading { animation:pulse 1.2s infinite; display:inline-block; letter-spacing:4px; font-size:16px; line-height:1; color:var(--dim); }
+.reasoning { color:var(--dim); font-style:italic; font-size:12px; border-left:2px solid var(--border); padding-left:10px; margin-bottom:6px; }
+
+/* ── Theme toggle ──────────────────────────────────────── */
+.theme-toggle { position:fixed; bottom:16px; left:16px; z-index:10; width:32px; height:32px; padding:0; font-size:14px; border-radius:50%; display:flex; align-items:center; justify-content:center; cursor:pointer; background:var(--card); color:var(--text); border:1px solid var(--border); }
+.theme-toggle:hover { background:var(--border-hover); }
+
+/* ── Logs Modal ────────────────────────────────────────── */
+.modal { display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,.7); z-index:100; }
+.modal-content { background:var(--surface); margin:5% auto; padding:20px; width:80%; max-width:700px; max-height:70vh; border-radius:var(--radius); overflow:auto; border:1px solid var(--border); }
+.modal-content pre { background:var(--bg); padding:12px; border-radius:var(--radius-sm); margin-top:12px; font-size:11px; line-height:1.4; overflow:auto; max-height:55vh; white-space:pre-wrap; color:var(--muted); }
+
+/* ── Model list ────────────────────────────────────────── */
+.model-row { display:flex; justify-content:space-between; align-items:center; padding:10px 12px; border-radius:var(--radius-sm); transition:background .15s; }
+.model-row:hover { background:var(--surface); }
+.model-row .name { font-size:13px; }
+.model-row .info { font-size:11px; color:var(--dim); margin-top:3px; display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+
+/* ── Animations ────────────────────────────────────────── */
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
 @keyframes spin { to{transform:rotate(360deg)} }
 .loading { animation:pulse 1.5s infinite; }
-.chat-loading { animation:pulse 1.2s infinite; display:inline-block; letter-spacing:4px; font-size:18px; line-height:1; color:var(--muted); }
-.spinner { display:inline-block; width:14px; height:14px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .6s linear infinite; vertical-align:middle; margin-right:6px; }
+.spinner { display:inline-block; width:12px; height:12px; border:2px solid var(--border); border-top-color:var(--accent); border-radius:50%; animation:spin .6s linear infinite; vertical-align:middle; }
 .refreshing { opacity:.5; pointer-events:none; transition:opacity .2s; }
-@media(max-width:768px){.card-row{flex-direction:column}.grid{grid-template-columns:1fr}}
+
+/* ── Pull model row ────────────────────────────────────── */
+.pull-row { display:flex; gap:8px; margin-bottom:12px; }
+.pull-row input { flex:1; }
+.pull-row button { flex-shrink:0; }
+
+/* ── Responsive ────────────────────────────────────────── */
+@media(max-width:768px){
+  .sidebar { width:56px; }
+  .sidebar .logo { font-size:0; padding:16px; }
+  .sidebar .logo::after { content:'🦙'; font-size:18px; }
+  .sidebar a span { display:none; }
+  .sidebar a { justify-content:center; padding:9px; }
+  .sidebar .bottom { display:none; }
+  .main { padding:16px; }
+  .metrics { grid-template-columns:1fr 1fr; }
+  .launch-row { grid-template-columns:1fr; }
+  .instance-grid { grid-template-columns:1fr; }
+}
 </style>
 </head>
 <body>
-<div class="flex"><h1>gollama</h1> <button id="themeToggle" onclick="toggleTheme()" title="Toggle theme">🌙</button></div>
-<div class="subtitle">llama.cpp instance manager</div>
 
-<div class="card-row">
-  <div class="card">
-    <h2>📥 Pull Model</h2>
-    <input type="text" id="pullInput" placeholder="hf.co/user/repo:Q4_K_M" value="hf.co/unsloth/gemma-4-E2B-it-GGUF:Q4_K_M">
-    <button onclick="pullModel()" id="pullBtn">Pull</button>
-    <div id="pullStatus" class="text-sm" style="margin-top:4px"></div>
+<!-- ─── Sidebar ──────────────────────────────────────── -->
+<aside class="sidebar">
+  <div class="logo">gollama<span>.</span></div>
+  <nav>
+    <a class="active" onclick="switchView('dashboard')">
+      <span class="icon">📊</span><span>Dashboard</span>
+    </a>
+    <a onclick="switchView('models')">
+      <span class="icon">📦</span><span>Models</span>
+    </a>
+    <a onclick="switchView('chat')">
+      <span class="icon">💬</span><span>Chat</span>
+    </a>
+    <a onclick="switchView('settings')">
+      <span class="icon">⚙️</span><span>Settings</span>
+    </a>
+  </nav>
+</aside>
+
+<!-- ─── Main ──────────────────────────────────────────── -->
+<main class="main" id="main">
+
+<!-- ── Dashboard ────────────────────────────────────── -->
+<div id="view-dashboard" class="view active">
+  <div class="page-header">
+    <h1>Dashboard</h1>
+    <p>Monitor and manage your llama.cpp instances</p>
   </div>
 
-  <div class="card">
-    <h2>🚀 New Instance</h2>
-    <div class="label">Model</div>
-    <select id="modelSelect"><option value="">Loading models...</option></select>
-    <div class="label">Port</div>
-    <input type="number" id="portInput" value="8081" min="8081" max="8099">
-    <div class="label">Flags</div>
-    <div id="flagsContainer">
-      <div class="flag-row">
-        <input type="text" placeholder="e.g. --tensor-split 12,8" class="flag-input">
-        <button class="small danger" onclick="this.parentElement.remove()">x</button>
-      </div>
+  <div class="metrics">
+    <div class="metric-card"><div class="label">Models</div><div class="value" id="metric-models">—</div><div class="sub">downloaded</div></div>
+    <div class="metric-card"><div class="label">Running</div><div class="value" id="metric-running">—</div><div class="sub">active instances</div></div>
+    <div class="metric-card"><div class="label">Tokens/sec</div><div class="value" id="metric-tps">—</div><div class="sub">fastest instance</div></div>
+    <div class="metric-card"><div class="label">Server</div><div class="value"><span id="metric-server">—</span></div><div class="sub" id="metric-backend">backend</div></div>
+  </div>
+
+  <div class="section">
+    <div class="section-header">
+      <h2>Running Instances</h2>
+      <span class="badge" id="instanceCount"></span>
     </div>
-    <button class="secondary small" onclick="addFlag()">+ Add Flag</button>
-    <button class="mt-8" onclick="launchInstance()">Launch</button>
+    <div id="instances" class="instance-grid"><div class="empty-state"><div class="icon">🚀</div><div>No running instances. Launch one below.</div></div></div>
+  </div>
+
+  <div class="section">
+    <div class="section-header"><h2>Quick Launch</h2></div>
+    <div class="card"><div class="card-body">
+      <div class="launch-row">
+        <div class="field"><label>Model</label><select id="modelSelect"><option value="">Loading models...</option></select></div>
+        <div class="field"><label>Port</label><input type="number" id="portInput" value="8081" min="8081" max="8099"></div>
+        <div class="field" style="align-self:end"><button class="primary" onclick="launchInstance()" id="launchBtn">Launch</button></div>
+      </div>
+      <div class="field" style="margin-bottom:6px"><label>Flags</label></div>
+      <div id="flagsContainer">
+        <div class="flag-row">
+          <input type="text" placeholder="e.g. --flash-attn on" class="flag-input">
+          <button class="small danger" onclick="this.parentElement.remove()">✕</button>
+        </div>
+      </div>
+      <button class="ghost small" onclick="addFlag()">＋ Add Flag</button>
+    </div></div>
+  </div>
+
+  <div class="section">
+    <div class="section-header"><h2>Pull Model</h2></div>
+    <div class="card"><div class="card-body">
+      <div class="pull-row">
+        <input type="text" id="pullInput" placeholder="hf.co/user/repo:Q4_K_M" value="hf.co/unsloth/gemma-4-E2B-it-GGUF:Q4_K_M">
+        <button class="primary" onclick="pullModel()" id="pullBtn">Pull</button>
+      </div>
+      <div id="pullStatus" class="text-sm" style="font-size:12px;color:var(--muted)"></div>
+    </div></div>
   </div>
 </div>
 
-<div class="card-row">
-  <div class="card" style="flex:1">
-    <h2>📦 Models <span id="modelCount" class="text-sm" style="font-weight:400"></span></h2>
-    <div id="modelList"><div class="text-sm">Loading...</div></div>
+<!-- ── Models ────────────────────────────────────────── -->
+<div id="view-models" class="view">
+  <div class="page-header">
+    <h1>Models</h1>
+    <p id="modelCount">downloaded models</p>
   </div>
+  <div id="modelList" class="card"><div class="card-body"><div class="empty-state"><div class="icon">📦</div><div>No models downloaded yet.</div></div></div></div>
+</div>
 
-  <div class="card" style="flex:1">
-    <h2>🟢 Running <span id="instanceCount" class="text-sm" style="font-weight:400"></span></h2>
-    <div id="instances" class="grid"><div class="text-sm">Loading...</div></div>
-  </div>
-
-  <div class="card" style="flex:1">
-    <h2>💬 Chat</h2>
-    <div class="instance-selector">
-      <select id="chatInstanceSelect" onchange="selectChatInstance()"><option value="">— select running instance —</option></select>
-      <button class="small secondary" onclick="refreshChat()">↻</button>
-    </div>
-    <div id="chatPanel" class="chat-panel">
-      <div id="chatMsgs" class="chat-msgs"></div>
-      <div class="chat-input-row">
-        <input type="text" id="chatInput" placeholder="Type a message..." onkeydown="if(event.key=='Enter')sendChat()">
-        <button onclick="sendChat()">Send</button>
+<!-- ── Chat ──────────────────────────────────────────── -->
+<div id="view-chat" class="view">
+  <div class="chat-container">
+    <div class="chat-header">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+        <h1 style="font-size:18px;font-weight:700">Chat</h1>
+        <select id="chatInstanceSelect" onchange="selectChatInstance()"><option value="">— select a running instance —</option></select>
+        <button class="ghost small" onclick="selectChatFor(chatPort,'')">↻</button>
       </div>
     </div>
-    <div id="chatEmpty" class="empty-state">
+    <div id="chatPanel" class="chat-msgs" style="display:none"></div>
+    <div id="chatEmpty" class="empty-state" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center">
       <div class="icon">💬</div>
-      <div>Launch an instance to start chatting</div>
+      <div>Launch an instance from the Dashboard to start chatting</div>
+    </div>
+    <div class="chat-input-row" style="margin-top:auto;padding-top:10px;border-top:1px solid var(--border)">
+      <input type="text" id="chatInput" placeholder="Type a message..." onkeydown="if(event.key=='Enter')sendChat()">
+      <button class="primary" onclick="sendChat()">Send</button>
     </div>
   </div>
 </div>
+
+<!-- ── Settings ──────────────────────────────────────── -->
+<div id="view-settings" class="view">
+  <div class="page-header">
+    <h1>Settings</h1>
+    <p>Configuration and system information</p>
+  </div>
+  <div class="card"><div class="card-body">
+    <div style="font-size:13px;color:var(--muted);line-height:2">
+      <div><strong style="color:var(--text)">gollama</strong> <span id="s-version">—</span></div>
+      <div><strong style="color:var(--text)">llama-server</strong> <span id="s-llama-version">—</span></div>
+      <div><strong style="color:var(--text)">Backend</strong> <span id="s-backend">—</span></div>
+      <div><strong style="color:var(--text)">Config</strong> <code style="font-size:11px;color:var(--dim)">~/.gollama/config.json</code></div>
+      <div><strong style="color:var(--text)">Models dir</strong> <code style="font-size:11px;color:var(--dim)">~/.gollama/models/</code></div>
+    </div>
+  </div></div>
+</div>
+
+<!-- ── Logs Modal ──────────────────────────────────── -->
+<div class="modal" id="logModal">
+  <div class="modal-content">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h2 style="font-size:14px;font-weight:600">📋 Logs</h2>
+      <button class="small danger" onclick="closeLogs()">Close</button>
+    </div>
+    <pre id="logContent"></pre>
+  </div>
+</div>
+
+<!-- ── Theme Toggle ───────────────────────────────── -->
+<button class="theme-toggle" onclick="toggleTheme()" id="themeToggle" title="Toggle theme">🌙</button>
 
 <script>
 var chatPort=0,chatHistory=[];
+var currentView='dashboard';
 
-// ── Models — single fetch for both selector + list ─────────────
+// ── Navigation ──────────────────────────────────────
+function switchView(name){
+  document.querySelectorAll('.view').forEach(function(v){v.classList.remove('active');});
+  document.querySelectorAll('.sidebar a').forEach(function(a){a.classList.remove('active');});
+  document.getElementById('view-'+name).classList.add('active');
+  document.querySelector('.sidebar a[onclick*="'+name+'"]').classList.add('active');
+  currentView=name;
+  if(name=='chat'&&chatPort)selectChatFor(chatPort,'');
+}
+
+// ── Dashboard Metrics ────────────────────────────────
+async function loadMetrics(){
+  var mr=await fetch('/api/v1/models'),ml=await mr.json();
+  document.getElementById('metric-models').textContent=ml.length;
+  var ir=await fetch('/api/v1/instances'),il=await ir.json();
+  var running=il.filter(function(i){return i.status=='running';});
+  document.getElementById('metric-running').textContent=running.length;
+  var bestTps=0;
+  running.forEach(function(i){if(i.tokens_per_sec&&i.tokens_per_sec>bestTps)bestTps=i.tokens_per_sec;});
+  document.getElementById('metric-tps').textContent=bestTps?bestTps.toFixed(1):'—';
+}
+
+// ── Server Info ──────────────────────────────────────
+async function loadServerInfo(){
+  try{
+    var r=await fetch('/api/v1/models'),d=await r.json();
+    document.getElementById('metric-server').textContent='connected';
+  }catch(e){document.getElementById('metric-server').textContent='offline';}
+}
+
+// ── Models ───────────────────────────────────────────
 async function loadModels(){
-  var mc=document.getElementById('modelCount'),c=document.getElementById('modelList'),s=document.getElementById('modelSelect');
-  mc.innerHTML='<span class="spinner"></span>';
-  c.classList.add('refreshing');
+  var mc=document.getElementById('modelCount'),ml=document.getElementById('modelList');
+  var s=document.getElementById('modelSelect');
+  ml.classList.add('refreshing');
   var r=await fetch('/api/v1/models'),m=await r.json();
-  c.classList.remove('refreshing');
-  mc.textContent='('+m.length+')';
+  ml.classList.remove('refreshing');
+  mc.textContent=m.length+' downloaded';
 
   s.innerHTML='<option value="">— Select model —</option>';
-  if(!m||!m.length){s.innerHTML+='<option value="" disabled>No models found. Use gollama pull.</option>';c.innerHTML='<div class="text-sm">No models downloaded</div>';return;}
+  if(!m||!m.length){s.innerHTML+='<option value="" disabled>No models found. Use gollama pull.</option>';ml.innerHTML='<div class="card-body"><div class="empty-state"><div class="icon">📦</div><div>No models downloaded yet.</div></div></div>';return;}
+
   var seen={};
-  m.forEach(function(x){
-    var n=x.name||'(unnamed)',src=x.source||'unknown';
-    if(!seen[n]){seen[n]=1;s.innerHTML+='<option value="'+n+'">'+n+' ['+src+']</option>';}
-  });
-  c.innerHTML=m.map(function(x){
+  m.forEach(function(x){var n=x.name||'?';if(!seen[n]){seen[n]=1;s.innerHTML+='<option value="'+n+'">'+n+'</option>';}});
+  ml.innerHTML='<div class="card-body">'+m.map(function(x){
     var name=x.name||'?',size=x.size?fmtSize(x.size):'?';
     var arch=x.architecture||'',quant=x.quantization||'',ctx=x.context_length||0,badges=[];
     if(quant)badges.push('<span class="badge badge-blue">'+quant+'</span>');
-    if(arch)badges.push('<span class="badge badge-blue">'+arch+'</span>');
+    if(arch)badges.push('<span class="badge badge-amber">'+arch+'</span>');
     if(ctx)badges.push('<span class="badge badge-green">'+(ctx>999?Math.round(ctx/1000)+'K':'<1K')+' ctx</span>');
-    return '<div class="model-row"><div><div class="name">'+(name.length>50?name.slice(0,50)+'...':name)+'</div><div class="info">'+size+' | '+(badges.length?badges.join(' '):'[no metadata]')+' ['+(x.source||'?')+']</div></div>'+
-      '<button class="small danger" onclick="deleteModel(\''+name.replace(/\'/g,'')+'\')">🗑</button></div>';
-  }).join('');
-}
-
-// ── Instances — single fetch for cards + chat selector ─────────
-async function loadInstances(){
-  var ic=document.getElementById('instanceCount'),c=document.getElementById('instances'),cs=document.getElementById('chatInstanceSelect');
-  ic.innerHTML='<span class="spinner"></span>';
-  c.classList.add('refreshing');
-  var r=await fetch('/api/v1/instances'),list=await r.json();
-  c.classList.remove('refreshing');
-  ic.textContent='('+list.length+')';
-
-  // Update chat selector
-  cs.innerHTML='<option value="">— select running instance —</option>';
-  list.forEach(function(i){var mn=i.model||'?';cs.innerHTML+='<option value="'+i.port+'"'+(chatPort==i.port?' selected':'')+'>'+i.port+' - '+(mn.length>35?mn.slice(0,35)+'...':mn)+'</option>';});
-  if(!list.length){document.getElementById('chatPanel').classList.remove('active');document.getElementById('chatEmpty').style.display='block';}
-
-  // Render instance cards
-  if(!list.length){c.innerHTML='<div class="text-sm">No running instances</div>';return;}
-  c.innerHTML=list.map(function(i){
-    var sc=i.status=='running'?'':' stopped';
-    var bc=i.status=='running'?'badge-green':'badge-red';
-    var mn=i.model||'?';
-    var tps=i.tokens_per_sec?'<span style="color:#22c55e">⚡ '+i.tokens_per_sec.toFixed(1)+' t/s</span>':'';
-    return '<div class="inst-card'+sc+'"><div class="title">'+(mn.length>40?mn.slice(0,40)+'...':mn)+'</div>'+
-      '<div class="meta">Port: '+i.port+' | PID: '+i.pid+' | <span class="badge '+bc+'">'+i.status+'</span> '+tps+'</div>'+
-      '<div class="actions"><button class="small danger" onclick="stopInstance('+i.port+')">⏹ Stop</button>'+
-      '<button class="small secondary" onclick="selectChatFor('+i.port+',\''+mn.replace(/\'/g,'')+'\')">💬 Chat</button>'+
-      '<button class="small secondary" onclick="window.open(\'http://\'+location.hostname+\':'+i.port+'\',\'_blank\')">🌐 UI</button>'+
-      '<button class="small secondary" onclick="viewLogs('+i.port+')">📋 Logs</button></div></div>';
-  }).join('');
-}
-
-function fmtSize(b){
-  if(!b)return'?';
-  if(b>1073741824)return(b/1073741824).toFixed(1)+' GB';
-  if(b>1048576)return(b/1048576).toFixed(0)+' MB';
-  return(b/1024).toFixed(0)+' KB';
+    return '<div class="model-row"><div><div class="name">'+(name.length>55?name.slice(0,55)+'...':name)+'</div><div class="info">'+size+' '+(badges.length?badges.join(' '):'')+'</div></div><button class="small danger" onclick="deleteModel(\''+name.replace(/\'/g,'')+'\')">🗑</button></div>';
+  }).join('')+'</div>';
 }
 
 async function deleteModel(name){
   if(!confirm('Delete model "'+name+'"?'))return;
   await fetch('/api/v1/models/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name})});
-  loadModels();
+  loadModels();loadMetrics();
+}
+
+// ── Instances ────────────────────────────────────────
+async function loadInstances(){
+  var ic=document.getElementById('instanceCount'),c=document.getElementById('instances'),cs=document.getElementById('chatInstanceSelect');
+  var r=await fetch('/api/v1/instances'),list=await r.json();
+  ic.textContent='('+list.length+')';
+
+  cs.innerHTML='<option value="">— select a running instance —</option>';
+  list.forEach(function(i){var mn=i.model||'?';cs.innerHTML+='<option value="'+i.port+'"'+(chatPort==i.port?' selected':'')+'>'+i.port+' - '+(mn.length>35?mn.slice(0,35)+'...':mn)+'</option>';});
+  if(!list.length){document.getElementById('chatPanel').style.display='none';document.getElementById('chatEmpty').style.display='flex';c.innerHTML='<div class="empty-state"><div class="icon">🚀</div><div>No running instances. Launch one from the Dashboard.</div></div>';return;}
+  document.getElementById('chatPanel').style.display=chatPort?'block':'none';
+
+  c.innerHTML=list.map(function(i){
+    var cls=i.status=='running'?'':' stopped';
+    var bc=i.status=='running'?'badge-green':'badge-red';
+    var mn=i.model||'?';
+    var tps=i.tokens_per_sec?'<span style="color:var(--green)">⚡ '+i.tokens_per_sec.toFixed(1)+' t/s</span>':'';
+    return '<div class="inst-card'+cls+'"><div class="title">'+(mn.length>40?mn.slice(0,40)+'...':mn)+'</div>'+
+      '<div class="meta"><span>Port '+i.port+'</span><span>PID '+i.pid+'</span><span class="badge '+bc+'">'+i.status+'</span>'+tps+'</div>'+
+      '<div class="actions"><button class="small danger" onclick="stopInstance('+i.port+')">⏹ Stop</button>'+
+      '<button class="small secondary" onclick="selectChatFor('+i.port+',\''+mn.replace(/\'/g,'')+'\')">💬 Chat</button>'+
+      '<button class="small secondary" onclick="window.open(\'http://\'+location.hostname+\':'+i.port+'\',\'_blank\')">🌐 Open</button>'+
+      '<button class="small secondary" onclick="viewLogs('+i.port+')">📋 Logs</button></div></div>';
+  }).join('');
 }
 
 async function launchInstance(){
-  var btn=document.querySelector('.card:nth-child(2) .mt-8'),m=document.getElementById('modelSelect').value,p=parseInt(document.getElementById('portInput').value),f=[];
+  var btn=document.getElementById('launchBtn'),m=document.getElementById('modelSelect').value,p=parseInt(document.getElementById('portInput').value),f=[];
   document.querySelectorAll('.flag-input').forEach(function(el){(el.value.trim().split(/\s+/)).forEach(function(v){if(v)f.push(v);});});
   if(!m){alert('Select a model');return;}
   var orig=btn.textContent;btn.disabled=true;btn.textContent='Launching...';
@@ -219,69 +432,26 @@ async function launchInstance(){
     if(!r.ok){var e=await r.text();alert('Error: '+e);return;}
     var i=await r.json();
     document.getElementById('portInput').value=(i.port||0)+1;
-    loadInstances();
+    loadInstances();loadMetrics();
   }finally{btn.disabled=false;btn.textContent=orig;}
 }
 
 async function stopInstance(p){
   if(!confirm('Stop instance on port '+p+'?'))return;
   await fetch('/api/v1/instances/stop?port='+p,{method:'POST'});
-  loadInstances();
-  if(chatPort==p){document.getElementById('chatPanel').classList.remove('active');document.getElementById('chatEmpty').style.display='block';}
+  loadInstances();loadMetrics();
+  if(chatPort==p){chatPort=0;document.getElementById('chatPanel').style.display='none';document.getElementById('chatEmpty').style.display='flex';}
 }
 
+// ── Flags ─────────────────────────────────────────────
 function addFlag(){
   var c=document.getElementById('flagsContainer'),r=document.createElement('div');
   r.className='flag-row';
-  r.innerHTML='<input type="text" placeholder="e.g. --tensor-split 12,8" class="flag-input"><button class="small danger" onclick="this.parentElement.remove()">x</button>';
+  r.innerHTML='<input type="text" placeholder="e.g. --flash-attn on" class="flag-input"><button class="small danger" onclick="this.parentElement.remove()">✕</button>';
   c.appendChild(r);
 }
 
-function selectChatInstance(){
-  var s=document.getElementById('chatInstanceSelect');chatPort=parseInt(s.value)||0;
-  if(chatPort){chatHistory=[];document.getElementById('chatMsgs').innerHTML='';document.getElementById('chatPanel').classList.add('active');document.getElementById('chatEmpty').style.display='none';addSystemMsg('Connected');}
-}
-
-function selectChatFor(port,model){
-  chatPort=port;chatHistory=[];
-  document.getElementById('chatInstanceSelect').value=port;
-  document.getElementById('chatMsgs').innerHTML='';
-  document.getElementById('chatPanel').classList.add('active');
-  document.getElementById('chatEmpty').style.display='none';
-  addSystemMsg('Chatting with '+(model||'port '+port));
-}
-
-function addSystemMsg(t){var c=document.getElementById('chatMsgs');c.innerHTML+='<div class="msg system">'+t+'</div>';c.scrollTop=c.scrollHeight;}
-function addMsg(r,t,re){
-  var c=document.getElementById('chatMsgs');
-  var el=document.createElement('div');el.className='msg '+r;
-  if(re){var r2=re.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');var rd=document.createElement('div');rd.style.cssText='color:var(--muted);font-style:italic;font-size:12px;border-left:2px solid var(--border);padding-left:8px;margin-bottom:4px';rd.innerHTML=r2;c.appendChild(rd);}
-  if(t.indexOf('<')===-1&&t.indexOf('&')===-1){el.textContent=t;}else{el.innerHTML=t;}
-  c.appendChild(el);c.scrollTop=c.scrollHeight;return el;
-}
-
-async function sendChat(){
-  var input=document.getElementById('chatInput'),msg=input.value.trim();
-  if(!msg||!chatPort)return;
-  input.value='';addMsg('user',msg);chatHistory.push({role:'user',content:msg});
-  var li=addMsg('assistant','<span class="chat-loading">● ● ●</span>');
-  try{
-    var r=await fetch('/api/v1/chat?port='+chatPort,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'default',messages:chatHistory.slice(-20),max_tokens:256,stream:false})});
-    var d=await r.json(),msg=d.choices&&d.choices[0]&&d.choices[0].message?d.choices[0].message:{},reply=msg.content||'(no response)',reasoning=msg.reasoning_content||'';
-    chatHistory.push({role:'assistant',content:reply});
-    li.innerHTML=reply;li.className='msg assistant';
-    if(reasoning){var r2=reasoning.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');li.insertAdjacentHTML('beforebegin','<div style="color:var(--muted);font-style:italic;font-size:12px;border-left:2px solid var(--border);padding-left:8px;margin-bottom:4px">'+r2+'</div>');}
-  }catch(e){li.innerHTML='Error: '+e.message;li.className='msg system';}
-}
-
-async function viewLogs(port){
-  var r=await fetch('/api/v1/instances/logs?port='+port),d=await r.json();
-  if(d.error){alert('No logs');return;}
-  document.getElementById('logContent').textContent=d.lines&&d.lines.length?d.lines.slice(-50).join('\\n'):'(empty)';
-  document.getElementById('logModal').style.display='block';
-}
-function closeLogs(){document.getElementById('logModal').style.display='none';}
-
+// ── Pull Model ────────────────────────────────────────
 async function pullModel(){
   var ref=document.getElementById('pullInput').value.trim();
   if(!ref){alert('Enter a model reference');return;}
@@ -290,13 +460,67 @@ async function pullModel(){
   try{
     var r=await fetch('/api/v1/models/pull',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:ref})});
     var d=await r.json();
-    if(d.error){st.textContent='Error: '+d.error;alert(d.error);}else{st.textContent='✅ '+ref;loadModels();}
+    if(d.error){st.textContent='Error: '+d.error;alert(d.error);}else{st.innerHTML='✅ Pulled '+ref;loadModels();loadMetrics();}
   }catch(e){st.textContent='Error: '+e;alert(e);}
   btn.disabled=false;btn.textContent='Pull';
 }
 
-function refreshChat(){if(chatPort)selectChatFor(chatPort,'');}
+// ── Chat ──────────────────────────────────────────────
+function selectChatInstance(){
+  var s=document.getElementById('chatInstanceSelect');chatPort=parseInt(s.value)||0;
+  if(chatPort){chatHistory=[];document.getElementById('chatPanel').innerHTML='';document.getElementById('chatPanel').style.display='block';document.getElementById('chatEmpty').style.display='none';addSystemMsg('Connected');}
+}
+function selectChatFor(port,model){
+  chatPort=port;chatHistory=[];
+  document.getElementById('chatInstanceSelect').value=port;
+  document.getElementById('chatPanel').innerHTML='';
+  document.getElementById('chatPanel').style.display='block';
+  document.getElementById('chatEmpty').style.display='none';
+  addSystemMsg('Chatting with '+(model||'port '+port));
+  if(currentView!='chat')switchView('chat');
+}
+function addSystemMsg(t){var c=document.getElementById('chatPanel');c.innerHTML+='<div class="msg system">'+t+'</div>';c.scrollTop=c.scrollHeight;}
+function addMsg(r,t,re){
+  var c=document.getElementById('chatPanel');
+  var el=document.createElement('div');el.className='msg '+r;
+  if(re){el.insertAdjacentHTML('beforebegin','<div class="reasoning">'+escHtml(re)+'</div>');}
+  el.textContent=t;c.appendChild(el);c.scrollTop=c.scrollHeight;return el;
+}
+function escHtml(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
+async function sendChat(){
+  var input=document.getElementById('chatInput'),msg=input.value.trim();
+  if(!msg||!chatPort)return;
+  input.value='';addMsg('user',msg);chatHistory.push({role:'user',content:msg});
+  var li=addMsg('assistant','');
+  li.innerHTML='<span class="chat-loading">● ● ●</span>';
+  try{
+    var r=await fetch('/api/v1/chat?port='+chatPort,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'default',messages:chatHistory.slice(-20),max_tokens:256,stream:false})});
+    var d=await r.json(),msg=d.choices&&d.choices[0]&&d.choices[0].message?d.choices[0].message:{},reply=msg.content||'(no response)',reasoning=msg.reasoning_content||'';
+    chatHistory.push({role:'assistant',content:reply});
+    li.innerHTML='';li.textContent=reply;
+    if(reasoning){li.insertAdjacentHTML('beforebegin','<div class="reasoning">'+escHtml(reasoning)+'</div>');}
+  }catch(e){li.innerHTML='Error: '+e.message;li.className='msg system';}
+}
+
+// ── Logs ──────────────────────────────────────────────
+async function viewLogs(port){
+  var r=await fetch('/api/v1/instances/logs?port='+port),d=await r.json();
+  if(d.error){alert('No logs');return;}
+  document.getElementById('logContent').textContent=d.lines&&d.lines.length?d.lines.slice(-50).join('\n'):'(empty)';
+  document.getElementById('logModal').style.display='block';
+}
+function closeLogs(){document.getElementById('logModal').style.display='none';}
+
+// ── Helpers ───────────────────────────────────────────
+function fmtSize(b){
+  if(!b)return'?';
+  if(b>1073741824)return(b/1073741824).toFixed(1)+' GB';
+  if(b>1048576)return(b/1048576).toFixed(0)+' MB';
+  return(b/1024).toFixed(0)+' KB';
+}
+
+// ── Theme ─────────────────────────────────────────────
 function toggleTheme(){
   var b=document.body;
   b.classList.toggle('light');
@@ -307,16 +531,10 @@ function toggleTheme(){
   if(localStorage.getItem('gollama-theme')==='light'){document.body.classList.add('light');document.getElementById('themeToggle').textContent='☀️';}
 })();
 
-loadModels();loadInstances();
-setInterval(function(){loadInstances();},3000);
+// ── Init ──────────────────────────────────────────────
+loadModels();loadInstances();loadMetrics();
+setInterval(function(){loadInstances();loadMetrics();},3000);
 setInterval(function(){loadModels();},10000);
 </script>
-
-<div id="logModal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.7);z-index:1000">
-  <div style="background:var(--surface);margin:5% auto;padding:20px;width:80%;max-width:700px;max-height:70vh;border-radius:10px;overflow:auto;border:1px solid var(--border)">
-    <div class="flex"><h2 style="margin-bottom:0">📋 Logs</h2><button class="small danger" onclick="closeLogs()">Close</button></div>
-    <pre id="logContent" style="background:var(--input-bg);padding:12px;border-radius:6px;margin-top:12px;font-size:11px;line-height:1.4;overflow:auto;max-height:55vh;white-space:pre-wrap;color:var(--muted)"></pre>
-  </div>
-</div>
 </body>
 </html>`

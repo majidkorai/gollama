@@ -90,13 +90,11 @@ The capital of France is Paris.
 
 Open **http://<your-ip>:9080** in your browser.
 
-- **Pull models** — paste a HuggingFace URL and download from the browser
-- **Launch instances** — select a model, set flags, pick a port
-- **Chat** — built-in chat panel with running instances (proxied, no CORS)
-- **Model info** — architecture, quantization type, and context length shown as badges
-- **Monitor** — running instances with port/PID/status/tokens-per-second
-- **Stop** — one-click instance termination
-- **Logs** — view llama-server stderr directly in the browser
+- **Dashboard** — metrics overview (models, instances, tokens/sec), quick launch, pull model
+- **Models** — list all downloaded models with metadata (arch, quant, context length)
+- **Chat** — full chat workspace with any running instance (proxied, no CORS)
+- **Left sidebar** — navigation between views
+- **Instance cards** — port, PID, status, tokens/sec, actions (stop, chat, open, logs)
 - **Theme toggle** — dark/light mode
 
 ## Updating
