@@ -396,7 +396,7 @@ async function loadModels(){
 async function deleteModel(name){
   if(!confirm('Delete model "'+name+'"?'))return;
   await fetch('/api/v1/models/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:name})});
-  loadModels();loadMetrics();
+  loadModels();
 }
 
 // ── Instances + Metrics ──────────────────────────────
@@ -439,14 +439,14 @@ async function launchInstance(){
     if(!r.ok){var e=await r.text();alert('Error: '+e);return;}
     var i=await r.json();
     document.getElementById('portInput').value=(i.port||0)+1;
-    loadInstances();loadMetrics();
+    loadInstances();
   }finally{btn.disabled=false;btn.textContent=orig;}
 }
 
 async function stopInstance(p){
   if(!confirm('Stop instance on port '+p+'?'))return;
   await fetch('/api/v1/instances/stop?port='+p,{method:'POST'});
-  loadInstances();loadMetrics();
+  loadInstances();
   if(chatPort==p){chatPort=0;document.getElementById('chatPanel').style.display='none';document.getElementById('chatEmpty').style.display='flex';}
 }
 
@@ -467,7 +467,7 @@ async function pullModel(){
   try{
     var r=await fetch('/api/v1/models/pull',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:ref})});
     var d=await r.json();
-    if(d.error){st.textContent='Error: '+d.error;alert(d.error);}else{st.innerHTML='✅ Pulled '+ref;loadModels();loadMetrics();}
+    if(d.error){st.textContent='Error: '+d.error;alert(d.error);}else{st.innerHTML='✅ Pulled '+ref;loadModels();}
   }catch(e){st.textContent='Error: '+e;alert(e);}
   btn.disabled=false;btn.textContent='Pull';
 }
