@@ -2,6 +2,7 @@ package llama
 
 import (
 	"archive/tar"
+	"archive/zip"
 	"compress/gzip"
 	"encoding/json"
 	"fmt"
@@ -54,7 +55,10 @@ func DetectGPUBackends() []BackendOption {
 		})
 	}
 
-	options = append(options, BackendOption{Name: "Vulkan", Suffix: "-vulkan", GPU: true})
+	// Vulkan builds are not available on Windows
+	if runtime.GOOS != "windows" {
+		options = append(options, BackendOption{Name: "Vulkan", Suffix: "-vulkan", GPU: true})
+	}
 
 	return options
 }
@@ -114,6 +118,13 @@ func FindAsset(tagName, kind string, assets map[string]string) (string, error) {
 	for _, c := range candidates {
 		for name, url := range assets {
 			if name == c+".tar.gz" || name == c+".zip" || strings.HasPrefix(name, c+".") {
+				return url, nil
+			}
+			// Windows CUDA assets have version numbers: llama-b9459-bin-win-cuda-12.4-x64.zip
+			if strings.HasPrefix(name, c) && strings.HasSuffix(name, arch+".zip") {
+				return url, nil
+			}
+			if strings.HasPrefix(name, c) && strings.HasSuffix(name, arch+".tar.gz") {
 				return url, nil
 			}
 		}
@@ -322,50 +333,16 @@ func EnsureLlamaServer() error {
 		return fmt.Errorf("downloading: %w", err)
 	}
 
-	gzr, err := gzip.NewReader(tmpFileReader(tmpFile))
+	extractDir := model.BinDir()
+	var found bool
+	if strings.HasSuffix(tmpFile, ".zip") {
+		found, err = extractZip(tmpFile, extractDir)
+	} else {
+		found, err = extractTarGz(tmpFile, extractDir)
+	}
 	if err != nil {
 		return fmt.Errorf("extracting: %w", err)
 	}
-	defer gzr.Close()
-
-	extractDir := model.BinDir()
-	tr := tar.NewReader(gzr)
-	found := false
-	for {
-		header, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return fmt.Errorf("extracting: %w", err)
-		}
-		name := filepath.Base(header.Name)
-		if name == "" || name == "." || name == ".." {
-			continue
-		}
-		outFile := filepath.Join(extractDir, name)
-		switch header.Typeflag {
-		case tar.TypeDir:
-			os.MkdirAll(outFile, 0755)
-		case tar.TypeSymlink:
-			os.Symlink(header.Linkname, outFile)
-		default:
-			outF, err := os.Create(outFile)
-			if err != nil {
-				return fmt.Errorf("creating %s: %w", name, err)
-			}
-			if _, err := io.Copy(outF, tr); err != nil {
-				outF.Close()
-				return err
-			}
-			outF.Close()
-			os.Chmod(outFile, os.FileMode(header.Mode))
-		}
-		if name == "llama-server" || name == "llama-server.exe" {
-			found = true
-		}
-	}
-
 	if !found {
 		return fmt.Errorf("llama-server not found in downloaded archive")
 	}
@@ -443,6 +420,103 @@ func checkDependencies(binary string) {
 	if err := cmd.Run(); err != nil {
 		fmt.Printf("Warning: failed to install dependencies: %v\n", err)
 	}
+}
+
+func extractTarGz(path, dest string) (bool, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+
+	gzr, err := gzip.NewReader(f)
+	if err != nil {
+		return false, err
+	}
+	defer gzr.Close()
+
+	found := false
+	tr := tar.NewReader(gzr)
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return false, err
+		}
+		name := filepath.Base(header.Name)
+		if name == "" || name == "." || name == ".." {
+			continue
+		}
+		outFile := filepath.Join(dest, name)
+		switch header.Typeflag {
+		case tar.TypeDir:
+			os.MkdirAll(outFile, 0755)
+		case tar.TypeSymlink:
+			os.Symlink(header.Linkname, outFile)
+		default:
+			outF, err := os.Create(outFile)
+			if err != nil {
+				return false, fmt.Errorf("creating %s: %w", name, err)
+			}
+			if _, err := io.Copy(outF, tr); err != nil {
+				outF.Close()
+				return false, err
+			}
+			outF.Close()
+			os.Chmod(outFile, os.FileMode(header.Mode))
+		}
+		if name == "llama-server" || name == "llama-server.exe" {
+			found = true
+		}
+	}
+	return found, nil
+}
+
+func extractZip(path, dest string) (bool, error) {
+	r, err := zip.OpenReader(path)
+	if err != nil {
+		return false, err
+	}
+	defer r.Close()
+
+	found := false
+	for _, f := range r.File {
+		name := filepath.Base(f.Name)
+		if name == "" || name == "." || name == ".." {
+			continue
+		}
+		outFile := filepath.Join(dest, name)
+
+		if f.FileInfo().IsDir() {
+			os.MkdirAll(outFile, 0755)
+			continue
+		}
+
+		rc, err := f.Open()
+		if err != nil {
+			return false, fmt.Errorf("opening %s: %w", name, err)
+		}
+
+		outF, err := os.Create(outFile)
+		if err != nil {
+			rc.Close()
+			return false, fmt.Errorf("creating %s: %w", name, err)
+		}
+
+		_, err = io.Copy(outF, rc)
+		rc.Close()
+		outF.Close()
+		if err != nil {
+			return false, fmt.Errorf("writing %s: %w", name, err)
+		}
+
+		if name == "llama-server" || name == "llama-server.exe" {
+			found = true
+		}
+	}
+	return found, nil
 }
 
 func buildLlamaServerCUDA() error {
