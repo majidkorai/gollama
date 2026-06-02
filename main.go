@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -98,8 +99,11 @@ func main() {
 						mgr.Stop(inst.Port)
 						continue
 					}
-					if err := proc.Signal(syscall.Signal(0)); err != nil {
-						mgr.Stop(inst.Port)
+					// Signal 0 is not supported on Windows — always fails
+					if runtime.GOOS != "windows" {
+						if err := proc.Signal(syscall.Signal(0)); err != nil {
+							mgr.Stop(inst.Port)
+						}
 					}
 				}
 				mgr.RecoverOrphans()
