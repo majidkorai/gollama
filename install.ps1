@@ -17,8 +17,17 @@ $out = Join-Path $env:USERPROFILE "gollama.exe"
 
 try {
     Invoke-WebRequest -Uri $url -OutFile $out -ErrorAction Stop
+
+    # Add to user PATH so 'gollama' works in any terminal
+    $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+    if ($userPath -notlike "*$env:USERPROFILE*") {
+        [Environment]::SetEnvironmentVariable("Path", "$userPath;$env:USERPROFILE", "User")
+        $env:Path += ";$env:USERPROFILE"
+    }
+
     Write-Host "Installed to $out"
-    Write-Host "Add $env:USERPROFILE to your PATH or run: &`"$out`""
+    Write-Host "gollama is ready. Open a new terminal and run: gollama"
+    Write-Host "(or restart your current terminal)"
 } catch {
     Write-Host "No pre-built binary available. Building from source (requires Go)..."
     
