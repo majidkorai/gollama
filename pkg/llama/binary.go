@@ -362,6 +362,8 @@ func EnsureLlamaServer() error {
 
 	if runtime.GOOS == "linux" {
 		checkDependencies(self)
+	} else if runtime.GOOS == "windows" {
+		checkWindowsDependencies()
 	}
 
 	installedPath := filepath.Join(model.BinDir(), "llama-server")
@@ -434,6 +436,54 @@ func checkDependencies(binary string) {
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		fmt.Printf("Warning: failed to install dependencies: %v\n", err)
+	}
+}
+
+func checkWindowsDependencies() {
+	if _, err := os.Stat(`C:\Windows\System32\VCRUNTIME140.dll`); err == nil {
+		return
+	}
+
+	// Also check SysWOW64 for 32-bit on 64-bit systems
+	if _, err := os.Stat(`C:\Windows\SysWOW64\VCRUNTIME140.dll`); err == nil {
+		return
+	}
+
+	fmt.Println("Visual C++ Redistributable not found. Installing...")
+	cmd := exec.Command("winget", "install", "Microsoft.VCRedist.2015+.x64", "--accept-source-agreements", "--silent")
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		// Fallback: download and run installer directly
+		fmt.Println("winget failed, downloading installer directly...")
+		url := "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+		tmpFile := filepath.Join(os.TempDir(), "vc_redist.x64.exe")
+
+		out, err := os.Create(tmpFile)
+		if err != nil {
+			fmt.Printf("Warning: could not download VC++ redist: %v\n", err)
+			return
+		}
+
+		resp, err := http.Get(url)
+		if err != nil {
+			out.Close()
+			fmt.Printf("Warning: could not download VC++ redist: %v\n", err)
+			return
+		}
+		defer resp.Body.Close()
+
+		io.Copy(out, resp.Body)
+		out.Close()
+
+		install := exec.Command(tmpFile, "/install", "/quiet", "/norestart")
+		install.Stdout = os.Stdout
+		install.Stderr = os.Stderr
+		if err := install.Run(); err != nil {
+			fmt.Printf("Warning: VC++ redist installation failed: %v\n", err)
+			fmt.Println("Install manually from: https://aka.ms/vcredist")
+		}
+		os.Remove(tmpFile)
 	}
 }
 

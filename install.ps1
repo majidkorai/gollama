@@ -18,6 +18,23 @@ $out = Join-Path $env:USERPROFILE "gollama.exe"
 try {
     Invoke-WebRequest -Uri $url -OutFile $out -ErrorAction Stop
 
+    # Install Visual C++ Redistributable (required by llama-server)
+    if (-not (Test-Path "$env:SystemRoot\System32\VCRUNTIME140.dll")) {
+        Write-Host "Installing Visual C++ Redistributable (required by llama-server)..."
+        $vcUrl = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+        $vcInstaller = Join-Path $env:TEMP "vc_redist.x64.exe"
+        try {
+            Invoke-WebRequest -Uri $vcUrl -OutFile $vcInstaller -ErrorAction Stop
+            Start-Process -FilePath $vcInstaller -ArgumentList "/install /quiet /norestart" -Wait
+            Write-Host "Visual C++ Redistributable installed."
+        } catch {
+            Write-Host "Warning: could not install Visual C++ Redistributable."
+            Write-Host "If llama-server fails to run, install manually from:"
+            Write-Host "  https://aka.ms/vcredist"
+        }
+        Remove-Item $vcInstaller -ErrorAction SilentlyContinue
+    }
+
     # Add to user PATH so 'gollama' works in any terminal
     $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
     if ($userPath -notlike "*$env:USERPROFILE*") {
