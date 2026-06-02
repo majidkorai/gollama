@@ -55,10 +55,7 @@ func DetectGPUBackends() []BackendOption {
 		})
 	}
 
-	// Vulkan builds are not available on Windows
-	if runtime.GOOS != "windows" {
-		options = append(options, BackendOption{Name: "Vulkan", Suffix: "-vulkan", GPU: true})
-	}
+	options = append(options, BackendOption{Name: "Vulkan", Suffix: "-vulkan", GPU: true})
 
 	return options
 }
@@ -108,10 +105,13 @@ func FindAsset(tagName, kind string, assets map[string]string) (string, error) {
 	case "darwin":
 		candidates = []string{base + "-macos-" + arch}
 	case "windows":
+		// Windows patterns: llama-b9479-bin-win-cpu-x64 / win-cuda-12.4-x64 / win-vulkan-x64
+		noDash := strings.TrimPrefix(kind, "-")
 		candidates = []string{
 			base + "-win" + kind + "-" + arch,
 			base + "-win-" + arch + kind,
 			base + "-win-" + arch,
+			base + "-win-" + noDash + "-" + arch,
 		}
 	}
 
