@@ -125,14 +125,14 @@ func (pr *ProgressReader) Read(p []byte) (int, error) {
 	}
 	if pr.Total > 0 {
 		pct := float64(pr.Done) * 100 / float64(pr.Total)
-		fmt.Printf("\r  %s  %.1f%%  (%s / %s)  %s    ",
+		fmt.Fprintf(os.Stderr, "\r  %s  %.1f%%  (%s / %s)  %s    ",
 			pr.Name, pct, FormatSize(pr.Done), FormatSize(pr.Total), speed)
 	} else {
-		fmt.Printf("\r  %s  %s  %s       ",
+		fmt.Fprintf(os.Stderr, "\r  %s  %s  %s       ",
 			pr.Name, FormatSize(pr.Done), speed)
 	}
 	if err == io.EOF {
-		fmt.Println()
+		fmt.Fprintln(os.Stderr)
 	}
 	return n, err
 }
