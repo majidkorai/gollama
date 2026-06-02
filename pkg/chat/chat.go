@@ -44,6 +44,19 @@ func WaitForReady(baseURL string, timeout time.Duration) error {
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
+
+	// Check log file for clues if health never responded
+	logFile := fmt.Sprintf("%s/.gollama/logs/port-%s.log",
+		os.Getenv("HOME"), strings.TrimPrefix(baseURL, "http://127.0.0.1:"))
+	if data, err := os.ReadFile(logFile); err == nil {
+		lines := strings.Split(string(data), "\n")
+		for i := len(lines) - 1; i >= 0 && i > len(lines)-10; i-- {
+			line := strings.TrimSpace(lines[i])
+			if line != "" && !strings.Contains(line, "\r") {
+				return fmt.Errorf("server not ready after %v\nlast log: %s", timeout, line)
+			}
+		}
+	}
 	return fmt.Errorf("server not ready after %v", timeout)
 }
 

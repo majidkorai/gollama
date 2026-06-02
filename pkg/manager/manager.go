@@ -190,6 +190,18 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string) (*Instan
 			inst.Status = "stopped"
 			if err != nil {
 				log.Printf("instance stopped with error: port=%d err=%v", port, err)
+				// Read log tail to help diagnose
+				if data, readErr := os.ReadFile(logFile); readErr == nil {
+					lines := strings.Split(string(data), "\n")
+					// Find the last non-empty lines (skip progress bars)
+					for i := len(lines) - 1; i >= 0 && i > len(lines)-10; i-- {
+						line := strings.TrimSpace(lines[i])
+						if line != "" && !strings.Contains(line, "\r") {
+							log.Printf("port=%d last log: %s", port, line)
+							break
+						}
+					}
+				}
 			} else {
 				log.Printf("instance stopped: port=%d", port)
 			}
