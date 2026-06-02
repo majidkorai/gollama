@@ -286,7 +286,7 @@ button.ghost:hover { background:var(--card); color:var(--text); }
     <div class="section-header"><h2>Pull Model</h2></div>
     <div class="card"><div class="card-body">
       <div class="pull-row">
-        <input type="text" id="pullInput" placeholder="hf.co/user/repo:Q4_K_M" value="hf.co/unsloth/gemma-4-E2B-it-GGUF:Q4_K_M">
+        <input type="text" id="pullInput" placeholder="hf.co/user/repo:Q4_K_M" value="hf.co/unsloth/Qwen3.5-0.8B-GGUF:Q4_K_M">
         <button class="primary" onclick="pullModel()" id="pullBtn">Pull</button>
       </div>
       <div id="pullStatus" class="text-sm" style="font-size:12px;color:var(--muted)"></div>

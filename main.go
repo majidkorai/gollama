@@ -61,7 +61,7 @@ func main() {
 	case "pull":
 		if len(os.Args) < 3 {
 			fmt.Println("Usage: gollama pull hf.co/user/repo:quant")
-			fmt.Println("  e.g. gollama pull hf.co/unsloth/gemma-4-E2B-it-GGUF:Q4_K_M")
+			fmt.Println("  e.g. gollama pull hf.co/unsloth/Qwen3.5-0.8B-GGUF:Q4_K_M")
 			os.Exit(1)
 		}
 		modelRef := os.Args[2]
@@ -303,7 +303,7 @@ func runWizard() {
 		Label string
 		Ref   string
 	}{
-		{"gemma-4-E2B-it-GGUF (2B, ~1.6 GB) — fast, great for chat", "hf.co/unsloth/gemma-4-E2B-it-GGUF:Q4_K_M"},
+		{"Qwen3.5-0.8B-GGUF (~664 MB) — runs on almost any hardware", "hf.co/unsloth/Qwen3.5-0.8B-GGUF:Q4_K_M"},
 		{"Qwen2.5-7B-Instruct-GGUF (~4.7 GB) — good balance of speed & quality", "hf.co/Qwen/Qwen2.5-7B-Instruct-GGUF:Q4_K_M"},
 		{"Llama-3.1-8B-Instruct-GGUF (~5.5 GB) — popular general purpose", "hf.co/lmstudio-community/Meta-Llama-3.1-8B-Instruct-GGUF:Q4_K_M"},
 		{"Qwen2.5-14B-Instruct-GGUF (~9 GB) — higher quality, needs more VRAM", "hf.co/Qwen/Qwen2.5-14B-Instruct-GGUF:Q4_K_M"},
@@ -386,7 +386,7 @@ Examples:
   gollama serve                 # Web UI on http://<ip>:9080
   gollama self-update           # Update gollama binary
   gollama update                # Update llama-server
-  gollama pull hf.co/unsloth/gemma-4-E2B-it-GGUF:Q4_K_M
+  gollama pull hf.co/unsloth/Qwen3.5-0.8B-GGUF:Q4_K_M
 
 Tip:
   Models are stored in ~/.gollama/models/
