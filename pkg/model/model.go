@@ -284,7 +284,11 @@ func PullModel(ref string) error {
 	dest := filepath.Join(ModelsDir(), filepath.Base(targetFile))
 
 	downloadURL := fmt.Sprintf("https://huggingface.co/%s/resolve/main/%s", modelID, targetFile)
-	fmt.Printf("Downloading %s (%s)\n", targetFile, FormatSize(targetSize))
+	if targetSize > 0 {
+		fmt.Printf("Downloading %s (%s)\n", targetFile, FormatSize(targetSize))
+	} else {
+		fmt.Printf("Downloading %s\n", targetFile)
+	}
 
 	out, err := os.Create(dest)
 	if err != nil {
