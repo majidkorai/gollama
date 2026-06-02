@@ -222,6 +222,12 @@ func FindLlamaServer() string {
 	if _, err := os.Stat(self); err == nil {
 		return self
 	}
+	if runtime.GOOS == "windows" {
+		selfExe := self + ".exe"
+		if _, err := os.Stat(selfExe); err == nil {
+			return selfExe
+		}
+	}
 	if path, err := exec.LookPath("llama-server"); err == nil {
 		return path
 	}
@@ -239,8 +245,9 @@ func FindLlamaServer() string {
 }
 
 func EnsureLlamaServer() error {
-	self := filepath.Join(model.BinDir(), "llama-server")
-	if _, err := os.Stat(self); err == nil {
+	self := FindLlamaServer()
+	// Use BinDir() path for new downloads
+	if _, err := os.Stat(self); err == nil && self != "llama-server" {
 		fmt.Printf("llama-server already installed at %s\n", self)
 		cmd := exec.Command(self, "--version")
 		out, _ := cmd.Output()
@@ -357,8 +364,12 @@ func EnsureLlamaServer() error {
 		checkDependencies(self)
 	}
 
-	log.Printf("llama-server installed: version=%s backend=%s path=%s", tagName, selected.Name, self)
-	fmt.Printf("\nllama-server %s (%s) installed to %s\n", tagName, selected.Name, self)
+	installedPath := filepath.Join(model.BinDir(), "llama-server")
+	if runtime.GOOS == "windows" {
+		installedPath += ".exe"
+	}
+	log.Printf("llama-server installed: version=%s backend=%s path=%s", tagName, selected.Name, installedPath)
+	fmt.Printf("\nllama-server %s (%s) installed to %s\n", tagName, selected.Name, installedPath)
 	return nil
 }
 
