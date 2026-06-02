@@ -368,8 +368,7 @@ function switchView(name){
   document.querySelector('.sidebar a[onclick*="'+name+'"]').classList.add('active');
   currentView=name;
   if(name=='chat'&&chatPort)selectChatFor(chatPort,'');
-  if(name=='models')loadModels();
-  if(name=='dashboard'){loadModels();loadInstances();}
+  if(name=='models'&&!document.querySelector('#view-models .model-row'))loadModels();
 }
 
 // ── Models ───────────────────────────────────────────
@@ -582,11 +581,11 @@ loadModels();
 setTimeout(loadInstances,100);
 setTimeout(function tick(){
   loadInstances();
-  setTimeout(tick,3000);
+  setTimeout(tick,5000);
 },2000);
 setTimeout(function tick(){
   loadModels();
-  setTimeout(tick,10000);
+  setTimeout(tick,15000);
 },5000);
 </script>
 </body>
