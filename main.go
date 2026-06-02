@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -201,10 +202,35 @@ func main() {
 
 			sigCh := make(chan os.Signal, 1)
 			signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-			<-sigCh
-			fmt.Println("\nstopping...")
-			if err := mgr.Stop(inst.Port); err != nil {
-				fmt.Fprintf(os.Stderr, "Error stopping: %v\n", err)
+			done := make(chan struct{})
+			go func() {
+				for {
+					time.Sleep(2 * time.Second)
+					for _, i := range mgr.List() {
+						if i.Port == inst.Port && i.Status != "running" {
+							close(done)
+							return
+						}
+					}
+				}
+			}()
+			select {
+			case <-sigCh:
+				fmt.Println("\nstopping...")
+				mgr.Stop(inst.Port)
+			case <-done:
+				fmt.Println("\ninstance stopped unexpectedly")
+				logFile := filepath.Join(model.GollamaDir(), "logs", fmt.Sprintf("port-%d.log", inst.Port))
+				if data, err := os.ReadFile(logFile); err == nil {
+					lines := strings.Split(string(data), "\n")
+					for i := len(lines) - 1; i >= 0 && i > len(lines)-10; i-- {
+						line := strings.TrimSpace(lines[i])
+						if line != "" && !strings.Contains(line, "\r") {
+							fmt.Printf("Error: %s\n", line)
+							break
+						}
+					}
+				}
 			}
 		}
 
