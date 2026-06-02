@@ -198,4 +198,4 @@ Ollama hides llama.cpp flags and hardcodes defaults. gollama exposes every param
 
 ## User interface
 
-<img width="1393" height="709" alt="gollama web UI" src="https://github.com/user-attachments/assets/62b986c2-4c6b-40e7-be4e-9ef40140ed86" />
+<img width="1709" height="873" alt="Gollama Web UI" src="https://github.com/user-attachments/assets/f2af95ac-ac4c-4d43-852a-7c28d23e8e83" />
