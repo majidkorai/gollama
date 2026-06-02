@@ -298,9 +298,9 @@ button.ghost:hover { background:var(--card); color:var(--text); }
 <div id="view-models" class="view">
   <div class="page-header">
     <h1>Models</h1>
-    <p id="modelCount">downloaded models</p>
+    <p id="modelCount"><span class="spinner" id="modelCountSpinner"></span> loading...</p>
   </div>
-  <div id="modelList" class="card"><div class="card-body"><div class="empty-state"><div class="icon">📦</div><div>No models downloaded yet.</div></div></div></div>
+  <div id="modelList" class="card"><div class="card-body"><div class="empty-state" id="modelEmpty"><span class="spinner"></span> Loading models...</div></div></div>
 </div>
 
 <!-- ── Chat ──────────────────────────────────────────── -->
@@ -368,6 +368,8 @@ function switchView(name){
   document.querySelector('.sidebar a[onclick*="'+name+'"]').classList.add('active');
   currentView=name;
   if(name=='chat'&&chatPort)selectChatFor(chatPort,'');
+  if(name=='models')loadModels();
+  if(name=='dashboard'){loadModels();loadInstances();}
 }
 
 // ── Models ───────────────────────────────────────────
