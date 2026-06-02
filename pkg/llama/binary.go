@@ -306,7 +306,11 @@ func EnsureLlamaServer() error {
 	}
 
 	model.EnsureDir(model.BinDir())
-	tmpFile := filepath.Join(model.BinDir(), "llama-server.tar.gz")
+	ext := ".tar.gz"
+	if strings.HasSuffix(url, ".zip") {
+		ext = ".zip"
+	}
+	tmpFile := filepath.Join(model.BinDir(), "llama-server"+ext)
 	defer os.Remove(tmpFile)
 
 	fmt.Printf("Downloading ...\n")
