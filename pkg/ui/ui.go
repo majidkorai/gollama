@@ -178,6 +178,9 @@ button.ghost:hover { background:var(--card); color:var(--text); }
 .modal-content { background:var(--surface); margin:5% auto; padding:20px; width:80%; max-width:700px; max-height:70vh; border-radius:var(--radius); overflow:auto; border:1px solid var(--border); }
 .modal-content pre { background:var(--bg); padding:12px; border-radius:var(--radius-sm); margin-top:12px; font-size:11px; line-height:1.4; overflow:auto; max-height:55vh; white-space:pre-wrap; color:var(--muted); }
 
+/* ── Error line ───────────────────────────────────────── */
+.error-line { font-size:11px; color:var(--red); margin-top:6px; padding:4px 8px; background:var(--red-bg); border-radius:4px; word-break:break-all; }
+
 /* ── Model list ────────────────────────────────────────── */
 .model-row { display:flex; justify-content:space-between; align-items:center; padding:10px 12px; border-radius:var(--radius-sm); transition:background .15s; }
 .model-row:hover { background:var(--surface); }
@@ -420,13 +423,19 @@ async function loadInstances(){
     var bc=i.status=='running'?'badge-green':'badge-red';
     var mn=i.model||'?';
     var tps=i.tokens_per_sec?'<span style="color:var(--green)">⚡ '+i.tokens_per_sec.toFixed(1)+' t/s</span>':'';
+    var errDiv=i.status!='running'?'<div class="error-line" id="err-'+i.port+'"></div>':'';
     return '<div class="inst-card'+cls+'"><div class="title">'+(mn.length>40?mn.slice(0,40)+'...':mn)+'</div>'+
       '<div class="meta"><span>Port '+i.port+'</span><span>PID '+i.pid+'</span><span class="badge '+bc+'">'+i.status+'</span>'+tps+'</div>'+
+      errDiv+
       '<div class="actions"><button class="small danger" onclick="stopInstance('+i.port+')">⏹ Stop</button>'+
       '<button class="small secondary" onclick="selectChatFor('+i.port+',\''+mn.replace(/\'/g,'')+'\')">💬 Chat</button>'+
       '<button class="small secondary" onclick="window.open(\'http://\'+location.hostname+\':'+i.port+'\',\'_blank\')">🌐 Open</button>'+
       '<button class="small secondary" onclick="viewLogs('+i.port+')">📋 Logs</button></div></div>';
   }).join('');
+  // Fetch error logs for stopped instances
+  list.forEach(function(i){
+    if(i.status!='running')fetchErrorLog(i.port);
+  });
 }
 
 async function launchInstance(){
@@ -448,6 +457,20 @@ async function stopInstance(p){
   await fetch('/api/v1/instances/stop?port='+p,{method:'POST'});
   loadInstances();
   if(chatPort==p){chatPort=0;document.getElementById('chatPanel').style.display='none';document.getElementById('chatEmpty').style.display='flex';}
+}
+
+// ── Error Log ──────────────────────────────────────────
+async function fetchErrorLog(port){
+  try{
+    var r=await fetch('/api/v1/instances/logs?port='+port),d=await r.json();
+    if(d.error||!d.lines||!d.lines.length)return;
+    var el=document.getElementById('err-'+port);
+    if(!el)return;
+    for(var i=d.lines.length-1;i>=0;i--){
+      var l=d.lines[i].trim();
+      if(l&&!l.includes('\r')){el.textContent='⚠️ '+l;break;}
+    }
+  }catch(e){}
 }
 
 // ── Flags ─────────────────────────────────────────────
