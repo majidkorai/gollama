@@ -6,7 +6,7 @@ const Page = `<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#0c0c12">
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Crect x='8' y='8' width='184' height='184' rx='36' fill='%2314141e' stroke='%2300d4aa' stroke-width='12'/%3E%3Cpath d='M82 65 L115 100 L82 135' fill='none' stroke='%2300d4aa' stroke-width='16' stroke-linecap='round' stroke-linejoin='round'/%3E%3Crect x='124' y='92' width='10' height='20' rx='2' fill='%2300d4aa'/%3E%3C/svg%3E">
+<link rel="icon" type="image/svg+xml" href="/logo.svg">
 <title>gollama</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -300,8 +300,8 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
 /* ── Responsive ────────────────────────────────────────── */
 @media (max-width: 768px) {
   .sidebar { width: 60px; }
-  .sidebar .logo { font-size: 0; padding: 16px; }
-  .sidebar .logo svg { width: 24px; height: 24px; }
+  .sidebar .logo { font-size: 0; padding: 16px; gap: 8px; }
+  .sidebar .logo img { width: 28px; height: 28px; }
   .sidebar .nav-item .label { display: none; }
   .sidebar .nav-item { justify-content: center; padding: 10px; }
   .sidebar .bottom button .label { display: none; }
@@ -318,11 +318,7 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
 <!-- ─── Sidebar ──────────────────────────────────────── -->
 <aside class="sidebar" role="navigation" aria-label="Main navigation">
   <div class="logo">
-    <svg width="24" height="24" viewBox="0 0 200 200" fill="none" style="flex-shrink:0; color:var(--accent)">
-      <rect x="8" y="8" width="184" height="184" rx="36" stroke="currentColor" stroke-width="12" fill="var(--surface)"/>
-      <path d="M82 65 L115 100 L82 135" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
-      <rect x="124" y="92" width="10" height="20" rx="2" fill="currentColor"/>
-    </svg>
+    <img src="/logo.svg" alt="gollama" width="24" height="24" style="flex-shrink:0; object-fit:contain">
     <button class="toggle" onclick="toggleSidebar()" aria-label="Toggle sidebar">◀</button>
     <span class="brand-text">gollama<span class="accent">.</span><span class="version" id="s-version-short"></span></span>
   </div>
