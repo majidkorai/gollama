@@ -2,6 +2,9 @@ package ui
 
 import _ "embed"
 
+//go:embed logo.png
+var LogoPNG []byte
+
 //go:embed logo.svg
 var LogoSVG string
 
@@ -11,7 +14,7 @@ const Page = `<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#0c0c12">
-<link rel="icon" type="image/svg+xml" href="/logo.svg">
+<link rel="icon" type="image/png" href="/logo.png">
 <title>gollama</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -323,7 +326,7 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
 <!-- ─── Sidebar ──────────────────────────────────────── -->
 <aside class="sidebar" role="navigation" aria-label="Main navigation">
   <div class="logo">
-    <img src="/logo.svg" alt="gollama" width="28" height="28" style="flex-shrink:0; object-fit:contain; display:block">
+    <img src="/logo.png" alt="gollama" width="28" height="28" style="flex-shrink:0; object-fit:contain; display:block">
     <button class="toggle" onclick="toggleSidebar()" aria-label="Toggle sidebar">◀</button>
     <span class="brand-text" style="display:none">gollama<span class="accent">.</span><span class="version" id="s-version-short"></span></span>
   </div>
