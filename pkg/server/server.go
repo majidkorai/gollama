@@ -33,7 +33,7 @@ func New(mgr *manager.Manager, port string) *Server {
 }
 
 func (s *Server) registerRoutes() {
-	s.mux.HandleFunc("/logo.png", s.handleLogo)
+	s.mux.HandleFunc("/logo.svg", s.handleLogo)
 	s.mux.HandleFunc("/api/v1/models", s.handleModels)
 	s.mux.HandleFunc("/api/v1/models/delete", s.handleModelDelete)
 	s.mux.HandleFunc("/api/v1/models/pull", s.handleModelPull)
@@ -52,9 +52,9 @@ func (s *Server) Start() error {
 }
 
 func (s *Server) handleLogo(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "image/png")
+	w.Header().Set("Content-Type", "image/svg+xml")
 	w.Header().Set("Cache-Control", "public, max-age=86400")
-	w.Write(ui.LogoPNG)
+	w.Write([]byte(ui.LogoSVG))
 }
 
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
