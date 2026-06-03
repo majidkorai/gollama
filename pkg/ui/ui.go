@@ -6,6 +6,7 @@ const Page = `<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#0c0c12">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2314141e' stroke='%2300d4aa' stroke-width='2.5'/%3E%3Ctext x='16' y='23' text-anchor='middle' fill='%2300d4aa' font-family='Arial' font-weight='800' font-size='19'%3EG%3C/text%3E%3C/svg%3E">
 <title>gollama</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -68,6 +69,7 @@ const Page = `<!DOCTYPE html>
 * { margin: 0; padding: 0; box-sizing: border-box; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
 html { color-scheme: dark; height: 100%; }
+.light { color-scheme: light; }
 body {
   font-family: var(--font); background: var(--bg); color: var(--text);
   display: flex; font-size: 14px; line-height: 1.6; height: 100%;
@@ -115,7 +117,7 @@ body {
 .sidebar.collapsed .logo .brand-text { opacity: 0; width: 0; overflow: hidden; }
 .sidebar .bottom { border-top: 1px solid var(--border); padding: 10px 8px; margin-top: auto; display: flex; gap: 4px; }
 .sidebar .bottom button {
-  flex: 1; justify-content: center; font-size: 15px; padding: 8px;
+  flex: 1; justify-content: center; font-size: 13px; padding: 8px;
   border-radius: var(--radius-sm); border: none; background: none;
   color: var(--text-dim); cursor: pointer; transition: all var(--transition);
   display: flex; align-items: center; gap: 6px; font-family: var(--font);
@@ -172,7 +174,7 @@ body {
   display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px;
 }
 .section-header h2 {
-  font-size: 12px; font-weight: 700; color: var(--text-muted);
+  font-size: 11px; font-weight: 700; color: var(--text-muted);
   text-transform: uppercase; letter-spacing: .8px;
 }
 
@@ -199,14 +201,14 @@ body {
 .inst-card.stopped::before { background: var(--text-dim); }
 .inst-card.stopped { opacity: .55; }
 .inst-card.error::before { background: var(--red); }
-.inst-card .title { font-size: 13px; font-weight: 600; word-break: break-all; font-family: var(--font-mono); }
+.inst-card .title { font-size: 14px; font-weight: 600; word-break: break-all; font-family: var(--font-mono); }
 .inst-card .meta { font-size: 12px; color: var(--text-dim); margin-top: 8px; display: flex; gap: 14px; flex-wrap: wrap; align-items: center; }
 .inst-card .actions { margin-top: 14px; display: flex; gap: 6px; flex-wrap: wrap; }
 
 /* ── Quick Launch ──────────────────────────────────────── */
 .launch-row { display: grid; grid-template-columns: 1fr 120px auto; gap: 10px; align-items: end; margin-bottom: 14px; }
 .launch-row .field { display: flex; flex-direction: column; gap: 5px; }
-.launch-row .field label { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .6px; font-weight: 700; }
+.launch-row .field label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .6px; font-weight: 700; }
 
 /* ── Forms ─────────────────────────────────────────────── */
 select, input[type=text], input[type=number] {
@@ -299,7 +301,7 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
 @media (max-width: 768px) {
   .sidebar { width: 60px; }
   .sidebar .logo { font-size: 0; padding: 16px; }
-  .sidebar .logo::after { content: '🦙'; font-size: 20px; }
+  .sidebar .logo svg { width: 24px; height: 24px; }
   .sidebar .nav-item .label { display: none; }
   .sidebar .nav-item { justify-content: center; padding: 10px; }
   .sidebar .bottom button .label { display: none; }
@@ -316,6 +318,10 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
 <!-- ─── Sidebar ──────────────────────────────────────── -->
 <aside class="sidebar" role="navigation" aria-label="Main navigation">
   <div class="logo">
+    <svg width="22" height="22" viewBox="0 0 32 32" fill="none" style="flex-shrink:0; color:var(--accent)">
+      <rect x="1.5" y="1.5" width="29" height="29" rx="7" stroke="currentColor" stroke-width="3" fill="none"/>
+      <text x="16" y="23" text-anchor="middle" fill="currentColor" font-weight="800" font-size="19" font-family="system-ui">G</text>
+    </svg>
     <button class="toggle" onclick="toggleSidebar()" aria-label="Toggle sidebar">◀</button>
     <span class="brand-text">gollama<span class="accent">.</span><span class="version" id="s-version-short"></span></span>
   </div>
@@ -416,7 +422,7 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
   <div class="chat-container">
     <div class="chat-header">
       <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap">
-        <h1 style="font-size: 18px; font-weight: 700">Chat</h1>
+        <h1 style="font-size: 18px; font-weight: 800">Chat</h1>
         <select id="chatInstanceSelect" onchange="selectChatInstance()" aria-label="Select instance"><option value="">— select a running instance —</option></select>
         <button class="ghost small" onclick="selectChatFor(chatPort, '')" aria-label="Refresh">↻</button>
       </div>
@@ -720,13 +726,13 @@ function toggleSidebar() {
 
 // ── Theme ─────────────────────────────────────────────
 function toggleTheme() {
-  var b = document.body;
-  b.classList.toggle('light');
+  var b = document.body, h = document.documentElement;
+  b.classList.toggle('light'); h.classList.toggle('light');
   document.getElementById('themeToggle').innerHTML = b.classList.contains('light') ? '<span>☀️</span><span class="label">Theme</span>' : '<span>🌙</span><span class="label">Theme</span>';
   localStorage.setItem('gollama-theme', b.classList.contains('light') ? 'light' : 'dark');
 }
 (function() {
-  if (localStorage.getItem('gollama-theme') === 'light') { document.body.classList.add('light'); document.getElementById('themeToggle').innerHTML = '<span>☀️</span><span class="label">Theme</span>'; }
+  if (localStorage.getItem('gollama-theme') === 'light') { document.body.classList.add('light'); document.documentElement.classList.add('light'); document.getElementById('themeToggle').innerHTML = '<span>☀️</span><span class="label">Theme</span>'; }
 })();
 
 // ── Init (staggered, no pile-up) ─────────────────────
