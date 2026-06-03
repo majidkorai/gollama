@@ -94,20 +94,18 @@ body {
 }
 .sidebar.collapsed { width: 60px; }
 .sidebar .logo {
-  padding: 18px 16px; font-size: 17px; font-weight: 800;
-  letter-spacing: -.4px; border-bottom: 1px solid var(--border);
-  white-space: nowrap; overflow: hidden; display: flex;
-  align-items: center; gap: 10px; min-height: 56px;
-  color: var(--text);
+  padding: 24px 20px 16px; border-bottom: 1px solid var(--border);
+  display: flex; flex-direction: column; align-items: center;
+  gap: 4px; color: var(--text); overflow: hidden;
 }
-.sidebar .logo .accent { color: var(--accent); }
-.sidebar .logo .version { font-size: 10px; font-weight: 500; color: var(--text-dim); margin-left: 2px; font-family: var(--font-mono); }
+.sidebar .logo img { width: 100%; max-width: 160px; height: auto; flex-shrink: 0; }
 .sidebar .logo .toggle {
-  font-size: 14px; cursor: pointer; background: none; border: none;
-  color: var(--text-dim); padding: 4px; border-radius: 4px;
-  flex-shrink: 0; line-height: 1; transition: color var(--transition);
+  font-size: 11px; cursor: pointer; background: none; border: none;
+  color: var(--text-dim); padding: 2px; border-radius: 4px; line-height: 1; transition: color var(--transition); margin-top: 2px;
 }
 .sidebar .logo .toggle:hover { color: var(--text); }
+.sidebar.collapsed .logo { padding: 16px 8px; }
+.sidebar.collapsed .logo img { max-width: 32px; }
 .sidebar nav { flex: 1; padding: 10px 6px; display: flex; flex-direction: column; gap: 2px; }
 .sidebar .nav-item {
   display: flex; align-items: center; gap: 10px; padding: 10px 12px;
@@ -122,16 +120,6 @@ body {
 .sidebar .nav-item .icon { font-size: 16px; width: 22px; text-align: center; flex-shrink: 0; }
 .sidebar .nav-item .label { transition: opacity var(--transition); white-space: nowrap; }
 .sidebar.collapsed .nav-item .label { opacity: 0; width: 0; overflow: hidden; }
-.sidebar.collapsed .logo .brand-text { opacity: 0; width: 0; overflow: hidden; }
-.sidebar .bottom { border-top: 1px solid var(--border); padding: 10px 8px; margin-top: auto; display: flex; gap: 4px; }
-.sidebar .bottom button {
-  flex: 1; justify-content: center; font-size: 13px; padding: 8px;
-  border-radius: var(--radius-sm); border: none; background: none;
-  color: var(--text-dim); cursor: pointer; transition: all var(--transition);
-  display: flex; align-items: center; gap: 6px; font-family: var(--font);
-}
-.sidebar .bottom button:hover { background: var(--surface-2); color: var(--text); }
-.sidebar .bottom button .label { font-size: 12px; font-weight: 500; transition: opacity var(--transition); }
 .sidebar.collapsed .bottom button .label { opacity: 0; width: 0; overflow: hidden; }
 
 /* ── Main ────────────────────────────────────────────── */
@@ -308,8 +296,8 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
 /* ── Responsive ────────────────────────────────────────── */
 @media (max-width: 768px) {
   .sidebar { width: 60px; }
-  .sidebar .logo { font-size: 0; padding: 16px; gap: 8px; }
-  .sidebar .logo img { width: 28px; height: 28px; }
+  .sidebar .logo { padding: 12px 8px; }
+  .sidebar .logo img { max-width: 28px; }
   .sidebar .nav-item .label { display: none; }
   .sidebar .nav-item { justify-content: center; padding: 10px; }
   .sidebar .bottom button .label { display: none; }
@@ -325,10 +313,9 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
 
 <!-- ─── Sidebar ──────────────────────────────────────── -->
 <aside class="sidebar" role="navigation" aria-label="Main navigation">
-  <div class="logo">
-    <img src="/logo.svg" alt="gollama" width="28" height="28" style="flex-shrink:0; object-fit:contain; display:block">
-    <button class="toggle" onclick="toggleSidebar()" aria-label="Toggle sidebar">◀</button>
-    <span class="brand-text" style="display:none">gollama<span class="accent">.</span><span class="version" id="s-version-short"></span></span>
+  <div class="logo" style="flex-direction:column; gap:4px; padding:20px 16px">
+    <img src="/logo.svg" alt="gollama" style="display:block; width:100%; max-width:160px; height:auto">
+    <button class="toggle" onclick="toggleSidebar()" aria-label="Toggle sidebar" style="font-size:11px; color:var(--text-dim); background:none; border:none; cursor:pointer; padding:2px; margin-top:2px">◀</button>
   </div>
   <nav>
     <button class="nav-item active" onclick="switchView('dashboard')" aria-label="Dashboard">
