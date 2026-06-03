@@ -419,17 +419,21 @@ async function loadInstances(){
   if(!list.length){document.getElementById('chatPanel').style.display='none';document.getElementById('chatEmpty').style.display='flex';c.innerHTML='<div class="empty-state"><div class="icon">🚀</div><div>No running instances. Launch one from the Dashboard.</div></div>';return;}
   document.getElementById('chatPanel').style.display=chatPort?'block':'none';
 
+  c.setAttribute('data-list',JSON.stringify(list));
   c.innerHTML=list.map(function(i){
     var cls=i.status=='running'?'':' stopped';
     var bc=i.status=='running'?'badge-green':'badge-red';
     var mn=i.model||'?';
     var tps=i.tokens_per_sec?'<span style="color:var(--green)">⚡ '+i.tokens_per_sec.toFixed(1)+' t/s</span>':'';
+    var flags=i.flags&&i.flags.length?i.flags.slice(3).join(' '):'';
+    var flagsHtml=flags?'<div style="font-size:11px;color:var(--dim);margin-top:6px;padding-top:6px;border-top:1px solid var(--border);word-break:break-all">'+escHtml(flags)+'</div>':'';
     var errDiv=i.status!='running'?'<div class="error-line" id="err-'+i.port+'"></div>':'';
     return '<div class="inst-card'+cls+'"><div class="title">'+(mn.length>40?mn.slice(0,40)+'...':mn)+'</div>'+
       '<div class="meta"><span>Port '+i.port+'</span><span>PID '+i.pid+'</span><span class="badge '+bc+'">'+i.status+'</span>'+tps+'</div>'+
-      errDiv+
+      errDiv+flagsHtml+
       '<div class="actions"><button class="small danger" onclick="stopInstance('+i.port+')">⏹ Stop</button>'+
       '<button class="small secondary" onclick="selectChatFor('+i.port+',\''+mn.replace(/\'/g,'')+'\')">💬 Chat</button>'+
+      '<button class="small secondary" onclick="editInstance('+i.port+')">✏️ Edit</button>'+
       '<button class="small secondary" onclick="window.open(\'http://\'+location.hostname+\':'+i.port+'\',\'_blank\')">🌐 Open</button>'+
       '<button class="small secondary" onclick="viewLogs('+i.port+')">📋 Logs</button></div></div>';
   }).join('');
@@ -458,6 +462,27 @@ async function stopInstance(p){
   await fetch('/api/v1/instances/stop?port='+p,{method:'POST'});
   loadInstances();
   if(chatPort==p){chatPort=0;document.getElementById('chatPanel').style.display='none';document.getElementById('chatEmpty').style.display='flex';}
+}
+
+// ── Edit Instance ───────────────────────────────────────
+function editInstance(port){
+  switchView('dashboard');
+  var r=document.getElementById('flagsContainer');
+  r.innerHTML='';
+  var list=JSON.parse(document.querySelector('#instances').getAttribute('data-list')||'[]');
+  for(var i=0;i<list.length;i++){
+    if(list[i].port!=port)continue;
+    var inst=list[i];
+    document.getElementById('modelSelect').value=inst.model||'';
+    document.getElementById('portInput').value=inst.port;
+    var flags=inst.flags||[];
+    for(var j=3;j<flags.length;j+=2){
+      var row=document.createElement('div');row.className='flag-row';
+      row.innerHTML='<input type="text" class="flag-input" value="'+(flags[j].startsWith('--')?flags[j]+' '+(flags[j+1]||''):flags[j])+'"><button class="small danger" onclick="this.parentElement.remove()">✕</button>';
+      r.appendChild(row);
+    }
+    break;
+  }
 }
 
 // ── Error Log ──────────────────────────────────────────

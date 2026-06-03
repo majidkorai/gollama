@@ -39,20 +39,8 @@ func ConfigFile() string {
 }
 
 func DefaultConfig() *Config {
-	gpuDetected := false
-	if _, err := os.Stat("/dev/nvidia0"); err == nil {
-		gpuDetected = true
-	}
-	if out, err := os.ReadFile(BackendFile()); err == nil {
-		if !strings.EqualFold(strings.TrimSpace(string(out)), "CPU") {
-			gpuDetected = true
-		}
-	}
-
-	flags := []string{"--flash-attn", "on", "--ctx-size", "4096"}
-	if gpuDetected {
-		flags = append([]string{"--n-gpu-layers", "99"}, flags...)
-	}
+	// CPU-safe defaults that work on laptops and low-RAM systems
+	flags := []string{"--ctx-size", "2048", "--flash-attn", "on"}
 	return &Config{DefaultFlags: flags}
 }
 
