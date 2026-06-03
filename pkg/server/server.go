@@ -54,7 +54,7 @@ func (s *Server) Start() error {
 func (s *Server) handleLogo(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "image/svg+xml")
 	w.Header().Set("Cache-Control", "public, max-age=86400")
-	http.ServeFile(w, r, "logo.svg")
+	w.Write([]byte(ui.LogoSVG))
 }
 
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {

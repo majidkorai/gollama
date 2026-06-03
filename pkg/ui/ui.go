@@ -1,5 +1,10 @@
 package ui
 
+import _ "embed"
+
+//go:embed logo.svg
+var LogoSVG string
+
 const Page = `<!DOCTYPE html>
 <html lang="en">
 <head>
