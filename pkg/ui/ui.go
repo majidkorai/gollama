@@ -323,9 +323,9 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
 <!-- ─── Sidebar ──────────────────────────────────────── -->
 <aside class="sidebar" role="navigation" aria-label="Main navigation">
   <div class="logo">
-    <img src="/logo.svg" alt="gollama" width="24" height="24" style="flex-shrink:0; object-fit:contain">
+    <img src="/logo.svg" alt="gollama" width="28" height="28" style="flex-shrink:0; object-fit:contain; display:block">
     <button class="toggle" onclick="toggleSidebar()" aria-label="Toggle sidebar">◀</button>
-    <span class="brand-text">gollama<span class="accent">.</span><span class="version" id="s-version-short"></span></span>
+    <span class="brand-text" style="display:none">gollama<span class="accent">.</span><span class="version" id="s-version-short"></span></span>
   </div>
   <nav>
     <button class="nav-item active" onclick="switchView('dashboard')" aria-label="Dashboard">
