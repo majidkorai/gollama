@@ -6,7 +6,7 @@ const Page = `<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#0c0c12">
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2314141e' stroke='%2300d4aa' stroke-width='2.5'/%3E%3Ctext x='16' y='23' text-anchor='middle' fill='%2300d4aa' font-family='Arial' font-weight='800' font-size='19'%3EG%3C/text%3E%3C/svg%3E">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 200'%3E%3Crect x='35' y='50' width='55' height='100' rx='10' fill='%23808994'/%3E%3Crect x='110' y='50' width='55' height='100' rx='10' fill='%23808994'/%3E%3Cpath d='M60 75 85 100 60 125' fill='none' stroke='%2312151A' stroke-width='8' stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpolygon points='125,75 150,100 125,125' fill='%2312151A'/%3E%3Cpath d='M95 150 Q98 115 98 110 L87 105 L85 88 L98 83 L95 58 L100 60 L108 52 L115 65 Q108 90 108 100 Q109 105 112 150Z' fill='%2312151A'/%3E%3C/svg%3E">
 <title>gollama</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -318,9 +318,12 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
 <!-- ─── Sidebar ──────────────────────────────────────── -->
 <aside class="sidebar" role="navigation" aria-label="Main navigation">
   <div class="logo">
-    <svg width="22" height="22" viewBox="0 0 32 32" fill="none" style="flex-shrink:0; color:var(--accent)">
-      <rect x="1.5" y="1.5" width="29" height="29" rx="7" stroke="currentColor" stroke-width="3" fill="none"/>
-      <text x="16" y="23" text-anchor="middle" fill="currentColor" font-weight="800" font-size="19" font-family="system-ui">G</text>
+    <svg width="24" height="24" viewBox="0 0 200 200" fill="none" style="flex-shrink:0; color:var(--accent)">
+      <rect x="35" y="50" width="55" height="100" rx="10" fill="currentColor"/>
+      <rect x="110" y="50" width="55" height="100" rx="10" fill="currentColor"/>
+      <path d="M60 75 85 100 60 125" fill="none" stroke="var(--surface)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+      <polygon points="125,75 150,100 125,125" fill="var(--surface)"/>
+      <path d="M95 150 Q98 115 98 110 L87 105 L85 88 L98 83 L95 58 L100 60 L108 52 L115 65 Q108 90 108 100 Q109 105 112 150Z" fill="var(--surface)"/>
     </svg>
     <button class="toggle" onclick="toggleSidebar()" aria-label="Toggle sidebar">◀</button>
     <span class="brand-text">gollama<span class="accent">.</span><span class="version" id="s-version-short"></span></span>
