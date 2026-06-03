@@ -5,16 +5,13 @@ import _ "embed"
 //go:embed logo.png
 var LogoPNG []byte
 
-//go:embed logo.svg
-var LogoSVG string
-
 const Page = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="theme-color" content="#0c0c12">
-<link rel="icon" type="image/svg+xml" href="/logo.svg">
+<link rel="icon" type="image/png" href="/logo.png">
 <title>gollama</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -98,8 +95,7 @@ body {
   display: flex; flex-direction: column; align-items: center;
   gap: 4px; color: var(--text); overflow: hidden;
 }
-.sidebar .logo img { width: 100%; max-width: 160px; height: auto; flex-shrink: 0; filter: brightness(0) invert(1); }
-.light .sidebar .logo img { filter: none; }
+.sidebar .logo img { width: 100%; max-width: 160px; height: auto; flex-shrink: 0; }
 .sidebar .logo .toggle {
   font-size: 11px; cursor: pointer; background: none; border: none;
   color: var(--text-dim); padding: 2px; border-radius: 4px; line-height: 1; transition: color var(--transition); margin-top: 2px;
@@ -315,7 +311,7 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
 <!-- ─── Sidebar ──────────────────────────────────────── -->
 <aside class="sidebar" role="navigation" aria-label="Main navigation">
   <div class="logo" style="flex-direction:column; gap:4px; padding:20px 16px">
-    <img src="/logo.svg" alt="gollama" style="display:block; width:100%; max-width:160px; height:auto">
+    <img src="/logo.png" alt="gollama" style="display:block; width:100%; max-width:160px; height:auto">
     <button class="toggle" onclick="toggleSidebar()" aria-label="Toggle sidebar" style="font-size:11px; color:var(--text-dim); background:none; border:none; cursor:pointer; padding:2px; margin-top:2px">◀</button>
   </div>
   <nav>
