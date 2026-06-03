@@ -98,7 +98,8 @@ body {
   display: flex; flex-direction: column; align-items: center;
   gap: 4px; color: var(--text); overflow: hidden;
 }
-.sidebar .logo img { width: 100%; max-width: 160px; height: auto; flex-shrink: 0; }
+.sidebar .logo img { width: 100%; max-width: 160px; height: auto; flex-shrink: 0; filter: brightness(0) invert(1); }
+.light .sidebar .logo img { filter: none; }
 .sidebar .logo .toggle {
   font-size: 11px; cursor: pointer; background: none; border: none;
   color: var(--text-dim); padding: 2px; border-radius: 4px; line-height: 1; transition: color var(--transition); margin-top: 2px;
