@@ -2,11 +2,13 @@ package manager
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -41,6 +43,11 @@ func NewManager() *Manager {
 }
 
 func (m *Manager) recoverOrphans() {
+	if runtime.GOOS == "windows" {
+		m.recoverOrphansWindows()
+		return
+	}
+
 	cmd := exec.Command("pgrep", "-a", "llama-server")
 	out, err := cmd.Output()
 	if err != nil {
@@ -72,6 +79,87 @@ func (m *Manager) recoverOrphans() {
 				modelName = args[i+1]
 				if idx := strings.LastIndex(modelName, "/"); idx >= 0 {
 					modelName = modelName[idx+1:]
+				}
+			}
+		}
+		if port == 0 {
+			port = m.nextPort
+			m.nextPort++
+		}
+		if port >= m.nextPort {
+			m.nextPort = port + 1
+		}
+		if _, exists := m.instances[port]; !exists && port > 0 {
+			m.instances[port] = &Instance{
+				Port:   port,
+				Model:  modelName,
+				PID:    pid,
+				Status: "running",
+			}
+			log.Printf("recovered orphan instance: port=%d pid=%d model=%s", port, pid, modelName)
+		}
+	}
+}
+
+func (m *Manager) recoverOrphansWindows() {
+	cmd := exec.Command("tasklist", "/FI", "IMAGENAME eq llama-server.exe", "/FO", "CSV", "/NH")
+	out, err := cmd.Output()
+	if err != nil {
+		return
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, ",")
+		if len(parts) < 2 {
+			continue
+		}
+		pidStr := strings.Trim(parts[1], "\"")
+		pid, _ := strconv.Atoi(pidStr)
+		if pid == 0 {
+			continue
+		}
+
+		// On Windows we can't get command-line args from tasklist CSV,
+		// so we try to match by looking at running processes' command lines via WMI
+		wmi := exec.Command("wmic", "process", "where", fmt.Sprintf("ProcessId=%d", pid), "get", "CommandLine", "/format:value")
+		wmiOut, wmiErr := wmi.Output()
+		if wmiErr != nil {
+			// Fallback: register with a guessed port
+			port := m.nextPort
+			m.nextPort++
+			m.instances[port] = &Instance{
+				Port:   port,
+				Model:  "unknown",
+				PID:    pid,
+				Status: "running",
+			}
+			log.Printf("recovered orphan instance (limited): port=%d pid=%d", port, pid)
+			continue
+		}
+
+		var port int
+		var modelName string
+		for _, wmiLine := range strings.Split(string(wmiOut), "\n") {
+			wmiLine = strings.TrimSpace(wmiLine)
+			if strings.HasPrefix(wmiLine, "CommandLine=") {
+				cmdLine := strings.TrimPrefix(wmiLine, "CommandLine=")
+				args := strings.Fields(cmdLine)
+				for i, a := range args {
+					if a == "--port" && i+1 < len(args) {
+						port, _ = strconv.Atoi(args[i+1])
+					}
+					if a == "-m" && i+1 < len(args) {
+						modelName = args[i+1]
+						if idx := strings.LastIndex(modelName, "/"); idx >= 0 {
+							modelName = modelName[idx+1:]
+						}
+						if idx := strings.LastIndex(modelName, "\\"); idx >= 0 {
+							modelName = modelName[idx+1:]
+						}
+					}
 				}
 			}
 		}
@@ -155,6 +243,21 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string) (*Instan
 	args = append(args, cfg.DefaultFlags...)
 	args = append(args, extraArgs...)
 
+	// Auto-detect GPU and add --n-gpu-layers if not already specified
+	hasGpuLayers := false
+	for _, a := range args {
+		if a == "--n-gpu-layers" || strings.HasPrefix(a, "--n-gpu-layers=") {
+			hasGpuLayers = true
+			break
+		}
+	}
+	if !hasGpuLayers {
+		if gpuAvailable, gpuLayers := model.DetectGPU(); gpuAvailable {
+			args = append([]string{"--n-gpu-layers", strconv.Itoa(gpuLayers)}, args...)
+			log.Printf("GPU detected, adding --n-gpu-layers %d", gpuLayers)
+		}
+	}
+
 	log.Printf("launching llama-server: %s %s", llamaBin, strings.Join(args, " "))
 	logDir := filepath.Join(model.GollamaDir(), "logs")
 	model.EnsureDir(logDir)
@@ -162,11 +265,17 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string) (*Instan
 	logF, logErr := os.Create(logFile)
 	if logErr != nil {
 		log.Printf("warning: could not create log file %s: %v", logFile, logErr)
+		logF = nil
 	}
 
 	cmd := exec.Command(llamaBin, args...)
-	cmd.Stdout = logF
-	cmd.Stderr = logF
+	if logF != nil {
+		cmd.Stdout = logF
+		cmd.Stderr = logF
+	} else {
+		cmd.Stdout = io.Discard
+		cmd.Stderr = io.Discard
+	}
 
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("starting llama-server: %w", err)

@@ -1,10 +1,10 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
-	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
@@ -90,9 +90,16 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Warning: %v\n", err)
 		}
 
+		ctx, stop := context.WithCancel(context.Background())
+		defer stop()
+
 		go func() {
 			for {
-				time.Sleep(30 * time.Second)
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(30 * time.Second):
+				}
 				for _, inst := range mgr.List() {
 					proc, err := os.FindProcess(inst.PID)
 					if err != nil {
@@ -139,6 +146,7 @@ func main() {
 		}()
 
 		<-sigCh
+		stop()
 		fmt.Println("\nshutting down...")
 
 	case "chat":
@@ -261,6 +269,45 @@ func main() {
 		}
 		fmt.Printf("Stopped instance on port %d\n", port)
 
+	case "delete":
+		if len(os.Args) < 3 {
+			fmt.Println("Usage: gollama delete <model-name>")
+			os.Exit(1)
+		}
+		modelName := os.Args[2]
+		var blobPath string
+		if err := model.UpdateIndex(func(idx map[string]model.ModelInfo) error {
+			info, ok := idx[modelName]
+			if !ok {
+				return fmt.Errorf("model %q not found", modelName)
+			}
+			blobPath = info.BlobPath
+			delete(idx, modelName)
+			return nil
+		}); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		if err := os.Remove(blobPath); err != nil && !os.IsNotExist(err) {
+			fmt.Fprintf(os.Stderr, "Error deleting file: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Deleted model: %s\n", modelName)
+
+	case "logs":
+		if len(os.Args) < 3 {
+			fmt.Println("Usage: gollama logs <port>")
+			os.Exit(1)
+		}
+		port := os.Args[2]
+		logFile := filepath.Join(model.GollamaDir(), "logs", fmt.Sprintf("port-%s.log", port))
+		data, err := os.ReadFile(logFile)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error reading logs for port %s: %v\n", port, err)
+			os.Exit(1)
+		}
+		fmt.Print(string(data))
+
 	default:
 		printUsage()
 		os.Exit(1)
@@ -346,16 +393,20 @@ func runWizard() {
 }
 
 func localIP() string {
-	hosts := []string{"hostname", "hostname -I"}
-	for _, cmd := range hosts {
-		c := exec.Command("sh", "-c", cmd)
-		out, err := c.Output()
-		if err != nil {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return "localhost"
+	}
+	for _, addr := range addrs {
+		ipNet, ok := addr.(*net.IPNet)
+		if !ok {
 			continue
 		}
-		ip := strings.Fields(string(out))
-		if len(ip) > 0 && net.ParseIP(ip[0]) != nil {
-			return ip[0]
+		if ipNet.IP.IsLoopback() {
+			continue
+		}
+		if ip4 := ipNet.IP.To4(); ip4 != nil {
+			return ip4.String()
 		}
 	}
 	return "localhost"
@@ -378,6 +429,8 @@ Usage:
   gollama serve [port]           Web UI + REST API on :9080 (main workflow)
   gollama chat <model> [flags]   Start a terminal chat session
   gollama list                   List available models
+  gollama delete <model>         Delete a downloaded model
+  gollama logs <port>            Show instance logs
   gollama ps                     List running instances
   gollama stop <port>            Stop an instance
   gollama run <model> [flags]    Run a model directly (debug/advanced)
@@ -387,6 +440,8 @@ Examples:
   gollama self-update           # Update gollama binary
   gollama update                # Update llama-server
   gollama pull hf.co/unsloth/Qwen3.5-0.8B-GGUF:Q4_K_M
+  gollama delete my-model       # Remove a model
+  gollama logs 8081             # View logs for instance on port 8081
 
 Tip:
   Models are stored in ~/.gollama/models/

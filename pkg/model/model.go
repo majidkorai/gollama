@@ -7,7 +7,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -94,6 +96,27 @@ func EnsureDir(dir string) {
 	os.MkdirAll(dir, 0755)
 }
 
+func DetectGPU() (available bool, layers int) {
+	// Returns whether a GPU is available and recommended --n-gpu-layers count.
+	switch runtime.GOOS {
+	case "linux":
+		if _, err := os.Stat("/proc/driver/nvidia/version"); err == nil {
+			return true, 99
+		}
+		if _, err := os.Stat("/proc/driver/amdgpu/version"); err == nil {
+			return true, 99
+		}
+	case "darwin":
+		return true, 99
+	case "windows":
+		cmd := exec.Command("where", "nvidia-smi.exe")
+		if err := cmd.Run(); err == nil {
+			return true, 99
+		}
+	}
+	return false, 0
+}
+
 type ProgressReader struct {
 	Reader io.Reader
 	Total  int64
@@ -140,6 +163,22 @@ var (
 	indexMu sync.RWMutex
 )
 
+// HTTPClient is a shared HTTP client with a custom User-Agent.
+var HTTPClient = &http.Client{
+	Transport: &userAgentTransport{
+		next: http.DefaultTransport,
+	},
+}
+
+type userAgentTransport struct {
+	next http.RoundTripper
+}
+
+func (t *userAgentTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	req.Header.Set("User-Agent", "gollama/0.1.0 (+https://github.com/majidkorai/gollama)")
+	return t.next.RoundTrip(req)
+}
+
 func unsafeLoadIndex() map[string]ModelInfo {
 	EnsureDir(GollamaDir())
 	data, err := os.ReadFile(IndexFile())
@@ -184,16 +223,23 @@ func UpdateIndex(fn func(map[string]ModelInfo) error) error {
 }
 
 func ListModels() ([]ModelInfo, error) {
-	var models []ModelInfo
-	idx := LoadIndex()
+	// Copy data under read lock, then release before calling
+	// populateModelInfo (which acquires a write lock).
+	indexMu.RLock()
+	idx := unsafeLoadIndex()
+	var modelList []ModelInfo
 	for _, info := range idx {
 		if _, err := os.Stat(info.BlobPath); err == nil {
 			info.Source = "local"
-			populateModelInfo(&info)
-			models = append(models, info)
+			modelList = append(modelList, info)
 		}
 	}
-	return models, nil
+	indexMu.RUnlock()
+
+	for i := range modelList {
+		populateModelInfo(&modelList[i])
+	}
+	return modelList, nil
 }
 
 func ResolveModelBlob(model string) (string, error) {
@@ -226,7 +272,7 @@ func PullModel(ref string) error {
 	}
 
 	apiURL := fmt.Sprintf("https://huggingface.co/api/models/%s", modelID)
-	resp, err := http.Get(apiURL)
+	resp, err := HTTPClient.Get(apiURL)
 	if err != nil {
 		return fmt.Errorf("fetching model info: %w", err)
 	}
@@ -284,7 +330,7 @@ func PullModel(ref string) error {
 	}
 	defer out.Close()
 
-	dlResp, err := http.Get(downloadURL)
+	dlResp, err := HTTPClient.Get(downloadURL)
 	if err != nil {
 		return fmt.Errorf("downloading: %w", err)
 	}

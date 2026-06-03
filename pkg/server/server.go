@@ -93,7 +93,14 @@ func (s *Server) handleModelDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := os.Remove(blobPath); err != nil && !os.IsNotExist(err) {
+	absPath, _ := filepath.Abs(blobPath)
+	modelsDir, _ := filepath.Abs(model.ModelsDir())
+	if !strings.HasPrefix(absPath, modelsDir) {
+		jsonError(w, "invalid model path", 400)
+		return
+	}
+
+	if err := os.Remove(absPath); err != nil && !os.IsNotExist(err) {
 		jsonError(w, fmt.Sprintf("error deleting file: %v", err), 500)
 		return
 	}

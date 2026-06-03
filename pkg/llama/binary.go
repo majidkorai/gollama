@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -61,7 +60,7 @@ func DetectGPUBackends() []BackendOption {
 }
 
 func GetReleaseData() (string, map[string]string, error) {
-	resp, err := http.Get("https://api.github.com/repos/ggml-org/llama.cpp/releases/latest")
+	resp, err := model.HTTPClient.Get("https://api.github.com/repos/ggml-org/llama.cpp/releases/latest")
 	if err != nil {
 		return "", nil, fmt.Errorf("fetching latest release: %w", err)
 	}
@@ -161,7 +160,7 @@ func SelfUpdate() error {
 	}
 
 	fmt.Printf("Downloading gollama update for %s/%s...\n", osName, archName)
-	resp, err := http.Get(url)
+	resp, err := model.HTTPClient.Get(url)
 	if err != nil {
 		return fmt.Errorf("downloading update: %w", err)
 	}
@@ -321,7 +320,7 @@ func EnsureLlamaServer() error {
 	defer os.Remove(tmpFile)
 
 	fmt.Printf("Downloading ...\n")
-	dlResp, err := http.Get(url)
+	dlResp, err := model.HTTPClient.Get(url)
 	if err != nil {
 		return fmt.Errorf("downloading: %w", err)
 	}
@@ -465,7 +464,7 @@ func checkWindowsDependencies() {
 			return
 		}
 
-		resp, err := http.Get(url)
+		resp, err := model.HTTPClient.Get(url)
 		if err != nil {
 			out.Close()
 			fmt.Printf("Warning: could not download VC++ redist: %v\n", err)
