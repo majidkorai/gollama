@@ -61,7 +61,7 @@ The first-run wizard:
 **Examples:**
 ```bash
 gollama serve                                    # Web UI on http://<ip>:9080
-gollama pull hf.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF:Q4_K_M
+gollama pull hf.co/unsloth/Qwen3.5-0.8B-GGUF:Q4_K_M
 gollama chat gemma-4-E2B-it-Q4_K_M.gguf          # Terminal chat
 gollama run Qwopus3.6-27B-v2-Q4_K_M.gguf         # Debug/advanced
 ```
