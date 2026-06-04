@@ -95,15 +95,9 @@ body {
   display: flex; flex-direction: column; align-items: center;
   gap: 4px; color: var(--text); overflow: hidden;
 }
-.sidebar .logo img { width: 100%; max-width: 160px; height: auto; flex-shrink: 0; filter: brightness(0) invert(1); }
+.sidebar .logo img { width: 100%; max-width: 80px; height: auto; flex-shrink: 0; filter: brightness(0) invert(1); }
 .light .sidebar .logo img { filter: none; }
-.sidebar .logo .toggle {
-  font-size: 11px; cursor: pointer; background: none; border: none;
-  color: var(--text-dim); padding: 2px; border-radius: 4px; line-height: 1; transition: color var(--transition); margin-top: 2px;
-}
-.sidebar .logo .toggle:hover { color: var(--text); }
-.sidebar.collapsed .logo { padding: 16px 8px; }
-.sidebar.collapsed .logo img { max-width: 32px; }
+.sidebar.collapsed .logo img { max-width: 28px; }
 .sidebar nav { flex: 1; padding: 10px 6px; display: flex; flex-direction: column; gap: 2px; }
 .sidebar .nav-item {
   display: flex; align-items: center; gap: 10px; padding: 10px 12px;
@@ -312,7 +306,7 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
 <!-- ─── Sidebar ──────────────────────────────────────── -->
 <aside class="sidebar" role="navigation" aria-label="Main navigation">
   <div class="logo" style="flex-direction:column; gap:4px; padding:20px 16px">
-    <img src="/logo.svg" alt="gollama" style="display:block; width:100%; max-width:160px; height:auto">
+    <img src="/logo.svg" alt="gollama" style="display:block; width:100%; max-width:80px; height:auto">
     <button class="toggle" onclick="toggleSidebar()" aria-label="Toggle sidebar" style="font-size:11px; color:var(--text-dim); background:none; border:none; cursor:pointer; padding:2px; margin-top:2px">◀</button>
   </div>
   <nav>
