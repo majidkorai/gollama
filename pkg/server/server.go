@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/majidkorai/gollama/pkg/manager"
 	"github.com/majidkorai/gollama/pkg/model"
@@ -208,7 +210,18 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	target := fmt.Sprintf("http://127.0.0.1:%d/v1/chat/completions", port)
-	resp, err := http.Post(target, "application/json", strings.NewReader(string(body)))
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, "POST", target, strings.NewReader(string(body)))
+	if err != nil {
+		jsonError(w, fmt.Sprintf("proxy error: %v", err), 502)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		jsonError(w, fmt.Sprintf("proxy error: %v", err), 502)
 		return
