@@ -485,8 +485,9 @@ async function loadModels() {
       return;
     }
 
-    var seen = {};
-    m.forEach(function(x) { var n = x.name || '?'; if (!seen[n]) { seen[n] = 1; s.innerHTML += '<option value="' + escAttr(n) + '">' + escHtml(n) + '</option>'; } });
+    var names = [], seen = {};
+    m.forEach(function(x) { var n = x.name || '?'; if (!seen[n]) { seen[n] = 1; names.push(n); } });
+    names.forEach(function(n, i) { s.innerHTML += '<option value="' + escAttr(n) + '"' + (names.length === 1 ? ' selected' : '') + '>' + escHtml(n) + '</option>'; });
     ml.innerHTML = '<div class="card-body">' + m.map(function(x) {
       var name = x.name || '?', size = x.size ? fmtSize(x.size) : '?';
       var arch = x.architecture || '', quant = x.quantization || '', ctx = x.context_length || 0, badges = [];
