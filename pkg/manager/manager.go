@@ -202,6 +202,25 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string) (*Instan
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// Build set of flag keys from extraArgs early to check for --port
+	extraKeys := make(map[string]bool)
+	for _, a := range extraArgs {
+		if strings.HasPrefix(a, "--") {
+			extraKeys[a] = true
+		}
+	}
+
+	// Resolve port: from extraArgs first, then parameter, then auto-assign
+	if extraKeys["--port"] {
+		for i, a := range extraArgs {
+			if a == "--port" && i+1 < len(extraArgs) {
+				if p, err := strconv.Atoi(extraArgs[i+1]); err == nil {
+					port = p
+				}
+				break
+			}
+		}
+	}
 	if port == 0 {
 		port = m.nextPort
 		m.nextPort++
@@ -234,19 +253,7 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string) (*Instan
 		return nil, fmt.Errorf("resolving model: %w", err)
 	}
 
-	args := []string{
-		"-m", blob,
-		"--host", "0.0.0.0",
-		"--port", strconv.Itoa(port),
-	}
-	// Build set of flag keys from extraArgs to avoid duplicating defaults
-	extraKeys := make(map[string]bool)
-	for _, a := range extraArgs {
-		if strings.HasPrefix(a, "--") {
-			extraKeys[a] = true
-		}
-	}
-
+	args := []string{"-m", blob}
 	cfg := model.LoadConfig()
 	for i := 0; i < len(cfg.DefaultFlags); i++ {
 		a := cfg.DefaultFlags[i]
@@ -259,6 +266,15 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string) (*Instan
 		args = append(args, a)
 	}
 	args = append(args, extraArgs...)
+
+	// Ensure --host and --port are always present (user may have removed them)
+	hasHost, hasPort := false, false
+	for _, a := range args {
+		if a == "--host" { hasHost = true }
+		if a == "--port" { hasPort = true }
+	}
+	if !hasHost { args = append(args, "--host", "0.0.0.0") }
+	if !hasPort { args = append(args, "--port", strconv.Itoa(port)) }
 
 	// Auto-detect GPU and add --n-gpu-layers if not already specified
 	hasGpuLayers := false

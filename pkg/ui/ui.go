@@ -704,10 +704,7 @@ function formatFlags(flags) {
   var out = [], skip = 0;
   for (var j = 0; j < flags.length; j++) {
     if (skip > 0) { skip--; continue; }
-    if (flags[j] === '-m' || flags[j] === '--host' || flags[j] === '--port') {
-      skip = 1;
-      continue;
-    }
+    if (flags[j] === '-m') { skip = 1; continue; }
     out.push(flags[j]);
   }
   return out.join(' ');
