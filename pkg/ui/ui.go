@@ -560,7 +560,7 @@ async function launchInstance() {
   if (!m) { alert('Select a model'); return; }
   var orig = btn.textContent; btn.disabled = true; btn.textContent = 'Launching…';
   try {
-    var r = await fetch('/api/v1/instances', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: m, port: p, flags: f }) });
+    var r = await fetch('/api/v1/instances', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: m, port: p, flags: f, replace_flags: true }) });
     if (!r.ok) { var e = await r.text(); alert('Error: ' + e); return; }
     var inst = await r.json();
     document.getElementById('portInput').value = (inst.port || 0) + 1;

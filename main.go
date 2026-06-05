@@ -160,7 +160,7 @@ func main() {
 		modelName := os.Args[2]
 		extraArgs := os.Args[3:]
 
-		inst, err := mgr.Start(modelName, 0, extraArgs)
+		inst, err := mgr.Start(modelName, 0, extraArgs, false)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
@@ -201,7 +201,7 @@ func main() {
 		extraArgs := os.Args[3:]
 
 		if len(mgr.List()) == 0 {
-			inst, err := mgr.Start(modelName, 8081, extraArgs)
+			inst, err := mgr.Start(modelName, 8081, extraArgs, false)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)

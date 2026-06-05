@@ -140,15 +140,16 @@ func (s *Server) handleInstances(w http.ResponseWriter, r *http.Request) {
 		jsonResponse(w, s.mgr.List())
 	case http.MethodPost:
 		var req struct {
-			Model string   `json:"model"`
-			Port  int      `json:"port"`
-			Flags []string `json:"flags"`
+			Model        string   `json:"model"`
+			Port         int      `json:"port"`
+			Flags        []string `json:"flags"`
+			ReplaceFlags bool     `json:"replace_flags"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			jsonError(w, err.Error(), 400)
 			return
 		}
-		inst, err := s.mgr.Start(req.Model, req.Port, req.Flags)
+		inst, err := s.mgr.Start(req.Model, req.Port, req.Flags, req.ReplaceFlags)
 		if err != nil {
 			jsonError(w, err.Error(), 500)
 			return
