@@ -95,7 +95,7 @@ body {
   display: flex; flex-direction: column; align-items: center;
   gap: 4px; color: var(--text); overflow: hidden;
 }
-.sidebar .logo img { width: 100%; max-width: 80px; height: auto; flex-shrink: 0; filter: brightness(0) invert(1); }
+.sidebar .logo img { width: 100%; max-width: 80px; height: auto; flex-shrink: 0; filter: brightness(0) invert(1); clip-path: inset(2px);}
 .light .sidebar .logo img { filter: none; }
 .sidebar.collapsed .logo img { max-width: 28px; }
 .sidebar nav { flex: 1; padding: 10px 6px; display: flex; flex-direction: column; gap: 2px; }
