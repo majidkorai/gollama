@@ -194,7 +194,7 @@ func (s *Server) handleInstanceLogs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDefaultFlags(w http.ResponseWriter, r *http.Request) {
-	cfg := model.LoadConfig()
+	cfg := model.DefaultConfig()
 	flags := cfg.DefaultFlags
 	if gpuAvailable, gpuLayers := model.DetectGPU(); gpuAvailable {
 		hasGPUFlag := false
