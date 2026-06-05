@@ -194,7 +194,21 @@ func (s *Server) handleInstanceLogs(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDefaultFlags(w http.ResponseWriter, r *http.Request) {
 	cfg := model.LoadConfig()
-	jsonResponse(w, cfg.DefaultFlags)
+	flags := cfg.DefaultFlags
+	if gpuAvailable, gpuLayers := model.DetectGPU(); gpuAvailable {
+		hasGPUFlag := false
+		for _, f := range flags {
+			if f == "--n-gpu-layers" {
+				hasGPUFlag = true
+				break
+			}
+		}
+		if !hasGPUFlag {
+			gpuFlags := []string{"--n-gpu-layers", strconv.Itoa(gpuLayers)}
+			flags = append(gpuFlags, flags...)
+		}
+	}
+	jsonResponse(w, flags)
 }
 
 func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
