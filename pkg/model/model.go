@@ -42,7 +42,7 @@ func ConfigFile() string {
 
 func DefaultConfig() *Config {
 	// CPU-safe defaults that work on laptops and low-RAM systems
-	flags := []string{"--host", "0.0.0.0", "--port", "8081", "--ctx-size", "2048", "--flash-attn", "on", "--reasoning-max-tokens", "2048"}
+	flags := []string{"--host", "0.0.0.0", "--port", "8081", "--ctx-size", "2048", "--flash-attn", "on", "--reasoning-max-tokens", "2048", "--temp", "0.7", "--repeat-penalty", "1.1"}
 	return &Config{DefaultFlags: flags}
 }
 
