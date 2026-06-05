@@ -112,7 +112,11 @@ body {
 .sidebar .nav-item .icon { font-size: 16px; width: 22px; text-align: center; flex-shrink: 0; }
 .sidebar .nav-item .label { transition: opacity var(--transition); white-space: nowrap; }
 .sidebar.collapsed .nav-item .label { opacity: 0; width: 0; overflow: hidden; }
-.sidebar.collapsed .bottom button .label { opacity: 0; width: 0; overflow: hidden; }
+.sidebar .bottom { padding: 6px; border-top: 1px solid var(--border); width: 100%; display: flex; }
+.sidebar .bottom .nav-item { width: 100%; justify-content: flex-start; }
+.sidebar.collapsed .bottom { justify-content: center; }
+.sidebar.collapsed .bottom .nav-item { justify-content: center; padding: 8px; }
+.sidebar.collapsed .bottom .label { opacity: 0; width: 0; overflow: hidden; }
 
 /* ── Main ────────────────────────────────────────────── */
 .main { flex: 1; overflow-y: auto; padding: 32px 40px; position: relative; }
@@ -326,8 +330,8 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
     </button>
   </nav>
   <div class="bottom">
-    <button onclick="toggleTheme()" id="themeToggle" aria-label="Toggle theme">
-      <span>🌙</span><span class="label">Theme</span>
+    <button class="nav-item" onclick="toggleTheme()" id="themeToggle" aria-label="Toggle theme">
+      <span class="icon">🌙</span><span class="label">Theme</span>
     </button>
   </div>
 </aside>
