@@ -685,8 +685,7 @@ async function sendChat() {
   var input = document.getElementById('chatInput'), msg = input.value.trim();
   if (!msg || !chatPort) return;
   input.value = ''; addMsg('user', msg); chatHistory.push({ role: 'user', content: msg });
-  var msgEl = addMsg('assistant', '');
-  var content = '', reasoning = '', reasoningEl = null;
+  var content = '', reasoning = '', msgEl = null, reasoningEl = null, chatPanel = document.getElementById('chatPanel');
   try {
     var r = await fetch('/api/v1/chat?port=' + chatPort, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'default', messages: chatHistory.slice(-20), max_tokens: 4096, stream: true }) });
     var reader = r.body.getReader(), decoder = new TextDecoder(), buf = '';
@@ -703,16 +702,19 @@ async function sendChat() {
           var chunk = JSON.parse(data), delta = chunk.choices && chunk.choices[0] && chunk.choices[0].delta || {};
           if (delta.reasoning_content) {
             reasoning += delta.reasoning_content;
-            if (!reasoningEl) { reasoningEl = document.createElement('div'); reasoningEl.className = 'reasoning'; msgEl.parentNode.insertBefore(reasoningEl, msgEl); }
+            if (!reasoningEl) { reasoningEl = document.createElement('div'); reasoningEl.className = 'reasoning'; chatPanel.appendChild(reasoningEl); }
             reasoningEl.textContent = reasoning;
           }
-          if (delta.content) { content += delta.content; msgEl.textContent = content; }
+          if (delta.content) {
+            if (!msgEl) { msgEl = document.createElement('div'); msgEl.className = 'msg assistant'; chatPanel.appendChild(msgEl); }
+            content += delta.content; msgEl.textContent = content;
+          }
         } catch (e) {}
       }
-      msgEl.parentNode.scrollTop = msgEl.parentNode.scrollHeight;
+      chatPanel.scrollTop = chatPanel.scrollHeight;
     }
-    chatHistory.push({ role: 'assistant', content: content });
-  } catch (e) { msgEl.innerHTML = 'Error: ' + escHtml(e.message); msgEl.className = 'msg system'; }
+    if (msgEl) chatHistory.push({ role: 'assistant', content: content });
+  } catch (e) { if (msgEl) { msgEl.innerHTML = 'Error: ' + escHtml(e.message); msgEl.className = 'msg system'; } else { var em = addMsg('assistant', ''); em.innerHTML = 'Error: ' + escHtml(e.message); em.className = 'msg system'; } }
 }
 
 // ── Logs ──────────────────────────────────────────────
