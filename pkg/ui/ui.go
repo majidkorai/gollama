@@ -254,6 +254,7 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
 
 /* ── Empty state ───────────────────────────────────────── */
 .empty-state { text-align: center; padding: 48px 20px; color: var(--text-dim); }
+.instance-grid .empty-state { grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 200px; }
 .empty-state .icon { font-size: 36px; margin-bottom: 12px; opacity: .6; }
 .empty-state .title { font-size: 15px; font-weight: 600; color: var(--text-muted); margin-bottom: 4px; }
 .empty-state p { font-size: 13px; }
