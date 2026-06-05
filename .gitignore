@@ -1,6 +1,4 @@
 gollama
-gollama-linux
+gollama-linux*
 *.exe
-gollama
-gollama-linux
 gemini-code-*.py

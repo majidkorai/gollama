@@ -665,15 +665,34 @@ async function sendChat() {
   var input = document.getElementById('chatInput'), msg = input.value.trim();
   if (!msg || !chatPort) return;
   input.value = ''; addMsg('user', msg); chatHistory.push({ role: 'user', content: msg });
-  var li = addMsg('assistant', '');
-  li.innerHTML = '<span class="chat-loading">● ● ●</span>';
+  var msgEl = addMsg('assistant', '');
+  var content = '', reasoning = '', reasoningEl = null;
   try {
-    var r = await fetch('/api/v1/chat?port=' + chatPort, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'default', messages: chatHistory.slice(-20), max_tokens: 4096, stream: false }) });
-    var d = await r.json(), msg = d.choices && d.choices[0] && d.choices[0].message ? d.choices[0].message : {}, reply = msg.content || '(no response)', reasoning = msg.reasoning_content || '';
-    chatHistory.push({ role: 'assistant', content: reply });
-    li.innerHTML = ''; li.textContent = reply;
-    if (reasoning) { li.insertAdjacentHTML('beforebegin', '<div class="reasoning">' + escHtml(reasoning) + '</div>'); }
-  } catch (e) { li.innerHTML = 'Error: ' + escHtml(e.message); li.className = 'msg system'; }
+    var r = await fetch('/api/v1/chat?port=' + chatPort, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'default', messages: chatHistory.slice(-20), max_tokens: 4096, stream: true }) });
+    var reader = r.body.getReader(), decoder = new TextDecoder(), buf = '';
+    while (true) {
+      var { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      var lines = buf.split('\n'); buf = lines.pop() || '';
+      for (var line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        var data = line.slice(6);
+        if (data === '[DONE]') continue;
+        try {
+          var chunk = JSON.parse(data), delta = chunk.choices && chunk.choices[0] && chunk.choices[0].delta || {};
+          if (delta.reasoning_content) {
+            reasoning += delta.reasoning_content;
+            if (!reasoningEl) { reasoningEl = document.createElement('div'); reasoningEl.className = 'reasoning'; msgEl.parentNode.insertBefore(reasoningEl, msgEl); }
+            reasoningEl.textContent = reasoning;
+          }
+          if (delta.content) { content += delta.content; msgEl.textContent = content; }
+        } catch (e) {}
+      }
+      msgEl.parentNode.scrollTop = msgEl.parentNode.scrollHeight;
+    }
+    chatHistory.push({ role: 'assistant', content: content });
+  } catch (e) { msgEl.innerHTML = 'Error: ' + escHtml(e.message); msgEl.className = 'msg system'; }
 }
 
 // ── Logs ──────────────────────────────────────────────

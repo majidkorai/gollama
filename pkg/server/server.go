@@ -209,6 +209,10 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var reqMap map[string]interface{}
+	json.Unmarshal(body, &reqMap)
+	isStream, _ := reqMap["stream"].(bool)
+
 	target := fmt.Sprintf("http://127.0.0.1:%d/v1/chat/completions", port)
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
@@ -227,6 +231,20 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer resp.Body.Close()
+
+	if isStream {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			jsonError(w, "streaming not supported", 500)
+			return
+		}
+		io.Copy(w, resp.Body)
+		flusher.Flush()
+		return
+	}
 
 	respBody, _ := io.ReadAll(resp.Body)
 	var timingData struct {
