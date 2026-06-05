@@ -539,7 +539,7 @@ async function loadInstances() {
       var bc = i.status == 'running' ? 'badge-green' : 'badge-red';
       var mn = i.model || '?';
       var tps = i.tokens_per_sec ? '<span style="color: var(--green); font-variant-numeric: tabular-nums">⚡ ' + i.tokens_per_sec.toFixed(1) + ' t/s</span>' : '';
-      var flags = i.flags && i.flags.length ? i.flags.slice(3).join(' ') : '';
+      var flags = i.flags && i.flags.length ? formatFlags(i.flags) : '';
       var flagsHtml = flags ? '<div style="font-size: 11px; color: var(--text-dim); margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); word-break: break-all; font-family: var(--font-mono)">' + escHtml(flags) + '</div>' : '';
       var errDiv = i.status != 'running' ? '<div class="error-line" id="err-' + i.port + '"></div>' : '';
       return '<div class="inst-card' + cls + '"><div class="title">' + escHtml(mn.length > 40 ? mn.slice(0, 40) + '…' : mn) + '</div>' +
@@ -700,6 +700,18 @@ function closeLogs() { document.getElementById('logModal').style.display = 'none
 document.getElementById('logModal').addEventListener('click', closeLogs);
 
 // ── Helpers ───────────────────────────────────────────
+function formatFlags(flags) {
+  var out = [], skip = 0;
+  for (var j = 0; j < flags.length; j++) {
+    if (skip > 0) { skip--; continue; }
+    if (flags[j] === '-m' || flags[j] === '--host' || flags[j] === '--port') {
+      skip = 1;
+      continue;
+    }
+    out.push(flags[j]);
+  }
+  return out.join(' ');
+}
 function fmtSize(b) {
   if (!b) return '?';
   if (b > 1073741824) return (b / 1073741824).toFixed(1) + ' GB';
