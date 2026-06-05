@@ -745,10 +745,6 @@ setTimeout(function tick() {
   loadInstances();
   setTimeout(tick, 5000);
 }, 2000);
-setTimeout(function tick() {
-  loadModels();
-  setTimeout(tick, 15000);
-}, 5000);
 </script>
 </body>
 </html>`
