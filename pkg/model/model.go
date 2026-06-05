@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -259,6 +260,16 @@ func ResolveModelBlob(model string) (string, error) {
 	return model, nil
 }
 
+func freeDiskBytes(path string) (uint64, error) {
+	var fs syscall.Statfs_t
+	if err := syscall.Statfs(path, &fs); err != nil {
+		return 0, err
+	}
+	bavail := uint64(int64(fs.Bavail))
+	bsize := uint64(fs.Bsize)
+	return bavail * bsize, nil
+}
+
 func PullModel(ref string) error {
 	if !strings.HasPrefix(ref, "hf.co/") {
 		ref = "hf.co/" + ref
@@ -316,6 +327,17 @@ func PullModel(ref string) error {
 
 	EnsureDir(ModelsDir())
 	dest := filepath.Join(ModelsDir(), filepath.Base(targetFile))
+
+	if targetSize > 0 {
+		free, err := freeDiskBytes(ModelsDir())
+		if err == nil {
+			need := uint64(targetSize) + 500*1024*1024
+			if free < need {
+				return fmt.Errorf("not enough disk space: need %s but only %s free — try a smaller quantization",
+					FormatSize(int64(need)), FormatSize(int64(free)))
+			}
+		}
+	}
 
 	downloadURL := fmt.Sprintf("https://huggingface.co/%s/resolve/main/%s", modelID, targetFile)
 	if targetSize > 0 {
