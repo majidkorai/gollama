@@ -239,8 +239,25 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string) (*Instan
 		"--host", "0.0.0.0",
 		"--port", strconv.Itoa(port),
 	}
+	// Build set of flag keys from extraArgs to avoid duplicating defaults
+	extraKeys := make(map[string]bool)
+	for _, a := range extraArgs {
+		if strings.HasPrefix(a, "--") {
+			extraKeys[a] = true
+		}
+	}
+
 	cfg := model.LoadConfig()
-	args = append(args, cfg.DefaultFlags...)
+	for i := 0; i < len(cfg.DefaultFlags); i++ {
+		a := cfg.DefaultFlags[i]
+		if extraKeys[a] {
+			if i+1 < len(cfg.DefaultFlags) && !strings.HasPrefix(cfg.DefaultFlags[i+1], "--") {
+				i++
+			}
+			continue
+		}
+		args = append(args, a)
+	}
 	args = append(args, extraArgs...)
 
 	// Auto-detect GPU and add --n-gpu-layers if not already specified
