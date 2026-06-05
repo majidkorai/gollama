@@ -12,7 +12,6 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -258,16 +257,6 @@ func ResolveModelBlob(model string) (string, error) {
 		return model, nil
 	}
 	return model, nil
-}
-
-func freeDiskBytes(path string) (uint64, error) {
-	var fs syscall.Statfs_t
-	if err := syscall.Statfs(path, &fs); err != nil {
-		return 0, err
-	}
-	bavail := uint64(int64(fs.Bavail))
-	bsize := uint64(fs.Bsize)
-	return bavail * bsize, nil
 }
 
 func PullModel(ref string) error {
