@@ -240,6 +240,12 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
 .badge-amber { background: var(--amber-bg); color: var(--amber); }
 .badge-blue { background: var(--blue-bg); color: var(--blue); }
 
+/* ── Advanced flags toggle ────────────────────────────── */
+.advanced-flags summary { cursor: pointer; font-size: 12px; color: var(--text-muted); font-weight: 600; user-select: none; padding: 4px 0; }
+.advanced-flags summary:hover { color: var(--text); }
+.advanced-flags[open] summary { color: var(--accent); }
+.advanced-flags[open] summary::after { content: ''; }
+
 /* ── Flag rows ─────────────────────────────────────────── */
 .flag-row { display: flex; gap: 6px; margin-bottom: 6px; align-items: center; }
 .flag-row select.flag-name { width: auto; min-width: 160px; flex-shrink: 0; }
@@ -346,11 +352,22 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
     <p>Monitor and manage your llama.cpp instances</p>
   </div>
 
-  <div class="metrics">
-    <div class="metric-card"><div class="label">Models</div><div class="value"><span class="accent" id="metric-models">—</span></div><div class="sub">downloaded</div></div>
-    <div class="metric-card"><div class="label">Running</div><div class="value"><span class="accent" id="metric-running">—</span></div><div class="sub">active instances</div></div>
-    <div class="metric-card"><div class="label">Best Tokens/sec</div><div class="value" id="metric-tps">—</div><div class="sub">fastest instance</div></div>
-    <div class="metric-card"><div class="label">Backend</div><div class="value"><span class="tps" id="metric-server">—</span></div><div class="sub" id="metric-backend">llama-server</div></div>
+  <div class="section" id="launch-section">
+    <div class="section-header"><h2>Quick Launch</h2></div>
+    <div class="card"><div class="card-body">
+      <div class="launch-row">
+        <div class="field"><label for="modelSelect">Model</label><select id="modelSelect" autocomplete="off"><option value="">Loading…</option></select></div>
+        <div class="field"><label for="portInput">Port</label><input type="number" id="portInput" value="8081" min="8081" max="8099" autocomplete="off"></div>
+        <div class="field" style="align-self: end"><button class="primary" onclick="launchInstance()" id="launchBtn">Launch</button></div>
+      </div>
+      <details class="advanced-flags" style="margin-top:8px">
+        <summary style="cursor:pointer;font-size:12px;color:var(--text-muted);font-weight:600;user-select:none">Advanced flags</summary>
+        <div style="margin-top:8px">
+          <div id="flagsContainer"></div>
+          <button class="ghost small" onclick="addFlag()" style="margin-top:4px">＋ Add Flag</button>
+        </div>
+      </details>
+    </div></div>
   </div>
 
   <div class="section">
@@ -362,35 +379,9 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
       <div class="empty-state">
         <div class="icon">🚀</div>
         <div class="title">No running instances</div>
-        <p>Launch one below to get started.</p>
+        <p>Launch one above to get started.</p>
       </div>
     </div>
-  </div>
-
-  <div class="section">
-    <div class="section-header"><h2>Quick Launch</h2></div>
-    <div class="card"><div class="card-body">
-      <div class="launch-row">
-        <div class="field"><label for="modelSelect">Model</label><select id="modelSelect" autocomplete="off"><option value="">Loading…</option></select></div>
-        <div class="field"><label for="portInput">Port</label><input type="number" id="portInput" value="8081" min="8081" max="8099" autocomplete="off"></div>
-        <div class="field" style="align-self: end"><button class="primary" onclick="launchInstance()" id="launchBtn">Launch</button></div>
-      </div>
-      <div class="field" style="margin-bottom: 8px"><label>Flags</label></div>
-      <div id="flagsContainer">
-      </div>
-      <button class="ghost small" onclick="addFlag()" style="margin-top: 4px">＋ Add Flag</button>
-    </div></div>
-  </div>
-
-  <div class="section">
-    <div class="section-header"><h2>Pull Model</h2></div>
-    <div class="card"><div class="card-body">
-      <div class="pull-row">
-        <input type="text" id="pullInput" placeholder="hf.co/user/repo:Q4_K_M…" value="hf.co/unsloth/Qwen3.5-0.8B-GGUF:Q4_K_M" autocomplete="off">
-        <button class="primary" onclick="pullModel()" id="pullBtn">Pull</button>
-      </div>
-      <div id="pullStatus" style="font-size: 12px; color: var(--text-muted); margin-top: 6px;"></div>
-    </div></div>
   </div>
 </div>
 
@@ -401,6 +392,16 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
     <p id="modelCount"><span class="spinner" id="modelCountSpinner"></span> Loading…</p>
   </div>
   <div id="modelList" class="card"><div class="card-body"><div class="empty-state"><span class="spinner"></span> Loading models…</div></div></div>
+  <div class="section" style="margin-top:32px">
+    <div class="section-header"><h2>Pull Model</h2></div>
+    <div class="card"><div class="card-body">
+      <div class="pull-row">
+        <input type="text" id="pullInput" placeholder="hf.co/user/repo:Q4_K_M…" value="hf.co/unsloth/Qwen3.5-0.8B-GGUF:Q4_K_M" autocomplete="off">
+        <button class="primary" onclick="pullModel()" id="pullBtn">Pull</button>
+      </div>
+      <div id="pullStatus" style="font-size: 12px; color: var(--text-muted); margin-top: 6px;"></div>
+    </div></div>
+  </div>
 </div>
 
 <!-- ── Chat ──────────────────────────────────────────── -->
@@ -480,7 +481,6 @@ async function loadModels() {
     var r = await fetch('/api/v1/models'), m = await r.json();
     cachedModelCount = m.length;
     mc.innerHTML = m.length + ' downloaded';
-    document.getElementById('metric-models').textContent = m.length;
 
     s.innerHTML = '<option value="">— Select model —</option>';
     if (!m || !m.length) {
@@ -521,10 +521,6 @@ async function loadInstances() {
     var r = await fetch('/api/v1/instances'), list = await r.json();
     ic.textContent = '(' + list.length + ')';
     var running = list.filter(function(i) { return i.status == 'running'; });
-    document.getElementById('metric-running').textContent = running.length;
-    var bestTps = 0;
-    running.forEach(function(i) { if (i.tokens_per_sec && i.tokens_per_sec > bestTps) bestTps = i.tokens_per_sec; });
-    document.getElementById('metric-tps').textContent = bestTps ? bestTps.toFixed(1) : '—';
 
     cs.innerHTML = '<option value="">— select a running instance —</option>';
     list.forEach(function(i) { var mn = i.model || '?'; cs.innerHTML += '<option value="' + i.port + '"' + (chatPort == i.port ? ' selected' : '') + '>' + i.port + ' - ' + (mn.length > 35 ? mn.slice(0, 35) + '…' : escHtml(mn)) + '</option>'; });
