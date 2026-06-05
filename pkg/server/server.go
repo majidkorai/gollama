@@ -42,6 +42,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/v1/instances", s.handleInstances)
 	s.mux.HandleFunc("/api/v1/instances/stop", s.handleInstanceStop)
 	s.mux.HandleFunc("/api/v1/instances/logs", s.handleInstanceLogs)
+	s.mux.HandleFunc("/api/v1/config/default-flags", s.handleDefaultFlags)
 	s.mux.HandleFunc("/api/v1/chat", s.handleChat)
 	s.mux.HandleFunc("/", s.handleUI)
 }
@@ -189,6 +190,11 @@ func (s *Server) handleInstanceLogs(w http.ResponseWriter, r *http.Request) {
 		"port":  portStr,
 		"lines": lines,
 	})
+}
+
+func (s *Server) handleDefaultFlags(w http.ResponseWriter, r *http.Request) {
+	cfg := model.LoadConfig()
+	jsonResponse(w, cfg.DefaultFlags)
 }
 
 func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {

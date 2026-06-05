@@ -547,7 +547,6 @@ async function loadInstances() {
         errDiv + flagsHtml +
         '<div class="actions"><button class="small danger" onclick="stopInstance(' + i.port + ')" aria-label="Stop instance on port ' + i.port + '">⏹ Stop</button>' +
         '<button class="small secondary" onclick="selectChatFor(' + i.port + ', \'' + escAttr(mn.replace(/'/g, '')) + '\')" aria-label="Chat with instance on port ' + i.port + '">💬 Chat</button>' +
-        '<button class="small secondary" onclick="editInstance(' + i.port + ')" aria-label="Edit instance on port ' + i.port + '">✏️ Edit</button>' +
         '<button class="small secondary" onclick="window.open(\'http://\' + location.hostname + \':' + i.port + '\', \'_blank\'); return false" aria-label="Open instance on port ' + i.port + '">🌐 Open</button>' +
         '<button class="small secondary" onclick="viewLogs(' + i.port + ')" aria-label="View logs for port ' + i.port + '">📋 Logs</button></div></div>';
     }).join('');
@@ -577,27 +576,6 @@ async function stopInstance(p) {
     loadInstances();
     if (chatPort == p) { chatPort = 0; document.getElementById('chatPanel').style.display = 'none'; document.getElementById('chatEmpty').style.display = 'flex'; }
   } catch (e) { alert('Error: ' + e); }
-}
-
-// ── Edit Instance ───────────────────────────────────────
-function editInstance(port) {
-  switchView('dashboard');
-  var r = document.getElementById('flagsContainer');
-  r.innerHTML = '';
-  var list = JSON.parse(document.querySelector('#instances').getAttribute('data-list') || '[]');
-  for (var i = 0; i < list.length; i++) {
-    if (list[i].port != port) continue;
-    var inst = list[i];
-    document.getElementById('modelSelect').value = inst.model || '';
-    document.getElementById('portInput').value = inst.port;
-    var flags = inst.flags || [];
-    for (var j = 3; j < flags.length; j += 2) {
-      var row = document.createElement('div'); row.className = 'flag-row';
-      row.innerHTML = '<input type="text" class="flag-input" value="' + escAttr((flags[j].startsWith('--') ? flags[j] + ' ' + (flags[j + 1] || '') : flags[j])) + '" autocomplete="off"><button class="small danger" onclick="this.parentElement.remove()" aria-label="Remove flag">✕</button>';
-      r.appendChild(row);
-    }
-    break;
-  }
 }
 
 // ── Error Log ──────────────────────────────────────────
@@ -635,6 +613,22 @@ async function pullModel() {
     else { st.innerHTML = '✅ Pulled ' + escHtml(ref); loadModels(); }
   } catch (e) { st.textContent = 'Error: ' + e; alert(e); }
   btn.disabled = false; btn.textContent = 'Pull';
+}
+
+// ── Default Flags ─────────────────────────────────────
+async function loadDefaultFlags() {
+  try {
+    var r = await fetch('/api/v1/config/default-flags'), flags = await r.json();
+    if (!flags || !flags.length) return;
+    var c = document.getElementById('flagsContainer'); c.innerHTML = '';
+    for (var i = 0; i < flags.length; i += 2) {
+      var val = flags[i];
+      if (i + 1 < flags.length && !flags[i + 1].startsWith('--')) val += ' ' + flags[i + 1];
+      var row = document.createElement('div'); row.className = 'flag-row';
+      row.innerHTML = '<input type="text" value="' + escAttr(val) + '" class="flag-input" autocomplete="off"><button class="small danger" onclick="this.parentElement.remove()" aria-label="Remove flag">\u2715</button>';
+      c.appendChild(row);
+    }
+  } catch (e) {}
 }
 
 // ── Chat ──────────────────────────────────────────────
@@ -740,6 +734,7 @@ function toggleTheme() {
 
 // ── Init (staggered, no pile-up) ─────────────────────
 loadModels();
+setTimeout(loadDefaultFlags, 50);
 setTimeout(loadInstances, 100);
 setTimeout(function tick() {
   loadInstances();
