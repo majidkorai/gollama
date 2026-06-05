@@ -258,6 +258,14 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 	if replaceFlags {
 		// UI sends the complete set — use only these flags
 		args = append(args, extraArgs...)
+		// Ensure --host and --port are always present
+		hasHost, hasPort := false, false
+		for _, a := range args {
+			if a == "--host" { hasHost = true }
+			if a == "--port" { hasPort = true }
+		}
+		if !hasHost { args = append(args, "--host", "0.0.0.0") }
+		if !hasPort { args = append(args, "--port", strconv.Itoa(port)) }
 	} else {
 		// CLI sent partial flags — merge with defaults
 		cfg := model.LoadConfig()
