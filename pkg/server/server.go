@@ -241,8 +241,17 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, "streaming not supported", 500)
 			return
 		}
-		io.Copy(w, resp.Body)
-		flusher.Flush()
+		buf := make([]byte, 256)
+		for {
+			n, err := resp.Body.Read(buf)
+			if n > 0 {
+				w.Write(buf[:n])
+				flusher.Flush()
+			}
+			if err != nil {
+				break
+			}
+		}
 		return
 	}
 
