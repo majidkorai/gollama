@@ -237,8 +237,10 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
 .badge-blue { background: var(--blue-bg); color: var(--blue); }
 
 /* ── Flag rows ─────────────────────────────────────────── */
-.flag-row { display: flex; gap: 6px; margin-bottom: 6px; }
-.flag-row input { flex: 1; }
+.flag-row { display: flex; gap: 6px; margin-bottom: 6px; align-items: center; }
+.flag-row select.flag-name { width: auto; min-width: 160px; flex-shrink: 0; }
+.flag-row input.flag-custom { flex: 1; }
+.flag-row input.flag-value { flex: 1; }
 
 /* ── Empty state ───────────────────────────────────────── */
 .empty-state { text-align: center; padding: 48px 20px; color: var(--text-dim); }
@@ -371,10 +373,6 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
       </div>
       <div class="field" style="margin-bottom: 8px"><label>Flags</label></div>
       <div id="flagsContainer">
-        <div class="flag-row">
-          <input type="text" placeholder="e.g. --flash-attn on" class="flag-input" autocomplete="off">
-          <button class="small danger" onclick="this.parentElement.remove()" aria-label="Remove flag">✕</button>
-        </div>
       </div>
       <button class="ghost small" onclick="addFlag()" style="margin-top: 4px">＋ Add Flag</button>
     </div></div>
@@ -556,7 +554,13 @@ async function loadInstances() {
 
 async function launchInstance() {
   var btn = document.getElementById('launchBtn'), m = document.getElementById('modelSelect').value, p = parseInt(document.getElementById('portInput').value), f = [];
-  document.querySelectorAll('.flag-input').forEach(function(el) { (el.value.trim().split(/\s+/)).forEach(function(v) { if (v) f.push(v); }); });
+  document.querySelectorAll('#flagsContainer .flag-row').forEach(function(row) {
+    var sel = row.querySelector('.flag-name'), valInput = row.querySelector('.flag-value'), customInput = row.querySelector('.flag-custom');
+    var name = sel.value || customInput.value.trim(), val = valInput.value.trim();
+    if (!name) return;
+    f.push(name);
+    if (val) f.push(val);
+  });
   if (!m) { alert('Select a model'); return; }
   var orig = btn.textContent; btn.disabled = true; btn.textContent = 'Launching…';
   try {
@@ -593,11 +597,34 @@ async function fetchErrorLog(port) {
 }
 
 // ── Flags ─────────────────────────────────────────────
+var commonFlags = ['--ctx-size','--flash-attn','--temp','--repeat-penalty','--top-k','--top-p','--min-p','--presence-penalty','--frequency-penalty','--mirostat','--seed','--n-gpu-layers','--host','--port','--mlock','--no-flash-attn','--no-kv-offload','--threads','--batch-size','--ubatch-size','--parallel','--keep','--predict','--no-mmap','--cache-type-k','--cache-type-v','--reasoning','--reasoning-budget'];
+var standaloneFlags = {'--mlock':1,'--no-flash-attn':1,'--no-kv-offload':1};
+
+function flagOptions(selected) {
+  return commonFlags.map(function(f) { return '<option value="' + escAttr(f) + '"' + (f === selected ? ' selected' : '') + '>' + escHtml(f) + '</option>'; }).join('') +
+    '<option value=""' + (!selected || commonFlags.indexOf(selected) === -1 ? ' selected' : '') + '>Custom…</option>';
+}
+
+function makeFlagRow(name, value) {
+  var r = document.createElement('div'); r.className = 'flag-row';
+  var isCustom = name && commonFlags.indexOf(name) === -1;
+  var displayName = isCustom ? '' : (name || '');
+  r.innerHTML = '<select class="flag-name" onchange="onFlagChange(this)">' + flagOptions(displayName) + '</select>' +
+    '<input type="text" class="flag-custom" placeholder="Flag name" autocomplete="off" style="display:' + (isCustom ? '' : 'none') + '" value="' + (isCustom ? escAttr(name) : '') + '">' +
+    '<input type="text" class="flag-value" placeholder="Value" autocomplete="off" value="' + escAttr(value || '') + '">' +
+    '<button class="small danger" onclick="this.parentElement.remove()" aria-label="Remove flag">\u2715</button>';
+  if (!isCustom && standaloneFlags[name]) r.querySelector('.flag-value').style.display = 'none';
+  return r;
+}
+
 function addFlag() {
-  var c = document.getElementById('flagsContainer'), r = document.createElement('div');
-  r.className = 'flag-row';
-  r.innerHTML = '<input type="text" placeholder="e.g. --flash-attn on" class="flag-input" autocomplete="off"><button class="small danger" onclick="this.parentElement.remove()" aria-label="Remove flag">✕</button>';
-  c.appendChild(r);
+  document.getElementById('flagsContainer').appendChild(makeFlagRow('', ''));
+}
+
+function onFlagChange(sel) {
+  var row = sel.parentElement;
+  row.querySelector('.flag-custom').style.display = sel.value === '' ? '' : 'none';
+  row.querySelector('.flag-value').style.display = standaloneFlags[sel.value] ? 'none' : '';
 }
 
 // ── Pull Model ────────────────────────────────────────
@@ -622,11 +649,9 @@ async function loadDefaultFlags() {
     if (!flags || !flags.length) return;
     var c = document.getElementById('flagsContainer'); c.innerHTML = '';
     for (var i = 0; i < flags.length; i += 2) {
-      var val = flags[i];
-      if (i + 1 < flags.length && !flags[i + 1].startsWith('--')) val += ' ' + flags[i + 1];
-      var row = document.createElement('div'); row.className = 'flag-row';
-      row.innerHTML = '<input type="text" value="' + escAttr(val) + '" class="flag-input" autocomplete="off"><button class="small danger" onclick="this.parentElement.remove()" aria-label="Remove flag">\u2715</button>';
-      c.appendChild(row);
+      var name = flags[i];
+      var value = (i + 1 < flags.length && !flags[i + 1].startsWith('--')) ? flags[i + 1] : '';
+      c.appendChild(makeFlagRow(name, value));
     }
   } catch (e) {}
 }
