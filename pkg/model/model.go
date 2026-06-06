@@ -365,10 +365,22 @@ func pullModelInternal(ref string, fn ProgressFn, progress io.Writer) error {
 	downloadURL := fmt.Sprintf("https://huggingface.co/%s/resolve/main/%s", modelID, targetFile)
 	modelName := fmt.Sprintf("hf.co/%s:%s", modelID, quant)
 	if _, exists := LoadIndex()[modelName]; exists {
-		return fmt.Errorf("model %s is already downloaded", modelName)
+		log.Printf("model %s already in index, skipping download", modelName)
+		return nil
 	}
 	if _, err := os.Stat(dest); err == nil {
-		return fmt.Errorf("model file %s already exists — delete it first or use a different model", filepath.Base(dest))
+		// File on disk but not in index — re-index it
+		log.Printf("model file %s exists but not in index, re-indexing", dest)
+		info := ModelInfo{Name: modelName, BlobPath: dest}
+		if fi, err := os.Stat(dest); err == nil {
+			info.Size = fi.Size()
+		}
+		populateModelInfo(&info)
+		UpdateIndex(func(idx map[string]ModelInfo) error {
+			idx[modelName] = info
+			return nil
+		})
+		return nil
 	}
 
 	if targetSize > 0 {
