@@ -97,7 +97,7 @@ func (m *Manager) recoverOrphans() {
 		if port >= m.nextPort {
 			m.nextPort = port + 1
 		}
-		if _, exists := m.instances[port]; !exists && port > 0 {
+		if _, exists := m.instances[port]; !exists && port > 0 && !m.pidExists(pid) {
 			m.instances[port] = &Instance{
 				Port:   port,
 				Model:  modelName,
@@ -135,7 +135,10 @@ func (m *Manager) recoverOrphansWindows() {
 		wmi := exec.Command("wmic", "process", "where", fmt.Sprintf("ProcessId=%d", pid), "get", "CommandLine", "/format:value")
 		wmiOut, wmiErr := wmi.Output()
 		if wmiErr != nil {
-			// Fallback: register with a guessed port
+			// Fallback: register with a guessed port, but only if PID not already tracked
+			if m.pidExists(pid) {
+				continue
+			}
 			port := m.nextPort
 			m.nextPort++
 			m.instances[port] = &Instance{
@@ -182,7 +185,7 @@ func (m *Manager) recoverOrphansWindows() {
 		if port >= m.nextPort {
 			m.nextPort = port + 1
 		}
-		if _, exists := m.instances[port]; !exists && port > 0 {
+		if _, exists := m.instances[port]; !exists && port > 0 && !m.pidExists(pid) {
 			m.instances[port] = &Instance{
 				Port:   port,
 				Model:  modelName,
@@ -198,6 +201,15 @@ func (m *Manager) RecoverOrphans() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.recoverOrphans()
+}
+
+func (m *Manager) pidExists(pid int) bool {
+	for _, inst := range m.instances {
+		if inst.PID == pid {
+			return true
+		}
+	}
+	return false
 }
 
 func portAvailable(port int) bool {
