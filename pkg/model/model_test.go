@@ -51,54 +51,43 @@ func TestDefaultConfig(t *testing.T) {
 
 func TestConfigFile(t *testing.T) {
 	path := ConfigFile()
-	if !strings.HasSuffix(path, "/config.json") {
-		t.Errorf("ConfigFile() = %q, should end with /config.json", path)
+	if !strings.HasSuffix(path, "config.json") {
+		t.Errorf("ConfigFile() = %q, should end with config.json", path)
 	}
-	if !strings.HasPrefix(path, "/") {
+	if !filepath.IsAbs(path) {
 		t.Errorf("ConfigFile() = %q, should be absolute", path)
 	}
 }
 
-func TestGollamaDir(t *testing.T) {
-	dir := GollamaDir()
-	if !strings.HasSuffix(dir, ".gollama") {
-		t.Errorf("GollamaDir() = %q, should end with .gollama", dir)
+func checkSuffix(t *testing.T, path, suffix string) {
+	t.Helper()
+	if !strings.HasSuffix(path, suffix) {
+		t.Errorf("%q should end with %s", path, suffix)
 	}
+}
+
+func TestGollamaDir(t *testing.T) {
+	checkSuffix(t, GollamaDir(), ".gollama")
 }
 
 func TestModelsDir(t *testing.T) {
-	dir := ModelsDir()
-	if !strings.HasSuffix(dir, "models") {
-		t.Errorf("ModelsDir() = %q, should end with models", dir)
-	}
+	checkSuffix(t, ModelsDir(), "models")
 }
 
 func TestBinDir(t *testing.T) {
-	dir := BinDir()
-	if !strings.HasSuffix(dir, "bin") {
-		t.Errorf("BinDir() = %q, should end with bin", dir)
-	}
+	checkSuffix(t, BinDir(), "bin")
 }
 
 func TestIndexFile(t *testing.T) {
-	path := IndexFile()
-	if !strings.HasSuffix(path, "index.json") {
-		t.Errorf("IndexFile() = %q, should end with index.json", path)
-	}
+	checkSuffix(t, IndexFile(), "index.json")
 }
 
 func TestBackendFile(t *testing.T) {
-	path := BackendFile()
-	if !strings.HasSuffix(path, "llama-server-backend.txt") {
-		t.Errorf("BackendFile() = %q, should end with llama-server-backend.txt", path)
-	}
+	checkSuffix(t, BackendFile(), "llama-server-backend.txt")
 }
 
 func TestVersionFile(t *testing.T) {
-	path := VersionFile()
-	if !strings.HasSuffix(path, "llama-server-version.txt") {
-		t.Errorf("VersionFile() = %q, should end with llama-server-version.txt", path)
-	}
+	checkSuffix(t, VersionFile(), "llama-server-version.txt")
 }
 
 func TestEnsureDir(t *testing.T) {
