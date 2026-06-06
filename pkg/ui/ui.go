@@ -496,8 +496,9 @@ function switchView(name) {
   if (view) view.classList.add('active');
   document.querySelector('.nav-item[onclick*="' + name + '"]').classList.add('active');
   currentView = name;
+  if (name == 'dashboard') loadInstances();
   if (name == 'chat' && chatPort) selectChatFor(chatPort, '');
-  if (name == 'models' && !document.querySelector('#view-models .model-row')) loadModels();
+  if (name == 'models') loadModels();
 }
 
 // ── Models ───────────────────────────────────────────
@@ -920,10 +921,6 @@ function toggleTheme() {
 loadModels();
 setTimeout(loadDefaultFlags, 50);
 setTimeout(loadInstances, 100);
-setTimeout(function tick() {
-  loadInstances();
-  setTimeout(tick, 5000);
-}, 2000);
 </script>
 </body>
 </html>`
