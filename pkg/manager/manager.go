@@ -71,6 +71,11 @@ func (m *Manager) recoverOrphans() {
 			continue
 		}
 
+		cmdLine := strings.Join(parts[1:], " ")
+		// Only recover instances started by gollama (identified by --host flag)
+		if !strings.Contains(cmdLine, "--host ") {
+			continue
+		}
 		var port int
 		var modelName string
 		args := parts[1:]
@@ -149,6 +154,10 @@ func (m *Manager) recoverOrphansWindows() {
 			wmiLine = strings.TrimSpace(wmiLine)
 			if strings.HasPrefix(wmiLine, "CommandLine=") {
 				cmdLine := strings.TrimPrefix(wmiLine, "CommandLine=")
+				// Only recover instances started by gollama (identified by --host flag)
+				if !strings.Contains(cmdLine, "--host ") {
+					continue
+				}
 				args := strings.Fields(cmdLine)
 				for i, a := range args {
 					if a == "--port" && i+1 < len(args) {
