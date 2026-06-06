@@ -610,11 +610,13 @@ async function loadInstances() {
       var bc = i.status == 'running' ? 'badge-green' : 'badge-red';
       var mn = i.model || '?';
       var tps = i.tokens_per_sec ? '<span style="color: var(--green); font-variant-numeric: tabular-nums">⚡ ' + i.tokens_per_sec.toFixed(1) + ' t/s</span>' : '';
+      var uptime = i.started_at ? (function() { var s = Math.floor((Date.now() - new Date(i.started_at).getTime()) / 1000); return '<span title="Uptime">⏱ ' + (s > 86400 ? Math.floor(s/86400)+'d ' : '') + (s > 3600 ? Math.floor((s%86400)/3600)+'h ' : '') + Math.floor((s%3600)/60)+'m</span>'; })() : '';
+      var tokens = i.total_tokens ? '<span title="Total tokens">🔤 ' + (i.total_tokens > 999 ? Math.round(i.total_tokens/1000) + 'K' : i.total_tokens) + '</span>' : '';
       var flags = i.flags && i.flags.length ? formatFlags(i.flags) : '';
       var flagsHtml = flags ? '<div style="font-size: 11px; color: var(--text-dim); margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); word-break: break-all; font-family: var(--font-mono)">' + escHtml(flags) + '</div>' : '';
       var errDiv = i.status != 'running' ? '<div class="error-line" id="err-' + i.port + '"></div>' : '';
       return '<div class="inst-card' + cls + '"><div class="title">' + escHtml(mn.length > 40 ? mn.slice(0, 40) + '…' : mn) + '</div>' +
-        '<div class="meta"><span>Port ' + i.port + '</span><span>PID ' + i.pid + '</span><span class="badge ' + bc + '">' + i.status + '</span>' + tps + '</div>' +
+        '<div class="meta"><span>Port ' + i.port + '</span>' + tps + uptime + tokens + '<span class="badge ' + bc + '">' + i.status + '</span></div>' +
         errDiv + flagsHtml +
         '<div class="actions"><button class="small danger" onclick="stopInstance(' + i.port + ')" aria-label="Stop instance on port ' + i.port + '">⏹ Stop</button>' +
         '<button class="small secondary" onclick="restartInstance(' + i.port + ')" aria-label="Restart instance on port ' + i.port + '">🔄 Restart</button>' +

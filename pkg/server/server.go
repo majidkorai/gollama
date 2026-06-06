@@ -326,6 +326,15 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			if n > 0 {
 				w.Write(buf[:n])
 				flusher.Flush()
+				// Parse SSE for usage data (final data event before [DONE])
+				var usage struct {
+					Usage *struct {
+						CompletionTokens int64 `json:"completion_tokens"`
+					} `json:"usage"`
+				}
+				if json.Unmarshal(buf[:n], &usage) == nil && usage.Usage != nil {
+					s.mgr.AddCompletionTokens(port, usage.Usage.CompletionTokens)
+				}
 			}
 			if err != nil {
 				break
@@ -335,13 +344,21 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respBody, _ := io.ReadAll(resp.Body)
-	var timingData struct {
+	var responseData struct {
+		Usage *struct {
+			CompletionTokens int64 `json:"completion_tokens"`
+		} `json:"usage"`
 		Timings *struct {
 			PredictedPerSecond float64 `json:"predicted_per_second"`
 		} `json:"timings"`
 	}
-	if json.Unmarshal(respBody, &timingData) == nil && timingData.Timings != nil {
-		s.mgr.UpdateTokens(port, timingData.Timings.PredictedPerSecond)
+	if json.Unmarshal(respBody, &responseData) == nil {
+		if responseData.Timings != nil {
+			s.mgr.UpdateTokens(port, responseData.Timings.PredictedPerSecond)
+		}
+		if responseData.Usage != nil {
+			s.mgr.AddCompletionTokens(port, responseData.Usage.CompletionTokens)
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")

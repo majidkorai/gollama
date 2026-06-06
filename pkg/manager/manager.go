@@ -25,6 +25,8 @@ type Instance struct {
 	Status       string   `json:"status"`
 	TokensPerSec float64  `json:"tokens_per_sec,omitempty"`
 	Flags        []string `json:"flags,omitempty"`
+	StartedAt    time.Time `json:"started_at"`
+	TotalTokens  int64    `json:"total_tokens"`
 }
 
 type Manager struct {
@@ -340,11 +342,12 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 	}
 
 	inst := &Instance{
-		Port:   port,
-		Model:  modelName,
-		PID:    cmd.Process.Pid,
-		Status: "running",
-		Flags:  args,
+		Port:      port,
+		Model:     modelName,
+		PID:       cmd.Process.Pid,
+		Status:    "running",
+		Flags:     args,
+		StartedAt: time.Now(),
 	}
 	m.instances[port] = inst
 
@@ -404,6 +407,14 @@ func (m *Manager) UpdateTokens(port int, tps float64) {
 	defer m.mu.Unlock()
 	if inst, ok := m.instances[port]; ok {
 		inst.TokensPerSec = tps
+	}
+}
+
+func (m *Manager) AddCompletionTokens(port int, n int64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if inst, ok := m.instances[port]; ok {
+		inst.TotalTokens += n
 	}
 }
 
