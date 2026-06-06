@@ -117,13 +117,16 @@ func DetectGPU() (available bool, layers int) {
 	return false, 0
 }
 
+type ProgressFn func(pct float64, done, total int64, speed string)
+
 type ProgressReader struct {
-	Reader io.Reader
-	Total  int64
-	Done   int64
-	Start  time.Time
-	Name   string
-	Output io.Writer
+	Reader     io.Reader
+	Total      int64
+	Done       int64
+	Start      time.Time
+	Name       string
+	Output     io.Writer
+	ProgressFn ProgressFn
 }
 
 func (pr *ProgressReader) Read(p []byte) (int, error) {
@@ -135,22 +138,36 @@ func (pr *ProgressReader) Read(p []byte) (int, error) {
 		rate := float64(pr.Done) / (1024 * 1024) / elapsed
 		speed = fmt.Sprintf("%.1f MB/s", rate)
 	}
-	out := pr.Output
-	if out == nil {
-		out = os.Stderr
-	}
-	if pr.Total > 0 {
-		pct := float64(pr.Done) * 100 / float64(pr.Total)
-		fmt.Fprintf(out, "\r  %s  %.1f%%  (%s / %s)  %s    ",
-			pr.Name, pct, FormatSize(pr.Done), FormatSize(pr.Total), speed)
+	if pr.ProgressFn != nil {
+		if pr.Total > 0 {
+			pct := float64(pr.Done) * 100 / float64(pr.Total)
+			pr.ProgressFn(pct, pr.Done, pr.Total, speed)
+		}
 	} else {
-		fmt.Fprintf(out, "\r  %s  %s  %s       ",
-			pr.Name, FormatSize(pr.Done), speed)
+		out := pr.Output
+		if out == nil {
+			out = os.Stderr
+		}
+		if pr.Total > 0 {
+			pct := float64(pr.Done) * 100 / float64(pr.Total)
+			fmt.Fprintf(out, "\r  %s  %.1f%%  (%s / %s)  %s    ",
+				pr.Name, pct, FormatSize(pr.Done), FormatSize(pr.Total), speed)
+		} else {
+			fmt.Fprintf(out, "\r  %s  %s  %s       ",
+				pr.Name, FormatSize(pr.Done), speed)
+		}
 	}
-	if err == io.EOF {
-		fmt.Fprintln(out)
+	if err == io.EOF && pr.ProgressFn == nil {
+		fmt.Fprintln(pr.output())
 	}
 	return n, err
+}
+
+func (pr *ProgressReader) output() io.Writer {
+	if pr.Output != nil {
+		return pr.Output
+	}
+	return os.Stderr
 }
 
 func FormatSize(bytes int64) string {
@@ -269,6 +286,14 @@ func PullModel(ref string) error {
 }
 
 func PullModelWithProgress(ref string, progress io.Writer) error {
+	return pullModelInternal(ref, nil, progress)
+}
+
+func PullModelWithCallback(ref string, fn ProgressFn) error {
+	return pullModelInternal(ref, fn, nil)
+}
+
+func pullModelInternal(ref string, fn ProgressFn, progress io.Writer) error {
 	if !strings.HasPrefix(ref, "hf.co/") {
 		ref = "hf.co/" + ref
 	}
@@ -362,11 +387,12 @@ func PullModelWithProgress(ref string, progress io.Writer) error {
 	}
 
 	pr := &ProgressReader{
-		Reader: dlResp.Body,
-		Total:  targetSize,
-		Name:   "▸",
-		Start:  time.Now(),
-		Output: progress,
+		Reader:     dlResp.Body,
+		Total:      targetSize,
+		Name:       "▸",
+		Start:      time.Now(),
+		Output:     progress,
+		ProgressFn: fn,
 	}
 	written, err := io.Copy(out, pr)
 	if err != nil {

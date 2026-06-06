@@ -138,32 +138,22 @@ func (s *Server) handleModelPull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Content-Type", "application/x-ndjson")
 	w.WriteHeader(200)
 	flusher.Flush()
 
-	// Wrap writer to flush after each write
-	flushWriter := &flushWriter{w: w, f: flusher}
-	err := model.PullModelWithProgress(req.Model, flushWriter)
+	enc := json.NewEncoder(w)
+	err := model.PullModelWithCallback(req.Model, func(pct float64, done, total int64, speed string) {
+		enc.Encode(map[string]interface{}{"pct": pct, "done": model.FormatSize(done), "total": model.FormatSize(total), "speed": speed})
+		flusher.Flush()
+	})
 
 	if err != nil {
-		fmt.Fprintf(flushWriter, "\rERROR: %v\n", err)
+		enc.Encode(map[string]string{"status": "error", "error": err.Error()})
 	} else {
-		fmt.Fprintf(flushWriter, "\rDONE\n")
+		enc.Encode(map[string]string{"status": "done"})
 	}
 	flusher.Flush()
-}
-
-type flushWriter struct {
-	w io.Writer
-	f http.Flusher
-}
-
-func (fw *flushWriter) Write(p []byte) (int, error) {
-	n, err := fw.w.Write(p)
-	fw.f.Flush()
-	return n, err
 }
 
 func (s *Server) handleInstances(w http.ResponseWriter, r *http.Request) {

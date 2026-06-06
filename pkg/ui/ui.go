@@ -735,19 +735,21 @@ async function pullModel() {
       var { done, value } = await reader.read();
       if (done) break;
       buf += decoder.decode(value, { stream: true });
-      var parts = buf.split('\r');
-      buf = parts.pop() || '';
-      for (var p = 0; p < parts.length; p++) {
-        var line = parts[p].trim();
+      var lines = buf.split('\n');
+      buf = lines.pop() || '';
+      for (var li = 0; li < lines.length; li++) {
+        var line = lines[li].trim();
         if (!line) continue;
-        if (line === 'DONE') { pullDone = true; st.innerHTML = '<span style="color:var(--green)">\u2713</span> Pulled ' + escHtml(ref); loadModels(); break; }
-        if (line.startsWith('ERROR:')) { st.innerHTML = line; alert(line); pullDone = true; break; }
-        var m = line.match(/([\d.]+)%/);
-        if (m) { pb.style.width = m[1] + '%'; st.textContent = line.replace(/\s+/g, ' ').trim(); }
-        else { st.textContent = line.replace(/\s+/g, ' ').trim(); }
+        try {
+          var d = JSON.parse(line);
+          if (d.status === 'done') { pullDone = true; st.innerHTML = '<span style="color:var(--green)">\u2713</span> Pulled ' + escHtml(ref); loadModels(); break; }
+          if (d.status === 'error') { st.innerHTML = 'Error: ' + (d.error || 'unknown'); alert(d.error); pullDone = true; break; }
+          if (d.pct !== undefined) { pb.style.width = Math.round(d.pct) + '%'; st.textContent = d.done + ' / ' + d.total + ' @ ' + d.speed; }
+        } catch (e) {}
       }
+      if (pullDone) break;
     }
-    if (!pullDone) { console.debug('pull: stream ended without DONE, last buf:', JSON.stringify(buf)); st.innerHTML = '<span style="color:var(--green)">\u2713</span> Pulled ' + escHtml(ref); loadModels(); }
+    if (!pullDone) { st.innerHTML = '<span style="color:var(--green)">\u2713</span> Pulled ' + escHtml(ref); loadModels(); }
   } catch (e) { st.textContent = 'Error: ' + e; if (!pullDone) alert(e); }
   if (!pullDone) { pw.style.display = 'none'; pb.style.width = '0%'; }
   btn.disabled = false; btn.textContent = 'Pull';
