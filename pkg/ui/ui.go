@@ -720,9 +720,30 @@ async function pullModel() {
   btn.disabled = true; btn.textContent = 'Pulling…'; st.textContent = 'Downloading…'; sp.style.display = 'inline-block';
   try {
     var r = await fetch('/api/v1/models/pull', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: ref }) });
-    var d = await r.json();
-    if (d.error) { st.innerHTML = 'Error: ' + d.error; alert(d.error); }
-    else { st.innerHTML = '<span style="color:var(--green)">\u2713</span> Pulled ' + escHtml(ref); loadModels(); }
+    if (!r.body) {
+      var d = await r.json();
+      if (d.error) { st.innerHTML = 'Error: ' + d.error; alert(d.error); }
+      else { st.innerHTML = '<span style="color:var(--green)">\u2713</span> Pulled ' + escHtml(ref); loadModels(); }
+      return;
+    }
+    var reader = r.body.getReader(), decoder = new TextDecoder(), buf = '';
+    while (true) {
+      var { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      var lines = buf.split('\n');
+      buf = lines.pop() || '';
+      for (var li = 0; li < lines.length; li++) {
+        var line = lines[li].trim();
+        if (!line) continue;
+        try {
+          var d = JSON.parse(line);
+          if (d.status === 'done') { st.innerHTML = '<span style="color:var(--green)">\u2713</span> Pulled ' + escHtml(ref); loadModels(); break; }
+          if (d.status === 'error') { st.innerHTML = 'Error: ' + (d.error || 'unknown'); alert(d.error); break; }
+          if (d.done) { st.textContent = d.done + ' / ' + d.total + ' @ ' + d.speed; }
+        } catch (e) {}
+      }
+    }
   } catch (e) { st.textContent = 'Error: ' + e; alert(e); }
   sp.style.display = 'none';
   btn.disabled = false; btn.textContent = 'Pull';

@@ -128,11 +128,32 @@ func (s *Server) handleModelPull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := model.PullModel(req.Model); err != nil {
-		jsonError(w, err.Error(), 500)
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		if err := model.PullModel(req.Model); err != nil {
+			jsonError(w, err.Error(), 500)
+			return
+		}
+		jsonResponse(w, map[string]string{"status": "ok", "model": req.Model})
 		return
 	}
-	jsonResponse(w, map[string]string{"status": "ok", "model": req.Model})
+
+	w.Header().Set("Content-Type", "application/x-ndjson")
+	w.WriteHeader(200)
+	flusher.Flush()
+
+	enc := json.NewEncoder(w)
+	err := model.PullModelWithCallback(req.Model, func(pct float64, done, total int64, speed string) {
+		enc.Encode(map[string]interface{}{"done": model.FormatSize(done), "total": model.FormatSize(total), "speed": speed})
+		flusher.Flush()
+	})
+
+	if err != nil {
+		enc.Encode(map[string]string{"status": "error", "error": err.Error()})
+	} else {
+		enc.Encode(map[string]string{"status": "done"})
+	}
+	flusher.Flush()
 }
 
 func (s *Server) handleInstances(w http.ResponseWriter, r *http.Request) {
