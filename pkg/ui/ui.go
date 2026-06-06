@@ -843,7 +843,7 @@ async function pullModel() {
       else { st.innerHTML = '<span style="color:var(--green)">\u2713</span> Pulled ' + escHtml(ref); loadModels(); }
       return;
     }
-    var reader = r.body.getReader(), decoder = new TextDecoder(), buf = '';
+    var reader = r.body.getReader(), decoder = new TextDecoder(), buf = '', pullDone = false;
     while (true) {
       var { done, value } = await reader.read();
       if (done) break;
@@ -853,11 +853,13 @@ async function pullModel() {
       for (var pi = 0; pi < parts.length; pi++) {
         var line = parts[pi].replace(/\n/g, ' ').trim();
         if (!line) continue;
-        if (line === 'DONE') { st.innerHTML = '<span style="color:var(--green)">\u2713</span> Pulled ' + escHtml(ref); loadModels(); break; }
-        if (line.startsWith('ERROR:')) { st.textContent = line; break; }
+        if (line === 'DONE') { pullDone = true; st.innerHTML = '<span style="color:var(--green)">\u2713</span> Pulled ' + escHtml(ref); loadModels(); break; }
+        if (line.startsWith('ERROR:')) { pullDone = true; st.textContent = line; break; }
         st.textContent = line.replace(/\s+/g, ' ').trim();
       }
+      if (pullDone) break;
     }
+    if (!pullDone) { st.innerHTML = '<span style="color:var(--green)">\u2713</span> Pulled ' + escHtml(ref); loadModels(); }
   } catch (e) { st.textContent = 'Error: ' + e; alert(e); }
   sp.style.display = 'none';
   btn.disabled = false; btn.textContent = 'Pull';
