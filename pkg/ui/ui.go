@@ -422,7 +422,7 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
       <p>Launch an instance from the Dashboard to start chatting</p>
     </div>
     <div class="chat-input-row">
-      <input type="text" id="chatInput" placeholder="Type a message…" onkeydown="if(event.key=='Enter')sendChat()" autocomplete="off">
+      <input type="text" id="chatInput" placeholder="Type a message… (Enter to send)" onkeydown="if(event.key=='Enter'&&!event.shiftKey)sendChat()" autocomplete="off">
       <button class="primary" onclick="sendChat()">Send</button>
     </div>
   </div>
@@ -546,6 +546,7 @@ async function loadInstances() {
         '<div class="meta"><span>Port ' + i.port + '</span><span>PID ' + i.pid + '</span><span class="badge ' + bc + '">' + i.status + '</span>' + tps + '</div>' +
         errDiv + flagsHtml +
         '<div class="actions"><button class="small danger" onclick="stopInstance(' + i.port + ')" aria-label="Stop instance on port ' + i.port + '">⏹ Stop</button>' +
+        '<button class="small secondary" onclick="restartInstance(' + i.port + ')" aria-label="Restart instance on port ' + i.port + '">🔄 Restart</button>' +
         '<button class="small secondary" onclick="selectChatFor(' + i.port + ', \'' + escAttr(mn.replace(/'/g, '')) + '\')" aria-label="Chat with instance on port ' + i.port + '">💬 Chat</button>' +
         '<button class="small secondary" onclick="window.open(\'http://\' + location.hostname + \':' + i.port + '\', \'_blank\'); return false" aria-label="Open instance on port ' + i.port + '">🌐 Open</button>' +
         '<button class="small secondary" onclick="viewLogs(' + i.port + ')" aria-label="View logs for port ' + i.port + '">📋 Logs</button></div></div>';
@@ -582,6 +583,28 @@ async function stopInstance(p) {
     loadInstances();
     if (chatPort == p) { chatPort = 0; document.getElementById('chatPanel').style.display = 'none'; document.getElementById('chatEmpty').style.display = 'flex'; }
   } catch (e) { alert('Error: ' + e); }
+}
+
+async function restartInstance(port) {
+  if (!confirm('Restart instance on port ' + port + '?')) return;
+  var list = JSON.parse(document.querySelector('#instances').getAttribute('data-list') || '[]');
+  var inst = null;
+  for (var i = 0; i < list.length; i++) { if (list[i].port == port) { inst = list[i]; break; } }
+  if (!inst) return;
+
+  await fetch('/api/v1/instances/stop?port=' + port, { method: 'POST' });
+
+  var userFlags = [], skip = 0;
+  for (var j = 0; j < (inst.flags || []).length; j++) {
+    if (skip > 0) { skip--; continue; }
+    if (inst.flags[j] === '-m' || inst.flags[j] === '--host' || inst.flags[j] === '--port') { skip = 1; continue; }
+    userFlags.push(inst.flags[j]);
+  }
+
+  try {
+    var r = await fetch('/api/v1/instances', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: inst.model, port: inst.port, flags: userFlags, replace_flags: true }) });
+    if (r.ok) { loadInstances(); }
+  } catch (e) {}
 }
 
 // ── Error Log ──────────────────────────────────────────
@@ -671,6 +694,7 @@ function selectChatFor(port, model) {
   document.getElementById('chatEmpty').style.display = 'none';
   addSystemMsg('Chatting with ' + (model || 'port ' + port));
   if (currentView != 'chat') switchView('chat');
+  setTimeout(function() { document.getElementById('chatInput').focus(); }, 100);
 }
 function addSystemMsg(t) { var c = document.getElementById('chatPanel'); c.innerHTML += '<div class="msg system">' + escHtml(t) + '</div>'; c.scrollTop = c.scrollHeight; }
 function addMsg(r, t, re) {
@@ -719,13 +743,23 @@ async function sendChat() {
 }
 
 // ── Logs ──────────────────────────────────────────────
+var logPollInterval = null;
+
 async function viewLogs(port) {
-  var r = await fetch('/api/v1/instances/logs?port=' + port), d = await r.json();
-  if (d.error) { alert('No logs'); return; }
-  document.getElementById('logContent').textContent = d.lines && d.lines.length ? d.lines.slice(-50).join('\n') : '(empty)';
   document.getElementById('logModal').style.display = 'block';
+  if (logPollInterval) clearInterval(logPollInterval);
+  var content = document.getElementById('logContent');
+    var header = document.querySelector('#logModal h2');
+    if (header) header.textContent = '\uD83D\uDCCB Logs (port ' + port + ')';
+    async function refresh() {
+    var r = await fetch('/api/v1/instances/logs?port=' + port), d = await r.json();
+    if (d.error) { content.textContent = 'No logs'; if (logPollInterval) clearInterval(logPollInterval); }
+    else { content.textContent = d.lines && d.lines.length ? d.lines.slice(-50).join('\n') : '(empty)'; content.scrollTop = content.scrollHeight; }
+  }
+  refresh();
+  logPollInterval = setInterval(refresh, 3000);
 }
-function closeLogs() { document.getElementById('logModal').style.display = 'none'; }
+function closeLogs() { document.getElementById('logModal').style.display = 'none'; if (logPollInterval) { clearInterval(logPollInterval); logPollInterval = null; } }
 document.getElementById('logModal').addEventListener('click', closeLogs);
 
 // ── Helpers ───────────────────────────────────────────
