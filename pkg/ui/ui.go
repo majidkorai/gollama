@@ -663,6 +663,13 @@ async function restartInstance(port) {
     if (val) userFlags.push(val);
   });
 
+  // Wait for port to be released by the OS
+  for (var wait = 0; wait < 30; wait++) {
+    var free = await fetch('http://127.0.0.1:' + port + '/health').then(function(r) { return false; }).catch(function() { return true; });
+    if (free) break;
+    await new Promise(function(r) { setTimeout(r, 500); });
+  }
+
   try {
     var r = await fetch('/api/v1/instances', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: inst.model, port: inst.port, flags: userFlags, replace_flags: true }) });
     if (r.ok) { loadInstances(); }
