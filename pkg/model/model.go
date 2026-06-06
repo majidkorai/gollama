@@ -354,7 +354,7 @@ func pullModelInternal(ref string, fn ProgressFn, progress io.Writer) error {
 	if targetSize > 0 {
 		free, err := freeDiskBytes(ModelsDir())
 		if err != nil {
-			log.Printf("warning: could not check disk space: %v", err)
+			return fmt.Errorf("unable to check disk space: %w", err)
 		} else {
 			buffer := uint64(500 * 1024 * 1024)
 			if uint64(targetSize) > buffer {
