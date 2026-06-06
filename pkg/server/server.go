@@ -337,7 +337,7 @@ func (s *Server) handleUI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
 	w.Header().Set("Pragma", "no-cache")
-	fmt.Fprint(w, ui.Page)
+	w.Write([]byte(ui.Page))
 }
 
 func jsonResponse(w http.ResponseWriter, data interface{}) {
