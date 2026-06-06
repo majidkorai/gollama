@@ -504,8 +504,10 @@ function switchView(name) {
 
 // ── Models ───────────────────────────────────────────
 async function loadModels() {
-  var mc = document.getElementById('modelCount'), ml = document.getElementById('modelList');
+  var mc = document.getElementById('modelCount'), ml = document.getElementById('modelList'), ms = document.getElementById('modelCountSpinner');
   var s = document.getElementById('modelSelect');
+  if (ms) ms.style.display = 'inline-block';
+  if (mc) mc.innerHTML = '<span class="spinner"></span> Loading…';
   ml.classList.add('refreshing');
   try {
     var r = await fetch('/api/v1/models'), m = await r.json();
@@ -535,6 +537,7 @@ async function loadModels() {
     mc.textContent = 'Error loading models';
   }
   ml.classList.remove('refreshing');
+  if (ms) ms.style.display = 'none';
 }
 
 async function deleteModel(name) {
