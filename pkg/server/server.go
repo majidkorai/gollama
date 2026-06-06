@@ -43,6 +43,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/v1/instances/stop", s.handleInstanceStop)
 	s.mux.HandleFunc("/api/v1/instances/logs", s.handleInstanceLogs)
 	s.mux.HandleFunc("/api/v1/config/default-flags", s.handleDefaultFlags)
+	s.mux.HandleFunc("/api/v1/presets", s.handlePresets)
 	s.mux.HandleFunc("/api/v1/chat", s.handleChat)
 	s.mux.HandleFunc("/", s.handleUI)
 }
@@ -232,6 +233,41 @@ func (s *Server) handleDefaultFlags(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	jsonResponse(w, flags)
+}
+
+func (s *Server) handlePresets(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		jsonResponse(w, model.GetPresets().List())
+	case http.MethodPost:
+		var req struct {
+			Name  string   `json:"name"`
+			Flags []string `json:"flags"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			jsonError(w, err.Error(), 400)
+			return
+		}
+		if req.Name == "" {
+			jsonError(w, "name is required", 400)
+			return
+		}
+		if err := model.GetPresets().Save(req.Name, req.Flags); err != nil {
+			jsonError(w, err.Error(), 500)
+			return
+		}
+		jsonResponse(w, map[string]string{"status": "saved"})
+	case http.MethodDelete:
+		name := r.URL.Query().Get("name")
+		if name == "" {
+			jsonError(w, "name query parameter is required", 400)
+			return
+		}
+		model.GetPresets().Delete(name)
+		jsonResponse(w, map[string]string{"status": "deleted"})
+	default:
+		http.Error(w, "method not allowed", 405)
+	}
 }
 
 func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {

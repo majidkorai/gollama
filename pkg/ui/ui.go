@@ -371,6 +371,13 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
           <button class="ghost small" onclick="addFlag()" style="margin-top:4px">＋ Add Flag</button>
         </div>
       </details>
+      <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <select id="presetSelect" onchange="applyPreset()" style="width:auto;min-width:140px;flex:1">
+          <option value="">Presets</option>
+        </select>
+        <button class="small secondary" onclick="savePreset()" id="savePresetBtn" style="font-size:11px" title="Save current flags as preset">💾 Save</button>
+        <button class="small danger" onclick="deletePreset()" id="deletePresetBtn" style="font-size:11px;display:none" title="Delete preset">🗑</button>
+      </div>
     </div></div>
   </div>
 
@@ -746,6 +753,62 @@ function onFlagChange(sel) {
   valInput.placeholder = flagHints[sel.value] || 'Value';
 }
 
+// ── Presets ────────────────────────────────────────────
+async function loadPresets() {
+  try {
+    var r = await fetch('/api/v1/presets'), presets = await r.json();
+    var sel = document.getElementById('presetSelect');
+    sel.innerHTML = '<option value="">— Presets —</option>';
+    var hasPresets = false;
+    for (var name in presets) { hasPresets = true; sel.innerHTML += '<option value="' + escAttr(name) + '">' + escHtml(name) + '</option>'; }
+    document.getElementById('deletePresetBtn').style.display = hasPresets ? '' : 'none';
+  } catch (e) {}
+}
+
+function applyPreset() {
+  var sel = document.getElementById('presetSelect'), name = sel.value;
+  if (!name) return;
+  fetch('/api/v1/presets').then(function(r) { return r.json(); }).then(function(presets) {
+    var flags = presets[name];
+    if (!flags) return;
+    var c = document.getElementById('flagsContainer'); c.innerHTML = '';
+    for (var i = 0; i < flags.length; i += 2) {
+      var fname = flags[i], fval = (i + 1 < flags.length && !flags[i + 1].startsWith('--')) ? flags[i + 1] : '';
+      c.appendChild(makeFlagRow(fname, fval));
+    }
+    sel.value = '';
+  });
+}
+
+async function savePreset() {
+  var name = prompt('Preset name:');
+  if (!name) return;
+  var flags = [];
+  document.querySelectorAll('#flagsContainer .flag-row').forEach(function(row) {
+    var sel = row.querySelector('.flag-name'), valInput = row.querySelector('.flag-value'), customInput = row.querySelector('.flag-custom');
+    var fname = sel.value || customInput.value.trim(), fval = valInput.value.trim();
+    if (!fname) return;
+    flags.push(fname);
+    if (fval) flags.push(fval);
+  });
+  if (!flags.length) { alert('No flags to save'); return; }
+  try {
+    await fetch('/api/v1/presets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, flags: flags }) });
+    loadPresets();
+  } catch (e) { alert('Error: ' + e); }
+}
+
+async function deletePreset() {
+  var sel = document.getElementById('presetSelect'), name = sel.value;
+  if (!name) { alert('Select a preset first'); return; }
+  if (!confirm('Delete preset "' + name + '"?')) return;
+  try {
+    await fetch('/api/v1/presets?name=' + encodeURIComponent(name), { method: 'DELETE' });
+    loadPresets();
+    sel.value = '';
+  } catch (e) { alert('Error: ' + e); }
+}
+
 // ── Pull Model ────────────────────────────────────────
 async function pullModel() {
   var ref = document.getElementById('pullInput').value.trim();
@@ -923,6 +986,7 @@ function toggleTheme() {
 // ── Init (staggered, no pile-up) ─────────────────────
 loadModels();
 setTimeout(loadDefaultFlags, 50);
+setTimeout(loadPresets, 50);
 setTimeout(loadInstances, 100);
 </script>
 </body>
