@@ -837,29 +837,9 @@ async function pullModel() {
   btn.disabled = true; btn.textContent = 'Pulling…'; st.textContent = 'Downloading…'; sp.style.display = 'inline-block';
   try {
     var r = await fetch('/api/v1/models/pull', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: ref }) });
-    if (!r.body) {
-      var d = await r.json();
-      if (d.error) { st.innerHTML = 'Error: ' + d.error; alert(d.error); }
-      else { st.innerHTML = '<span style="color:var(--green)">\u2713</span> Pulled ' + escHtml(ref); loadModels(); }
-      return;
-    }
-    var reader = r.body.getReader(), decoder = new TextDecoder(), buf = '', pullDone = false;
-    while (true) {
-      var { done, value } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      var parts = buf.split('\r');
-      buf = parts.pop() || '';
-      for (var pi = 0; pi < parts.length; pi++) {
-        var line = parts[pi].replace(/\n/g, ' ').trim();
-        if (!line) continue;
-        if (line === 'DONE') { pullDone = true; st.innerHTML = '<span style="color:var(--green)">\u2713</span> Pulled ' + escHtml(ref); loadModels(); break; }
-        if (line.startsWith('ERROR:')) { pullDone = true; st.textContent = line; break; }
-        st.textContent = line.replace(/\s+/g, ' ').trim();
-      }
-      if (pullDone) break;
-    }
-    if (!pullDone) { st.innerHTML = '<span style="color:var(--green)">\u2713</span> Pulled ' + escHtml(ref); loadModels(); }
+    var d = await r.json();
+    if (d.error) { st.innerHTML = 'Error: ' + d.error; alert(d.error); }
+    else { st.innerHTML = '<span style="color:var(--green)">\u2713</span> Pulled ' + escHtml(ref); loadModels(); }
   } catch (e) { st.textContent = 'Error: ' + e; alert(e); }
   sp.style.display = 'none';
   btn.disabled = false; btn.textContent = 'Pull';

@@ -130,14 +130,11 @@ func (s *Server) handleModelPull(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, err.Error(), 400)
 		return
 	}
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	w.WriteHeader(200)
-	fw := &flushWriter{w: w}
-	if err := model.PullModelWithProgress(req.Model, fw); err != nil {
-		fmt.Fprintf(fw, "\nERROR: %v\n", err)
-	} else {
-		fmt.Fprintf(fw, "\nDONE\n")
+	if err := model.PullModel(req.Model); err != nil {
+		jsonError(w, err.Error(), 500)
+		return
 	}
+	jsonResponse(w, map[string]string{"status": "ok", "model": req.Model})
 }
 
 type flushWriter struct{ w http.ResponseWriter }
