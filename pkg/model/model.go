@@ -353,8 +353,14 @@ func pullModelInternal(ref string, fn ProgressFn, progress io.Writer) error {
 
 	if targetSize > 0 {
 		free, err := freeDiskBytes(ModelsDir())
-		if err == nil {
-			need := uint64(targetSize) + 500*1024*1024
+		if err != nil {
+			log.Printf("warning: could not check disk space: %v", err)
+		} else {
+			buffer := uint64(500 * 1024 * 1024)
+			if uint64(targetSize) > buffer {
+				buffer = uint64(targetSize) / 4 // 25% buffer for large models
+			}
+			need := uint64(targetSize) + buffer
 			if free < need {
 				return fmt.Errorf("not enough disk space: need %s but only %s free — try a smaller quantization",
 					FormatSize(int64(need)), FormatSize(int64(free)))
