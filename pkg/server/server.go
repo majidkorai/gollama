@@ -131,8 +131,8 @@ func (s *Server) handleModelPull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	flusher, ok := w.(http.Flusher)
-	if !ok {
+	fw, fwOK := w.(http.Flusher)
+	if !fwOK {
 		if err := model.PullModel(req.Model); err != nil {
 			jsonError(w, err.Error(), 500)
 			return
@@ -144,19 +144,27 @@ func (s *Server) handleModelPull(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.WriteHeader(200)
-	flusher.Flush()
+	fw.Flush()
+
+	fw2 := &flushWriter{w: w}
 
 	err := model.PullModelWithCallback(req.Model, func(pct float64, done, total int64, speed string) {
-		fmt.Fprintf(w, "data: {\"pct\":%.1f,\"done\":%d,\"total\":%d,\"speed\":\"%s\"}\n\n", pct, done, total, speed)
-		flusher.Flush()
+		fmt.Fprintf(fw2, "data: {\"pct\":%.1f,\"done\":%d,\"total\":%d,\"speed\":\"%s\"}\n\n", pct, done, total, speed)
 	})
 
 	if err != nil {
-		fmt.Fprintf(w, "data: {\"status\":\"error\",\"error\":\"%s\"}\n\n", err.Error())
+		fmt.Fprintf(fw2, "data: {\"status\":\"error\",\"error\":\"%s\"}\n\n", err.Error())
 	} else {
-		fmt.Fprintf(w, "data: {\"status\":\"done\"}\n\n")
+		fmt.Fprintf(fw2, "data: {\"status\":\"done\"}\n\n")
 	}
-	flusher.Flush()
+}
+
+type flushWriter struct{ w http.ResponseWriter }
+
+func (fw *flushWriter) Write(p []byte) (int, error) {
+	n, err := fw.w.Write(p)
+	fw.w.(http.Flusher).Flush()
+	return n, err
 }
 
 func (s *Server) handleInstances(w http.ResponseWriter, r *http.Request) {
