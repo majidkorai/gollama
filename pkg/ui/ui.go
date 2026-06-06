@@ -264,12 +264,15 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
 .chat-header { padding-bottom: 14px; margin-bottom: 14px; border-bottom: 1px solid var(--border); }
 .chat-header select { width: auto; min-width: 220px; }
 .chat-msgs { flex: 1; overflow-y: auto; padding: 6px 0; margin-bottom: 12px; }
-.chat-msgs .msg { margin-bottom: 12px; padding: 12px 16px; border-radius: 12px; max-width: 80%; line-height: 1.7; font-size: 13.5px; animation: slideUp 200ms ease both; }
+.chat-msgs .msg { margin-bottom: 12px; padding: 12px 16px; border-radius: 12px; max-width: 80%; line-height: 1.7; font-size: 13.5px; animation: slideUp 200ms ease both; position: relative; }
 .chat-msgs .user { background: var(--accent-bg); margin-left: auto; border-bottom-right-radius: 4px; color: var(--text); }
-.chat-msgs .assistant { background: var(--surface); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+.chat-msgs .assistant { background: var(--surface); border: 1px solid var(--border); border-bottom-left-radius: 4px; padding-right: 40px; }
 .chat-msgs .system { background: transparent; color: var(--text-dim); font-style: italic; font-size: 12px; text-align: center; max-width: 100%; }
-.chat-input-row { display: flex; gap: 8px; padding-top: 12px; border-top: 1px solid var(--border); }
-.chat-input-row input { flex: 1; }
+.chat-msgs .assistant .copy-btn { position: absolute; top: 8px; right: 8px; font-size: 12px; background: none; border: none; cursor: pointer; opacity: 0; padding: 2px 4px; border-radius: 4px; transition: opacity var(--transition), background var(--transition); }
+.chat-msgs .assistant:hover .copy-btn { opacity: 0.5; }
+.chat-msgs .assistant .copy-btn:hover { opacity: 1; background: var(--surface-2); }
+.chat-input-row { display: flex; gap: 8px; padding-top: 12px; border-top: 1px solid var(--border); align-items: flex-end; }
+.chat-input-row textarea { flex: 1; max-height: 200px; }
 .chat-loading { animation: pulse 1.2s infinite; display: inline-block; letter-spacing: 4px; font-size: 18px; line-height: 1; color: var(--text-dim); }
 .reasoning { color: var(--text-dim); font-style: italic; font-size: 12px; border-left: 2px solid var(--accent); padding-left: 12px; margin-bottom: 8px; opacity: .85; }
 
@@ -463,6 +466,7 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
         <select id="chatInstanceSelect" onchange="selectChatInstance()" aria-label="Select instance"><option value="">— select a running instance —</option></select>
         <button class="ghost small" onclick="selectChatFor(chatPort, '')" aria-label="Refresh">↻</button>
         <button class="ghost small" onclick="showChatHistory()" aria-label="Chat history" title="Chat history">📋</button>
+        <button class="ghost small" onclick="clearChat()" aria-label="Clear chat" title="Clear chat" style="color:var(--text-dim)">✕</button>
       </div>
     </div>
     <div id="chatPanel" class="chat-msgs" style="display: none" aria-live="polite"></div>
@@ -472,7 +476,7 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
       <p>Launch an instance from the Dashboard to start chatting</p>
     </div>
     <div class="chat-input-row">
-      <input type="text" id="chatInput" placeholder="Type a message… (Enter to send)" onkeydown="if(event.key=='Enter'&&!event.shiftKey)sendChat()" autocomplete="off">
+      <textarea id="chatInput" rows="1" placeholder="Type a message… (Enter to send)" onkeydown="if(event.key=='Enter'&&!event.shiftKey){event.preventDefault();sendChat()}" autocomplete="off" style="resize:none;padding:9px 12px;font-family:inherit;font-size:13px;line-height:1.5;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);outline:none;width:100%" oninput="autoGrow(this)"></textarea>
       <button class="primary" onclick="sendChat()">Send</button>
     </div>
   </div>
@@ -895,9 +899,19 @@ function addSystemMsg(t) { var c = document.getElementById('chatPanel'); c.inner
 function addMsg(r, t, re) {
   var c = document.getElementById('chatPanel');
   var el = document.createElement('div'); el.className = 'msg ' + r;
+  el.textContent = t;
+  if (r === 'assistant' && t) {
+    var copyBtn = document.createElement('button');
+    copyBtn.className = 'copy-btn'; copyBtn.textContent = '📋';
+    copyBtn.title = 'Copy message';
+    copyBtn.onclick = function() { navigator.clipboard.writeText(t).then(function() { copyBtn.textContent = '✓'; setTimeout(function() { copyBtn.textContent = '📋'; }, 1500); }); };
+    el.appendChild(copyBtn);
+  }
   if (re) { el.insertAdjacentHTML('beforebegin', '<div class="reasoning">' + escHtml(re) + '</div>'); }
-  el.textContent = t; c.appendChild(el); c.scrollTop = c.scrollHeight; return el;
+  c.appendChild(el); c.scrollTop = c.scrollHeight; return el;
 }
+function autoGrow(el) { el.style.height = 'auto'; el.style.height = Math.min(el.scrollHeight, 200) + 'px'; }
+function clearChat() { chatHistory = []; chatSessionId = null; var p = document.getElementById('chatPanel'); p.innerHTML = ''; addSystemMsg('Chat cleared'); }
 function escHtml(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 function escAttr(s) { return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
