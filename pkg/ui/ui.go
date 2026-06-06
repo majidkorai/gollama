@@ -761,16 +761,16 @@ async function pullModel() {
       var { done, value } = await reader.read();
       if (done) break;
       buf += decoder.decode(value, { stream: true });
-      var lines = buf.split('\n');
-      buf = lines.pop() || '';
-      for (var li = 0; li < lines.length; li++) {
-        var line = lines[li].trim();
-        if (!line) continue;
+      var parts = buf.split('\n\n');
+      buf = parts.pop() || '';
+      for (var pi = 0; pi < parts.length; pi++) {
+        var part = parts[pi].trim();
+        if (!part.startsWith('data: ')) continue;
         try {
-          var d = JSON.parse(line);
+          var d = JSON.parse(part.slice(6));
           if (d.status === 'done') { st.innerHTML = '<span style="color:var(--green)">\u2713</span> Pulled ' + escHtml(ref); loadModels(); break; }
           if (d.status === 'error') { st.innerHTML = 'Error: ' + (d.error || 'unknown'); alert(d.error); break; }
-          if (d.done) { st.textContent = d.done + ' / ' + d.total + ' @ ' + d.speed; }
+          if (d.pct !== undefined) { st.textContent = fmtSize(d.done) + ' / ' + fmtSize(d.total) + ' @ ' + d.speed; }
         } catch (e) {}
       }
     }

@@ -138,20 +138,20 @@ func (s *Server) handleModelPull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/x-ndjson")
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
 	w.WriteHeader(200)
 	flusher.Flush()
 
-	enc := json.NewEncoder(w)
 	err := model.PullModelWithCallback(req.Model, func(pct float64, done, total int64, speed string) {
-		enc.Encode(map[string]interface{}{"done": model.FormatSize(done), "total": model.FormatSize(total), "speed": speed})
+		fmt.Fprintf(w, "data: {\"pct\":%.1f,\"done\":%d,\"total\":%d,\"speed\":\"%s\"}\n\n", pct, done, total, speed)
 		flusher.Flush()
 	})
 
 	if err != nil {
-		enc.Encode(map[string]string{"status": "error", "error": err.Error()})
+		fmt.Fprintf(w, "data: {\"status\":\"error\",\"error\":\"%s\"}\n\n", err.Error())
 	} else {
-		enc.Encode(map[string]string{"status": "done"})
+		fmt.Fprintf(w, "data: {\"status\":\"done\"}\n\n")
 	}
 	flusher.Flush()
 }
