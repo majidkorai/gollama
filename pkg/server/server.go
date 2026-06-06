@@ -290,12 +290,12 @@ func (s *Server) handleChats(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleChatByID(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.URL.Path, "/api/v1/chats/")
-	if id == "" {
-		http.Error(w, "chat ID is required", 400)
-		return
-	}
 	switch r.Method {
 	case http.MethodGet:
+		if id == "" {
+			http.Error(w, "chat ID is required", 400)
+			return
+		}
 		session, err := model.LoadChat(id)
 		if err != nil {
 			jsonError(w, "chat not found", 404)
