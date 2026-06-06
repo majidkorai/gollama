@@ -284,6 +284,9 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
 
 /* ── Model list ────────────────────────────────────────── */
 .model-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border-radius: var(--radius-sm); transition: background var(--transition); cursor: pointer; }
+.model-row:hover .name { color: var(--accent); }
+.model-row .info-icon { font-size: 11px; opacity: 0; transition: opacity var(--transition); margin-left: 4px; }
+.model-row:hover .info-icon { opacity: 0.6; }
 .model-row:hover { background: var(--surface-2); }
 .model-row .name { font-size: 13px; font-weight: 500; word-break: break-all; }
 .model-row .info { font-size: 11px; color: var(--text-dim); margin-top: 4px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
@@ -530,7 +533,7 @@ async function loadModels() {
       if (quant) badges.push('<span class="badge badge-blue">' + escHtml(quant) + '</span>');
       if (arch) badges.push('<span class="badge badge-amber">' + escHtml(arch) + '</span>');
       if (ctx) badges.push('<span class="badge badge-green">' + (ctx > 999 ? Math.round(ctx / 1000) + 'K' : '<1K') + ' ctx</span>');
-      return '<div class="model-row" onclick="showModelDetails(\'' + escAttr(name.replace(/'/g, '')) + '\')"><div><div class="name">' + escHtml(name.length > 55 ? name.slice(0, 55) + '…' : name) + '</div><div class="info">' + size + ' ' + (badges.length ? badges.join(' ') : '') + '</div></div><button class="small danger" onclick="event.stopPropagation();deleteModel(\'' + escAttr(name.replace(/'/g, '')) + '\')" aria-label="Delete ' + escAttr(name) + '">🗑</button></div>';
+      return '<div class="model-row" onclick="showModelDetails(\'' + escAttr(name.replace(/'/g, '')) + '\')"><div><div class="name">' + escHtml(name.length > 55 ? name.slice(0, 55) + '…' : name) + ' <span class="info-icon">ⓘ</span></div><div class="info">' + size + ' ' + (badges.length ? badges.join(' ') : '') + '</div></div><button class="small danger" onclick="event.stopPropagation();deleteModel(\'' + escAttr(name.replace(/'/g, '')) + '\')" aria-label="Delete ' + escAttr(name) + '">🗑</button></div>';
     }).join('') + '</div>';
   } catch (e) {
     mc.textContent = 'Error loading models';
