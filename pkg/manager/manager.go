@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/majidkorai/gollama/pkg/llama"
 	"github.com/majidkorai/gollama/pkg/model"
@@ -230,6 +231,15 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 		return nil, fmt.Errorf("port %d is already in use", port)
 	}
 
+	if !portAvailable(port) {
+		// Port might be in TIME_WAIT after a restart — retry for a bit
+		for retry := 0; retry < 15; retry++ {
+			time.Sleep(200 * time.Millisecond)
+			if portAvailable(port) {
+				break
+			}
+		}
+	}
 	if !portAvailable(port) {
 		// Port taken by another process — find the next free one
 		for i := port + 1; i < port+100; i++ {
