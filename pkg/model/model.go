@@ -265,10 +265,10 @@ func ResolveModelBlob(model string) (string, error) {
 }
 
 func PullModel(ref string) error {
-	return pullModelWithProgress(ref, nil)
+	return PullModelWithProgress(ref, nil)
 }
 
-func pullModelWithProgress(ref string, progress io.Writer) error {
+func PullModelWithProgress(ref string, progress io.Writer) error {
 	if !strings.HasPrefix(ref, "hf.co/") {
 		ref = "hf.co/" + ref
 	}

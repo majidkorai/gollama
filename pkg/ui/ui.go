@@ -712,19 +712,20 @@ function onFlagChange(sel) {
 }
 
 // ── Pull Model ────────────────────────────────────────
+var pullDone = false;
+
 async function pullModel() {
   var ref = document.getElementById('pullInput').value.trim();
   if (!ref) { alert('Enter a model reference'); return; }
   var btn = document.getElementById('pullBtn'), st = document.getElementById('pullStatus'), pb = document.getElementById('pullProgressBar'), pw = document.getElementById('pullProgressWrap');
-  btn.disabled = true; btn.textContent = 'Pulling…'; st.textContent = 'Starting download…'; pw.style.display = '';
+  btn.disabled = true; btn.textContent = 'Pulling…'; st.textContent = 'Starting download…'; pw.style.display = ''; pb.style.width = '0%'; pullDone = false;
   try {
     var r = await fetch('/api/v1/models/pull', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: ref }) });
-    if (!r.ok && !r.body) {
-      var d = await r.json();
-      st.innerHTML = 'Error: ' + (d.error || r.status); alert(d.error); return;
-    }
     if (!r.body) {
-      st.innerHTML = '✅ Pulled ' + escHtml(ref); loadModels(); return;
+      var d = await r.json();
+      if (d.error) { st.innerHTML = 'Error: ' + d.error; alert(d.error); }
+      else { st.innerHTML = '✅ Pulled ' + escHtml(ref); loadModels(); }
+      return;
     }
     var reader = r.body.getReader(), decoder = new TextDecoder(), buf = '';
     while (true) {
@@ -733,18 +734,18 @@ async function pullModel() {
       buf += decoder.decode(value, { stream: true });
       var parts = buf.split('\r');
       buf = parts.pop() || '';
-      for (var p = parts.length - 1; p >= 0; p--) {
+      for (var p = 0; p < parts.length; p++) {
         var line = parts[p].trim();
         if (!line) continue;
-        if (line.startsWith('DONE')) { st.innerHTML = '✅ Pulled ' + escHtml(ref); loadModels(); break; }
-        if (line.startsWith('Error:')) { st.innerHTML = line; alert(line); break; }
+        if (line === 'DONE') { pullDone = true; st.innerHTML = '✅ Pulled ' + escHtml(ref); loadModels(); break; }
+        if (line.startsWith('ERROR:')) { st.innerHTML = line; alert(line); pullDone = true; break; }
         var m = line.match(/([\d.]+)%/);
         if (m) { pb.style.width = m[1] + '%'; st.textContent = line.replace(/\s+/g, ' ').trim(); }
         else { st.textContent = line.replace(/\s+/g, ' ').trim(); }
       }
     }
-  } catch (e) { st.textContent = 'Error: ' + e; alert(e); }
-  pw.style.display = 'none'; pb.style.width = '0%';
+  } catch (e) { st.textContent = 'Error: ' + e; if (!pullDone) alert(e); }
+  if (!pullDone) { pw.style.display = 'none'; pb.style.width = '0%'; }
   btn.disabled = false; btn.textContent = 'Pull';
 }
 

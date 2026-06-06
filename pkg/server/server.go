@@ -141,36 +141,29 @@ func (s *Server) handleModelPull(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.WriteHeader(200)
-
-	// Use a custom writer that converts \r-based progress to newline-delimited
-	// for clean streaming to the frontend
-	pipeR, pipeW := io.Pipe()
-	defer pipeR.Close()
-
-	go func() {
-		err := model.PullModel(req.Model)
-		pipeW.CloseWithError(err)
-	}()
-
 	flusher.Flush()
 
-	buf := make([]byte, 4096)
-	for {
-		n, err := pipeR.Read(buf)
-		if n > 0 {
-			w.Write(buf[:n])
-			flusher.Flush()
-		}
-		if err != nil {
-			break
-		}
+	// Wrap writer to flush after each write
+	flushWriter := &flushWriter{w: w, f: flusher}
+	err := model.PullModelWithProgress(req.Model, flushWriter)
+
+	if err != nil {
+		fmt.Fprintf(flushWriter, "\rERROR: %v\n", err)
+	} else {
+		fmt.Fprintf(flushWriter, "\rDONE\n")
 	}
-
-	pipeR.Close()
-
-	// Send final status line
-	fmt.Fprintf(w, "\n\nDONE\n")
 	flusher.Flush()
+}
+
+type flushWriter struct {
+	w io.Writer
+	f http.Flusher
+}
+
+func (fw *flushWriter) Write(p []byte) (int, error) {
+	n, err := fw.w.Write(p)
+	fw.f.Flush()
+	return n, err
 }
 
 func (s *Server) handleInstances(w http.ResponseWriter, r *http.Request) {
