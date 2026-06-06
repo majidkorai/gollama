@@ -654,12 +654,14 @@ async function restartInstance(port) {
 
   await fetch('/api/v1/instances/stop?port=' + port, { method: 'POST' });
 
-  var userFlags = [], skip = 0;
-  for (var j = 0; j < (inst.flags || []).length; j++) {
-    if (skip > 0) { skip--; continue; }
-    if (inst.flags[j] === '-m' || inst.flags[j] === '--host' || inst.flags[j] === '--port') { skip = 1; continue; }
-    userFlags.push(inst.flags[j]);
-  }
+  var userFlags = [];
+  document.querySelectorAll('#flagsContainer .flag-row').forEach(function(row) {
+    var sel = row.querySelector('.flag-name'), valInput = row.querySelector('.flag-value'), customInput = row.querySelector('.flag-custom');
+    var name = sel.value || customInput.value.trim(), val = valInput.value.trim();
+    if (!name) return;
+    userFlags.push(name);
+    if (val) userFlags.push(val);
+  });
 
   try {
     var r = await fetch('/api/v1/instances', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: inst.model, port: inst.port, flags: userFlags, replace_flags: true }) });
