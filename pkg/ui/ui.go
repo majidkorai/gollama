@@ -401,9 +401,7 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
         <button class="primary" onclick="pullModel()" id="pullBtn">Pull</button>
       </div>
       <div id="pullStatus" style="font-size: 12px; color: var(--text-muted); margin-top: 6px;"></div>
-      <div id="pullProgressWrap" style="display:none; margin-top: 8px; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden">
-        <div id="pullProgressBar" style="height:100%; width:0%; background: var(--accent); border-radius: 3px; transition: width 300ms ease"></div>
-      </div>
+      <div class="spinner" id="pullSpinner" style="display:none; margin-top:8px"></div>
     </div></div>
   </div>
 </div>
@@ -715,43 +713,18 @@ function onFlagChange(sel) {
 }
 
 // ── Pull Model ────────────────────────────────────────
-var pullDone = false;
-
 async function pullModel() {
   var ref = document.getElementById('pullInput').value.trim();
   if (!ref) { alert('Enter a model reference'); return; }
-  var btn = document.getElementById('pullBtn'), st = document.getElementById('pullStatus'), pb = document.getElementById('pullProgressBar'), pw = document.getElementById('pullProgressWrap');
-  btn.disabled = true; btn.textContent = 'Pulling…'; st.textContent = 'Starting download…'; pw.style.display = ''; pb.style.width = '0%'; pullDone = false;
+  var btn = document.getElementById('pullBtn'), st = document.getElementById('pullStatus'), sp = document.getElementById('pullSpinner');
+  btn.disabled = true; btn.textContent = 'Pulling…'; st.textContent = 'Downloading…'; sp.style.display = 'inline-block';
   try {
     var r = await fetch('/api/v1/models/pull', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: ref }) });
-    if (!r.body) {
-      var d = await r.json();
-      if (d.error) { st.innerHTML = 'Error: ' + d.error; alert(d.error); }
-      else { st.innerHTML = '✅ Pulled ' + escHtml(ref); loadModels(); }
-      return;
-    }
-    var reader = r.body.getReader(), decoder = new TextDecoder(), buf = '';
-    while (true) {
-      var { done, value } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      var lines = buf.split('\n');
-      buf = lines.pop() || '';
-      for (var li = 0; li < lines.length; li++) {
-        var line = lines[li].trim();
-        if (!line) continue;
-        try {
-          var d = JSON.parse(line);
-          if (d.status === 'done') { pullDone = true; st.innerHTML = '<span style="color:var(--green)">\u2713</span> Pulled ' + escHtml(ref); loadModels(); break; }
-          if (d.status === 'error') { st.innerHTML = 'Error: ' + (d.error || 'unknown'); alert(d.error); pullDone = true; break; }
-          if (d.pct !== undefined) { pb.style.width = Math.round(d.pct) + '%'; st.textContent = d.done + ' / ' + d.total + ' @ ' + d.speed; }
-        } catch (e) {}
-      }
-      if (pullDone) break;
-    }
-    if (!pullDone) { st.innerHTML = '<span style="color:var(--green)">\u2713</span> Pulled ' + escHtml(ref); loadModels(); }
-  } catch (e) { st.textContent = 'Error: ' + e; if (!pullDone) alert(e); }
-  if (!pullDone) { pw.style.display = 'none'; pb.style.width = '0%'; }
+    var d = await r.json();
+    if (d.error) { st.innerHTML = 'Error: ' + d.error; alert(d.error); }
+    else { st.innerHTML = '<span style="color:var(--green)">\u2713</span> Pulled ' + escHtml(ref); loadModels(); }
+  } catch (e) { st.textContent = 'Error: ' + e; alert(e); }
+  sp.style.display = 'none';
   btn.disabled = false; btn.textContent = 'Pull';
 }
 
