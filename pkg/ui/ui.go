@@ -401,6 +401,9 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
         <button class="primary" onclick="pullModel()" id="pullBtn">Pull</button>
       </div>
       <div id="pullStatus" style="font-size: 12px; color: var(--text-muted); margin-top: 6px;"></div>
+      <div id="pullProgressWrap" style="display:none; margin-top: 8px; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden">
+        <div id="pullProgressBar" style="height:100%; width:0%; background: var(--accent); border-radius: 3px; transition: width 300ms ease"></div>
+      </div>
     </div></div>
   </div>
 </div>
@@ -656,14 +659,36 @@ function onFlagChange(sel) {
 async function pullModel() {
   var ref = document.getElementById('pullInput').value.trim();
   if (!ref) { alert('Enter a model reference'); return; }
-  var btn = document.getElementById('pullBtn'), st = document.getElementById('pullStatus');
-  btn.disabled = true; btn.textContent = 'Pulling…'; st.textContent = 'Downloading…';
+  var btn = document.getElementById('pullBtn'), st = document.getElementById('pullStatus'), pb = document.getElementById('pullProgressBar'), pw = document.getElementById('pullProgressWrap');
+  btn.disabled = true; btn.textContent = 'Pulling…'; st.textContent = 'Starting download…'; pw.style.display = '';
   try {
     var r = await fetch('/api/v1/models/pull', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: ref }) });
-    var d = await r.json();
-    if (d.error) { st.textContent = 'Error: ' + d.error; alert(d.error); }
-    else { st.innerHTML = '✅ Pulled ' + escHtml(ref); loadModels(); }
+    if (!r.ok && !r.body) {
+      var d = await r.json();
+      st.innerHTML = 'Error: ' + (d.error || r.status); alert(d.error); return;
+    }
+    if (!r.body) {
+      st.innerHTML = '✅ Pulled ' + escHtml(ref); loadModels(); return;
+    }
+    var reader = r.body.getReader(), decoder = new TextDecoder(), buf = '';
+    while (true) {
+      var { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      var parts = buf.split('\r');
+      buf = parts.pop() || '';
+      for (var p = parts.length - 1; p >= 0; p--) {
+        var line = parts[p].trim();
+        if (!line) continue;
+        if (line.startsWith('DONE')) { st.innerHTML = '✅ Pulled ' + escHtml(ref); loadModels(); break; }
+        if (line.startsWith('Error:')) { st.innerHTML = line; alert(line); break; }
+        var m = line.match(/([\d.]+)%/);
+        if (m) { pb.style.width = m[1] + '%'; st.textContent = line.replace(/\s+/g, ' ').trim(); }
+        else { st.textContent = line.replace(/\s+/g, ' ').trim(); }
+      }
+    }
   } catch (e) { st.textContent = 'Error: ' + e; alert(e); }
+  pw.style.display = 'none'; pb.style.width = '0%';
   btn.disabled = false; btn.textContent = 'Pull';
 }
 

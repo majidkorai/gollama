@@ -123,6 +123,7 @@ type ProgressReader struct {
 	Done   int64
 	Start  time.Time
 	Name   string
+	Output io.Writer
 }
 
 func (pr *ProgressReader) Read(p []byte) (int, error) {
@@ -134,16 +135,20 @@ func (pr *ProgressReader) Read(p []byte) (int, error) {
 		rate := float64(pr.Done) / (1024 * 1024) / elapsed
 		speed = fmt.Sprintf("%.1f MB/s", rate)
 	}
+	out := pr.Output
+	if out == nil {
+		out = os.Stderr
+	}
 	if pr.Total > 0 {
 		pct := float64(pr.Done) * 100 / float64(pr.Total)
-		fmt.Fprintf(os.Stderr, "\r  %s  %.1f%%  (%s / %s)  %s    ",
+		fmt.Fprintf(out, "\r  %s  %.1f%%  (%s / %s)  %s    ",
 			pr.Name, pct, FormatSize(pr.Done), FormatSize(pr.Total), speed)
 	} else {
-		fmt.Fprintf(os.Stderr, "\r  %s  %s  %s       ",
+		fmt.Fprintf(out, "\r  %s  %s  %s       ",
 			pr.Name, FormatSize(pr.Done), speed)
 	}
 	if err == io.EOF {
-		fmt.Fprintln(os.Stderr)
+		fmt.Fprintln(out)
 	}
 	return n, err
 }
@@ -260,6 +265,10 @@ func ResolveModelBlob(model string) (string, error) {
 }
 
 func PullModel(ref string) error {
+	return pullModelWithProgress(ref, nil)
+}
+
+func pullModelWithProgress(ref string, progress io.Writer) error {
 	if !strings.HasPrefix(ref, "hf.co/") {
 		ref = "hf.co/" + ref
 	}
@@ -357,6 +366,7 @@ func PullModel(ref string) error {
 		Total:  targetSize,
 		Name:   "▸",
 		Start:  time.Now(),
+		Output: progress,
 	}
 	written, err := io.Copy(out, pr)
 	if err != nil {
