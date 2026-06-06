@@ -370,24 +370,30 @@ func pullModelInternal(ref string, fn ProgressFn, progress io.Writer) error {
 
 	downloadURL := fmt.Sprintf("https://huggingface.co/%s/resolve/main/%s", modelID, targetFile)
 	modelName := fmt.Sprintf("hf.co/%s:%s", modelID, quant)
-	if _, exists := LoadIndex()[modelName]; exists {
-		log.Printf("model %s already in index, skipping download", modelName)
-		return nil
-	}
+
+	// Check if model file already exists on disk
 	if _, err := os.Stat(dest); err == nil {
-		// File on disk but not in index — re-index it
-		log.Printf("model file %s exists but not in index, re-indexing", dest)
-		info := ModelInfo{Name: modelName, BlobPath: dest}
-		if fi, err := os.Stat(dest); err == nil {
-			info.Size = fi.Size()
-		}
-		populateModelInfo(&info)
+		// File exists — ensure it's in the index
 		UpdateIndex(func(idx map[string]ModelInfo) error {
-			idx[modelName] = info
+			if _, exists := idx[modelName]; !exists {
+				info := ModelInfo{Name: modelName, BlobPath: dest}
+				if fi, err := os.Stat(dest); err == nil {
+					info.Size = fi.Size()
+				}
+				populateModelInfo(&info)
+				idx[modelName] = info
+			}
 			return nil
 		})
+		log.Printf("model file %s already exists, skipping download", filepath.Base(dest))
 		return nil
 	}
+
+	// File doesn't exist — clean up stale index entry if present
+	UpdateIndex(func(idx map[string]ModelInfo) error {
+		delete(idx, modelName)
+		return nil
+	})
 
 	if targetSize > 0 {
 		fmt.Printf("Downloading %s (%s)\n", targetFile, FormatSize(targetSize))
