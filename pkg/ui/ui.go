@@ -283,7 +283,7 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
 .error-line { font-size: 11px; color: var(--red); margin-top: 8px; padding: 6px 10px; background: var(--red-bg); border-radius: var(--radius-sm); word-break: break-all; font-family: var(--font-mono); }
 
 /* ── Model list ────────────────────────────────────────── */
-.model-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border-radius: var(--radius-sm); transition: background var(--transition); }
+.model-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border-radius: var(--radius-sm); transition: background var(--transition); cursor: pointer; }
 .model-row:hover { background: var(--surface-2); }
 .model-row .name { font-size: 13px; font-weight: 500; word-break: break-all; }
 .model-row .info { font-size: 11px; color: var(--text-dim); margin-top: 4px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
@@ -408,6 +408,31 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
   </div>
 </div>
 
+<!-- ── Model Details Modal ──────────────────────────── -->
+<div class="modal" id="modelModal" role="dialog" aria-modal="true" aria-label="Model details">
+  <div class="modal-content" onclick="event.stopPropagation()" style="max-width:500px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h2 id="modelModalTitle">Model</h2>
+      <button class="small danger" onclick="closeModelDetails()" aria-label="Close">Close</button>
+    </div>
+    <div id="modelModalBody" style="line-height:2">
+      <div class="detail-row"><span class="detail-label">Architecture</span><span class="detail-value" id="md-arch">—</span></div>
+      <div class="detail-row"><span class="detail-label">Quantization</span><span class="detail-value" id="md-quant">—</span></div>
+      <div class="detail-row"><span class="detail-label">Context Length</span><span class="detail-value" id="md-ctx">—</span></div>
+      <div class="detail-row"><span class="detail-label">Size</span><span class="detail-value" id="md-size">—</span></div>
+      <div class="detail-row"><span class="detail-label">Path</span><span class="detail-value" id="md-path" style="word-break:break-all;font-family:var(--font-mono);font-size:11px">—</span></div>
+    </div>
+    <button class="primary" onclick="launchModelFromDetails()" id="md-launch-btn" style="margin-top:16px;width:100%">🚀 Launch</button>
+  </div>
+</div>
+
+<style>
+.detail-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--border); }
+.detail-row:last-child { border-bottom: none; }
+.detail-label { font-size: 12px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: .5px; }
+.detail-value { font-size: 13px; color: var(--text); text-align: right; }
+</style>
+
 <!-- ── Chat ──────────────────────────────────────────── -->
 <div id="view-chat" class="view" role="tabpanel" aria-label="Chat">
   <div class="chat-container">
@@ -463,6 +488,7 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
 var chatPort = 0, chatHistory = [];
 var currentView = 'dashboard';
 var cachedModelCount = 0;
+var cachedModels = [];
 
 // ── Navigation ──────────────────────────────────────
 function switchView(name) {
@@ -493,6 +519,7 @@ async function loadModels() {
       return;
     }
 
+    cachedModels = m;
     var names = [], seen = {};
     m.forEach(function(x) { var n = x.name || '?'; if (!seen[n]) { seen[n] = 1; names.push(n); } });
     names.forEach(function(n, i) { s.innerHTML += '<option value="' + escAttr(n) + '"' + (names.length === 1 ? ' selected' : '') + '>' + escHtml(n) + '</option>'; });
@@ -502,7 +529,7 @@ async function loadModels() {
       if (quant) badges.push('<span class="badge badge-blue">' + escHtml(quant) + '</span>');
       if (arch) badges.push('<span class="badge badge-amber">' + escHtml(arch) + '</span>');
       if (ctx) badges.push('<span class="badge badge-green">' + (ctx > 999 ? Math.round(ctx / 1000) + 'K' : '<1K') + ' ctx</span>');
-      return '<div class="model-row"><div><div class="name">' + escHtml(name.length > 55 ? name.slice(0, 55) + '…' : name) + '</div><div class="info">' + size + ' ' + (badges.length ? badges.join(' ') : '') + '</div></div><button class="small danger" onclick="deleteModel(\'' + escAttr(name.replace(/'/g, '')) + '\')" aria-label="Delete ' + escAttr(name) + '">🗑</button></div>';
+      return '<div class="model-row" onclick="showModelDetails(\'' + escAttr(name.replace(/'/g, '')) + '\')"><div><div class="name">' + escHtml(name.length > 55 ? name.slice(0, 55) + '…' : name) + '</div><div class="info">' + size + ' ' + (badges.length ? badges.join(' ') : '') + '</div></div><button class="small danger" onclick="event.stopPropagation();deleteModel(\'' + escAttr(name.replace(/'/g, '')) + '\')" aria-label="Delete ' + escAttr(name) + '">🗑</button></div>';
     }).join('') + '</div>';
   } catch (e) {
     mc.textContent = 'Error loading models';
@@ -517,6 +544,35 @@ async function deleteModel(name) {
     loadModels();
   } catch (e) { alert('Error deleting model: ' + e); }
 }
+
+// ── Model Details ────────────────────────────────────
+var detailModelName = '';
+
+function showModelDetails(name) {
+  detailModelName = name;
+  var m = null;
+  for (var i = 0; i < cachedModels.length; i++) { if (cachedModels[i].name == name) { m = cachedModels[i]; break; } }
+  if (!m) return;
+  document.getElementById('modelModalTitle').textContent = m.name.length > 50 ? m.name.slice(0, 50) + '…' : m.name;
+  document.getElementById('md-arch').textContent = m.architecture || '—';
+  document.getElementById('md-quant').textContent = m.quantization || '—';
+  document.getElementById('md-ctx').textContent = m.context_length ? (m.context_length > 999 ? Math.round(m.context_length / 1000) + 'K' : m.context_length.toString()) : '—';
+  document.getElementById('md-size').textContent = m.size ? fmtSize(m.size) : '—';
+  document.getElementById('md-path').textContent = m.blob_path || '—';
+  document.getElementById('modelModal').style.display = 'block';
+}
+
+function closeModelDetails() {
+  document.getElementById('modelModal').style.display = 'none';
+}
+
+function launchModelFromDetails() {
+  closeModelDetails();
+  document.getElementById('modelSelect').value = detailModelName;
+  switchView('dashboard');
+}
+
+document.getElementById('modelModal').addEventListener('click', closeModelDetails);
 
 // ── Instances + Metrics ──────────────────────────────
 async function loadInstances() {
