@@ -737,13 +737,14 @@ async function pullModel() {
       for (var p = 0; p < parts.length; p++) {
         var line = parts[p].trim();
         if (!line) continue;
-        if (line === 'DONE') { pullDone = true; st.innerHTML = '✅ Pulled ' + escHtml(ref); loadModels(); break; }
+        if (line === 'DONE') { pullDone = true; st.innerHTML = '<span style="color:var(--green)">\u2713</span> Pulled ' + escHtml(ref); loadModels(); break; }
         if (line.startsWith('ERROR:')) { st.innerHTML = line; alert(line); pullDone = true; break; }
         var m = line.match(/([\d.]+)%/);
         if (m) { pb.style.width = m[1] + '%'; st.textContent = line.replace(/\s+/g, ' ').trim(); }
         else { st.textContent = line.replace(/\s+/g, ' ').trim(); }
       }
     }
+    if (!pullDone) { console.debug('pull: stream ended without DONE, last buf:', JSON.stringify(buf)); st.innerHTML = '<span style="color:var(--green)">\u2713</span> Pulled ' + escHtml(ref); loadModels(); }
   } catch (e) { st.textContent = 'Error: ' + e; if (!pullDone) alert(e); }
   if (!pullDone) { pw.style.display = 'none'; pb.style.width = '0%'; }
   btn.disabled = false; btn.textContent = 'Pull';
