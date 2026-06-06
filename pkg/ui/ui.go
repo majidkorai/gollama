@@ -686,6 +686,32 @@ async function fetchErrorLog(port) {
 // ── Flags ─────────────────────────────────────────────
 var commonFlags = ['--ctx-size','--flash-attn','--temp','--repeat-penalty','--top-k','--top-p','--min-p','--presence-penalty','--frequency-penalty','--mirostat','--seed','--n-gpu-layers','--host','--port','--mlock','--no-flash-attn','--no-kv-offload','--threads','--batch-size','--ubatch-size','--parallel','--keep','--predict','--no-mmap','--cache-type-k','--cache-type-v','--reasoning','--reasoning-budget'];
 var standaloneFlags = {'--mlock':1,'--no-flash-attn':1,'--no-kv-offload':1};
+var flagHints = {
+  '--ctx-size': 'number of tokens, e.g. 4096',
+  '--flash-attn': 'on, off, or auto',
+  '--temp': '0.0–2.0 (default 0.7)',
+  '--repeat-penalty': '1.0–1.5 (default 1.0)',
+  '--top-k': 'e.g. 40 (0 = off)',
+  '--top-p': '0.0–1.0 (default 0.95)',
+  '--min-p': '0.0–1.0 (default 0.05)',
+  '--presence-penalty': '0.0–2.0',
+  '--frequency-penalty': '0.0–2.0',
+  '--mirostat': '0=off, 1=MIROSTAT, 2=MIROSTAT 2.0',
+  '--seed': 'RNG seed, -1 = random',
+  '--n-gpu-layers': 'number or "all"',
+  '--host': 'IP address (default 0.0.0.0)',
+  '--port': 'port number (default 8080)',
+  '--threads': 'CPU thread count',
+  '--batch-size': 'max batch size (default 2048)',
+  '--ubatch-size': 'physical max batch size (default 512)',
+  '--parallel': 'number of server slots',
+  '--keep': 'tokens to keep from prompt (-1 = all)',
+  '--predict': 'tokens to predict (-1 = infinity)',
+  '--cache-type-k': 'f32, f16, q8_0, q4_0, ...',
+  '--cache-type-v': 'f32, f16, q8_0, q4_0, ...',
+  '--reasoning': 'on, off, or auto',
+  '--reasoning-budget': 'token budget for thinking (-1 = unlimited)',
+};
 
 function flagOptions(selected) {
   return commonFlags.map(function(f) { return '<option value="' + escAttr(f) + '"' + (f === selected ? ' selected' : '') + '>' + escHtml(f) + '</option>'; }).join('') +
@@ -709,9 +735,11 @@ function addFlag() {
 }
 
 function onFlagChange(sel) {
-  var row = sel.parentElement;
+  var row = sel.parentElement, valInput = row.querySelector('.flag-value');
   row.querySelector('.flag-custom').style.display = sel.value === '' ? '' : 'none';
-  row.querySelector('.flag-value').style.display = standaloneFlags[sel.value] ? 'none' : '';
+  var isStandalone = standaloneFlags[sel.value];
+  valInput.style.display = isStandalone ? 'none' : '';
+  valInput.placeholder = flagHints[sel.value] || 'Value';
 }
 
 // ── Pull Model ────────────────────────────────────────
