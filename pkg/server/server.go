@@ -131,7 +131,11 @@ func (s *Server) handleModelPull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := model.PullModel(req.Model); err != nil {
-		jsonError(w, err.Error(), 500)
+		if err.Error() == "already_exists" {
+			jsonResponse(w, map[string]string{"status": "exists", "model": req.Model})
+		} else {
+			jsonError(w, err.Error(), 500)
+		}
 		return
 	}
 	jsonResponse(w, map[string]string{"status": "ok", "model": req.Model})

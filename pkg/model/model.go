@@ -386,7 +386,7 @@ func pullModelInternal(ref string, fn ProgressFn, progress io.Writer) error {
 			return nil
 		})
 		log.Printf("model file %s already exists, skipping download", filepath.Base(dest))
-		return nil
+		return fmt.Errorf("already_exists")
 	}
 
 	// File doesn't exist — clean up stale index entry if present

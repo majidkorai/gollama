@@ -839,6 +839,7 @@ async function pullModel() {
     var r = await fetch('/api/v1/models/pull', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: ref }) });
     var d = await r.json();
     if (d.error) { st.innerHTML = 'Error: ' + d.error; alert(d.error); }
+    else if (d.status === 'exists') { st.innerHTML = '<span style="color:var(--text-muted)">Model already exists</span>'; loadModels(); }
     else { st.innerHTML = '<span style="color:var(--green)">\u2713</span> Pulled ' + escHtml(ref); loadModels(); }
   } catch (e) { st.textContent = 'Error: ' + e; alert(e); }
   sp.style.display = 'none';
