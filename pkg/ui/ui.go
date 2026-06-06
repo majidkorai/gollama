@@ -441,6 +441,19 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
 .detail-value { font-size: 13px; color: var(--text); text-align: right; }
 </style>
 
+<!-- ── Chat History Modal ──────────────────────────── -->
+<div class="modal" id="chatHistoryModal" role="dialog" aria-modal="true" aria-label="Chat history">
+  <div class="modal-content" onclick="event.stopPropagation()" style="max-width:520px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h2>📋 Chat History</h2>
+      <button class="small danger" onclick="closeChatHistory()" aria-label="Close">Close</button>
+    </div>
+    <div id="chatHistoryList" style="max-height:50vh;overflow-y:auto">
+      <div class="empty-state"><span class="spinner"></span> Loading…</div>
+    </div>
+  </div>
+</div>
+
 <!-- ── Chat ──────────────────────────────────────────── -->
 <div id="view-chat" class="view" role="tabpanel" aria-label="Chat">
   <div class="chat-container">
@@ -449,6 +462,7 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
         <h1 style="font-size: 18px; font-weight: 800">Chat</h1>
         <select id="chatInstanceSelect" onchange="selectChatInstance()" aria-label="Select instance"><option value="">— select a running instance —</option></select>
         <button class="ghost small" onclick="selectChatFor(chatPort, '')" aria-label="Refresh">↻</button>
+        <button class="ghost small" onclick="showChatHistory()" aria-label="Chat history" title="Chat history">📋</button>
       </div>
     </div>
     <div id="chatPanel" class="chat-msgs" style="display: none" aria-live="polite"></div>
@@ -493,7 +507,7 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
 </div>
 
 <script>
-var chatPort = 0, chatHistory = [];
+var chatPort = 0, chatHistory = [], chatSessionId = null;
 var currentView = 'dashboard';
 var cachedModelCount = 0;
 var cachedModels = [];
@@ -868,7 +882,7 @@ function selectChatInstance() {
   if (chatPort) { chatHistory = []; document.getElementById('chatPanel').innerHTML = ''; document.getElementById('chatPanel').style.display = 'block'; document.getElementById('chatEmpty').style.display = 'none'; addSystemMsg('Connected'); }
 }
 function selectChatFor(port, model) {
-  chatPort = port; chatHistory = [];
+  chatPort = port; chatHistory = []; chatSessionId = null;
   document.getElementById('chatInstanceSelect').value = port;
   document.getElementById('chatPanel').innerHTML = '';
   document.getElementById('chatPanel').style.display = 'block';
@@ -919,8 +933,67 @@ async function sendChat() {
       }
       chatPanel.scrollTop = chatPanel.scrollHeight;
     }
-    if (msgEl) chatHistory.push({ role: 'assistant', content: content });
+    if (msgEl) { chatHistory.push({ role: 'assistant', content: content }); saveChatHistory(); }
   } catch (e) { if (msgEl) { msgEl.innerHTML = 'Error: ' + escHtml(e.message); msgEl.className = 'msg system'; } else { var em = addMsg('assistant', ''); em.innerHTML = 'Error: ' + escHtml(e.message); em.className = 'msg system'; } }
+}
+
+// ── Chat History ────────────────────────────────────────
+async function saveChatHistory() {
+  if (!chatPort || !chatHistory.length) return;
+  var model = '';
+  var list = JSON.parse(document.querySelector('#instances').getAttribute('data-list') || '[]');
+  for (var i = 0; i < list.length; i++) { if (list[i].port == chatPort) { model = list[i].model || ''; break; } }
+  try {
+    var r = await fetch('/api/v1/chats/' + (chatSessionId || ''), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: chatSessionId, model: model, messages: chatHistory }) });
+    if (r.ok) {
+      var d = await r.json();
+      if (d.id) chatSessionId = d.id;
+    }
+  } catch (e) {}
+}
+
+async function showChatHistory() {
+  document.getElementById('chatHistoryModal').style.display = 'block';
+  var list = document.getElementById('chatHistoryList');
+  try {
+    var r = await fetch('/api/v1/chats'), chats = await r.json();
+    if (!chats || !chats.length) { list.innerHTML = '<div class="empty-state"><div class="icon">💬</div><div class="title">No saved chats</div></div>'; return; }
+    list.innerHTML = chats.map(function(c) {
+      return '<div class="model-row" onclick="loadChat(\'' + c.id + '\')"><div><div class="name">' + escHtml(c.preview || '(empty)') + '</div><div class="info">' + c.msg_count + ' messages · ' + escHtml(c.model) + ' · ' + new Date(c.updated_at).toLocaleDateString() + '</div></div><button class="small danger" onclick="event.stopPropagation();deleteChat(\'' + c.id + '\')" aria-label="Delete chat">🗑</button></div>';
+    }).join('');
+  } catch (e) { list.innerHTML = '<div class="empty-state"><div class="title">Error loading chats</div></div>'; }
+}
+
+function closeChatHistory() { document.getElementById('chatHistoryModal').style.display = 'none'; }
+document.getElementById('chatHistoryModal').addEventListener('click', closeChatHistory);
+
+async function loadChat(id) {
+  closeChatHistory();
+  try {
+    var r = await fetch('/api/v1/chats/' + id), session = await r.json();
+    if (!session || !session.messages) return;
+    chatHistory = session.messages;
+    chatSessionId = session.id;
+    document.getElementById('chatPanel').innerHTML = '';
+    document.getElementById('chatPanel').style.display = 'block';
+    document.getElementById('chatEmpty').style.display = 'none';
+    var firstUser = '';
+    for (var i = 0; i < session.messages.length; i++) {
+      var m = session.messages[i];
+      if (m.role === 'user') { firstUser = m.content; break; }
+    }
+    addSystemMsg('Loaded chat' + (firstUser ? ': ' + (firstUser.length > 50 ? firstUser.slice(0, 50) + '…' : firstUser) : ''));
+    session.messages.forEach(function(m) { addMsg(m.role, m.content); });
+    if (currentView != 'chat') switchView('chat');
+  } catch (e) {}
+}
+
+async function deleteChat(id) {
+  if (!confirm('Delete this chat?')) return;
+  try {
+    await fetch('/api/v1/chats/' + id, { method: 'DELETE' });
+    showChatHistory();
+  } catch (e) { alert('Error: ' + e); }
 }
 
 // ── Logs ──────────────────────────────────────────────

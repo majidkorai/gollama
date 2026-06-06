@@ -44,6 +44,8 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/v1/instances/logs", s.handleInstanceLogs)
 	s.mux.HandleFunc("/api/v1/config/default-flags", s.handleDefaultFlags)
 	s.mux.HandleFunc("/api/v1/presets", s.handlePresets)
+	s.mux.HandleFunc("/api/v1/chats", s.handleChats)
+	s.mux.HandleFunc("/api/v1/chats/", s.handleChatByID)
 	s.mux.HandleFunc("/api/v1/chat", s.handleChat)
 	s.mux.HandleFunc("/", s.handleUI)
 }
@@ -264,6 +266,61 @@ func (s *Server) handlePresets(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		model.GetPresets().Delete(name)
+		jsonResponse(w, map[string]string{"status": "deleted"})
+	default:
+		http.Error(w, "method not allowed", 405)
+	}
+}
+
+func (s *Server) handleChats(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	chats, err := model.ListChats()
+	if err != nil {
+		jsonError(w, err.Error(), 500)
+		return
+	}
+	if chats == nil {
+		chats = []model.ChatSummary{}
+	}
+	jsonResponse(w, chats)
+}
+
+func (s *Server) handleChatByID(w http.ResponseWriter, r *http.Request) {
+	id := strings.TrimPrefix(r.URL.Path, "/api/v1/chats/")
+	if id == "" {
+		http.Error(w, "chat ID is required", 400)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		session, err := model.LoadChat(id)
+		if err != nil {
+			jsonError(w, "chat not found", 404)
+			return
+		}
+		jsonResponse(w, session)
+	case http.MethodPut:
+		var session model.ChatSession
+		if err := json.NewDecoder(r.Body).Decode(&session); err != nil {
+			jsonError(w, err.Error(), 400)
+			return
+		}
+		if session.ID == "" {
+			session.ID = id
+		}
+		if err := model.SaveChat(&session); err != nil {
+			jsonError(w, err.Error(), 500)
+			return
+		}
+		jsonResponse(w, map[string]string{"id": session.ID})
+	case http.MethodDelete:
+		if err := model.DeleteChat(id); err != nil {
+			jsonError(w, err.Error(), 500)
+			return
+		}
 		jsonResponse(w, map[string]string{"status": "deleted"})
 	default:
 		http.Error(w, "method not allowed", 405)
