@@ -367,6 +367,9 @@ func pullModelInternal(ref string, fn ProgressFn, progress io.Writer) error {
 	if _, exists := LoadIndex()[modelName]; exists {
 		return fmt.Errorf("model %s is already downloaded", modelName)
 	}
+	if _, err := os.Stat(dest); err == nil {
+		return fmt.Errorf("model file %s already exists — delete it first or use a different model", filepath.Base(dest))
+	}
 
 	if targetSize > 0 {
 		fmt.Printf("Downloading %s (%s)\n", targetFile, FormatSize(targetSize))
