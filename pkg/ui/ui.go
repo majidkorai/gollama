@@ -848,17 +848,14 @@ async function pullModel() {
       var { done, value } = await reader.read();
       if (done) break;
       buf += decoder.decode(value, { stream: true });
-      var parts = buf.split('\n\n');
+      var parts = buf.split('\r');
       buf = parts.pop() || '';
       for (var pi = 0; pi < parts.length; pi++) {
-        var part = parts[pi].trim();
-        if (!part.startsWith('data: ')) continue;
-        try {
-          var d = JSON.parse(part.slice(6));
-          if (d.status === 'done') { st.innerHTML = '<span style="color:var(--green)">\u2713</span> Pulled ' + escHtml(ref); loadModels(); break; }
-          if (d.status === 'error') { st.innerHTML = 'Error: ' + (d.error || 'unknown'); alert(d.error); break; }
-          if (d.pct !== undefined) { st.textContent = fmtSize(d.done) + ' / ' + fmtSize(d.total) + ' @ ' + d.speed; }
-        } catch (e) {}
+        var line = parts[pi].replace(/\n/g, ' ').trim();
+        if (!line) continue;
+        if (line === 'DONE') { st.innerHTML = '<span style="color:var(--green)">\u2713</span> Pulled ' + escHtml(ref); loadModels(); break; }
+        if (line.startsWith('ERROR:')) { st.textContent = line; break; }
+        st.textContent = line.replace(/\s+/g, ' ').trim();
       }
     }
   } catch (e) { st.textContent = 'Error: ' + e; alert(e); }
