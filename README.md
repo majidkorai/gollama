@@ -1,8 +1,8 @@
 # gollama 🦙
 
-**Spin up GGUF models in seconds** — a single Go binary that downloads, manages, and runs llama.cpp instances with a terminal chat, web UI, REST API, and full flag control.
+**Spin up GGUF models in seconds** — a single Go binary that downloads, manages, and runs llama.cpp instances with real-time streaming chat, reasoning display, web UI, REST API, and full flag control.
 
-Pull any model from HuggingFace, launch it on any port, chat with it in your terminal or browser — all from one command. No dependencies, no Docker, no Python.
+Pull any model from HuggingFace, launch it on any port, chat with streaming token-by-token responses — all from one command. No dependencies, no Docker, no Python.
 
 ## Install
 
@@ -42,6 +42,17 @@ The first-run wizard:
 1. Detects your GPU and downloads the right `llama-server` build
 2. Offers to pull a popular starter model (Gemma, Qwen, Llama, or skip)
 3. Shows next steps to start chatting
+
+## Features
+
+- **Real-time streaming chat** — tokens arrive as they're generated. Reasoning models show thinking process live.
+- **Web UI** — dashboard, model management, chat, log viewer. Built-in, no extra setup.
+- **Structured flag editing** — dropdown of 30+ common llama-server flags with value hints. Pre-filled with sensible defaults.
+- **Model management** — list, pull, delete models from HuggingFace. Click any model to see architecture, quantization, context length, and file path.
+- **Multi-instance** — run multiple models on separate ports simultaneously. Restart with modified flags.
+- **Live log tail** — view llama-server logs in the UI with auto-refresh.
+- **Disk space check** — warns before downloading if insufficient space.
+- **CLI & Web UI** — use `gollama chat <model>` in the terminal or open `http://localhost:9080`.
 
 ## Commands
 
@@ -116,21 +127,21 @@ gollama update
 
 ```json
 {
-  "default_flags": ["--flash-attn", "on", "--ctx-size", "4096"]
+  "default_flags": ["--host", "0.0.0.0", "--ctx-size", "2048", "--flash-attn", "on", "--temp", "0.7", "--repeat-penalty", "1.1"]
 }
 ```
 
-If a GPU is detected, `--n-gpu-layers 99` is added automatically. User-provided flags always override config defaults. Edit the file directly to customize.
+If a GPU is detected, `--n-gpu-layers` is added to the pre-filled form. Edit the file directly to customize defaults.
 
 ## Custom Flags
 
-Any llama-server flag works. Pass them after the model name:
+Any llama-server flag works. In the web UI, flags are pre-filled from the config file and editable via a structured form with dropdowns and value hints. In the CLI, pass them after the model name:
 
 ```bash
 gollama chat model.gguf --flash-attn on --ctx-size 8192 --cont-batching
 ```
 
-Common flags:
+Common flags (selectable from the UI dropdown):
 
 | Flag | Description |
 |------|-------------|
