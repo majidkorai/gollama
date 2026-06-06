@@ -363,6 +363,11 @@ func pullModelInternal(ref string, fn ProgressFn, progress io.Writer) error {
 	}
 
 	downloadURL := fmt.Sprintf("https://huggingface.co/%s/resolve/main/%s", modelID, targetFile)
+	modelName := fmt.Sprintf("hf.co/%s:%s", modelID, quant)
+	if _, exists := LoadIndex()[modelName]; exists {
+		return fmt.Errorf("model %s is already downloaded", modelName)
+	}
+
 	if targetSize > 0 {
 		fmt.Printf("Downloading %s (%s)\n", targetFile, FormatSize(targetSize))
 	} else {
@@ -400,7 +405,6 @@ func pullModelInternal(ref string, fn ProgressFn, progress io.Writer) error {
 		return fmt.Errorf("downloading: %w", err)
 	}
 
-	modelName := fmt.Sprintf("hf.co/%s:%s", modelID, quant)
 	info := ModelInfo{
 		Name:     modelName,
 		BlobPath: dest,
