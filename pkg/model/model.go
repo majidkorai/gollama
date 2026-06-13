@@ -258,7 +258,12 @@ type SearchResult struct {
 }
 
 func SearchModels(query string) ([]SearchResult, error) {
-	apiURL := fmt.Sprintf("https://huggingface.co/api/models?search=%s&sort=likes&direction=-1&limit=20&full=true", url.QueryEscape(query))
+	// Auto-append GGUF to surface real GGUF conversion repos, not original model repos
+	searchQuery := query
+	if !strings.Contains(strings.ToLower(query), "gguf") {
+		searchQuery = query + " GGUF"
+	}
+	apiURL := fmt.Sprintf("https://huggingface.co/api/models?search=%s&sort=likes&direction=-1&limit=20&full=true", url.QueryEscape(searchQuery))
 	resp, err := HTTPClient.Get(apiURL)
 	if err != nil {
 		return nil, fmt.Errorf("searching models: %w", err)
@@ -285,17 +290,20 @@ func SearchModels(query string) ([]SearchResult, error) {
 	results := make([]SearchResult, 0, len(hfResults))
 	var ggufIDs []string
 	for _, r := range hfResults {
-		if r.PipelineTag != "" && r.PipelineTag != "text-generation" && r.PipelineTag != "text-generation-instruct" {
+		if r.PipelineTag != "" && r.PipelineTag != "text-generation" && r.PipelineTag != "text-generation-instruct" && r.PipelineTag != "image-text-to-text" {
 			continue
 		}
-		hasGGUF := false
+		var hasGGUF, hasSafeTensor bool
 		for _, s := range r.Siblings {
 			if strings.HasSuffix(s.Filename, ".gguf") {
 				hasGGUF = true
-				break
+			}
+			if strings.HasSuffix(s.Filename, ".safetensors") {
+				hasSafeTensor = true
 			}
 		}
-		if !hasGGUF {
+		// Skip repos that primarily contain safetensor files (original model format, not GGUF conversion)
+		if !hasGGUF || hasSafeTensor {
 			continue
 		}
 		results = append(results, SearchResult{
