@@ -140,10 +140,11 @@ func (pr *ProgressReader) Read(p []byte) (int, error) {
 		speed = fmt.Sprintf("%.1f MB/s", rate)
 	}
 	if pr.ProgressFn != nil {
+		var pct float64
 		if pr.Total > 0 {
-			pct := float64(pr.Done) * 100 / float64(pr.Total)
-			pr.ProgressFn(pct, pr.Done, pr.Total, speed)
+			pct = float64(pr.Done) * 100 / float64(pr.Total)
 		}
+		pr.ProgressFn(pct, pr.Done, pr.Total, speed)
 	} else {
 		out := pr.Output
 		if out == nil {
@@ -519,6 +520,11 @@ func pullModelInternal(ref string, fn ProgressFn, progress io.Writer) error {
 	if dlResp.StatusCode != 200 {
 		os.Remove(dest)
 		return fmt.Errorf("download failed (HTTP %d)", dlResp.StatusCode)
+	}
+
+	// Use Content-Length from download response as fallback for progress tracking
+	if targetSize == 0 && dlResp.ContentLength > 0 {
+		targetSize = dlResp.ContentLength
 	}
 
 	pr := &ProgressReader{
