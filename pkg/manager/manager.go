@@ -47,7 +47,7 @@ func NewManager() *Manager {
 	// Auto-stop idle instances
 	go func() {
 		for {
-			time.Sleep(60 * time.Second)
+			time.Sleep(10 * time.Second)
 			cfg := model.LoadConfig()
 			if cfg.IdleTTL <= 0 {
 				continue

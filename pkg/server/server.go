@@ -496,6 +496,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		for {
 			n, err := resp.Body.Read(buf)
 			if n > 0 {
+				s.mgr.TouchActivity(port)
 				w.Write(buf[:n])
 				flusher.Flush()
 				// Parse SSE for usage data (final data event before [DONE])
@@ -687,6 +688,7 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 		for {
 			n, err := resp.Body.Read(buf)
 			if n > 0 {
+				s.mgr.TouchActivity(inst.Port)
 				w.Write(buf[:n])
 				flusher.Flush()
 				var usage struct {
