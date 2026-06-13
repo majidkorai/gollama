@@ -244,25 +244,29 @@ func FindLlamaServer() string {
 }
 
 func EnsureLlamaServer() error {
-	self := FindLlamaServer()
-	// Use BinDir() path for new downloads
-	if _, err := os.Stat(self); err == nil && self != "llama-server" {
-		fmt.Printf("llama-server already installed at %s\n", self)
-		cmd := exec.Command(self, "--version")
-		out, _ := cmd.Output()
-		if len(out) > 0 {
-			fmt.Printf("Version: %s", out)
-		}
-		if runtime.GOOS == "linux" {
-			checkDependencies(self)
-		}
-		return nil
-	}
-
-	fmt.Println("llama-server not found.")
 	tagName, assets, err := GetReleaseData()
 	if err != nil {
 		return fmt.Errorf("fetching release info: %w", err)
+	}
+
+	// Check if latest version is already installed in gollama's bin dir
+	installedPath := filepath.Join(model.BinDir(), "llama-server")
+	if runtime.GOOS == "windows" {
+		installedPath += ".exe"
+	}
+	if data, err := os.ReadFile(model.VersionFile()); err == nil && string(data) == tagName {
+		if _, err := os.Stat(installedPath); err == nil {
+			fmt.Printf("llama-server %s already installed at %s\n", tagName, installedPath)
+			return nil
+		}
+	}
+
+	// If found elsewhere (e.g. Homebrew), acknowledge but still download managed version
+	other := FindLlamaServer()
+	if other != installedPath && other != "llama-server" {
+		if _, err := os.Stat(other); err == nil {
+			fmt.Printf("Found llama-server at %s, but installing managed version to %s\n", other, model.BinDir())
+		}
 	}
 
 	backends := DetectGPUBackends()
@@ -298,7 +302,7 @@ func EnsureLlamaServer() error {
 			}
 			os.WriteFile(model.VersionFile(), []byte(tagName), 0644)
 			os.WriteFile(model.BackendFile(), []byte(selected.Name), 0644)
-			fmt.Printf("\nllama-server %s (%s) built and installed to %s\n", tagName, selected.Name, self)
+			fmt.Printf("\nllama-server %s (%s) built and installed to %s\n", tagName, selected.Name, installedPath)
 			return nil
 		}
 		fmt.Println("CUDA toolkit not found (nvcc missing).")
@@ -359,16 +363,12 @@ func EnsureLlamaServer() error {
 	os.WriteFile(model.VersionFile(), []byte(tagName), 0644)
 	os.WriteFile(model.BackendFile(), []byte(selected.Name), 0644)
 
-	if runtime.GOOS == "linux" {
-		checkDependencies(self)
+		if runtime.GOOS == "linux" {
+		checkDependencies(installedPath)
 	} else if runtime.GOOS == "windows" {
 		checkWindowsDependencies()
 	}
 
-	installedPath := filepath.Join(model.BinDir(), "llama-server")
-	if runtime.GOOS == "windows" {
-		installedPath += ".exe"
-	}
 	log.Printf("llama-server installed: version=%s backend=%s path=%s", tagName, selected.Name, installedPath)
 	fmt.Printf("\nllama-server %s (%s) installed to %s\n", tagName, selected.Name, installedPath)
 	return nil
