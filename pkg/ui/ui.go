@@ -960,7 +960,7 @@ async function doSearch(q) {
     var results = await r.json();
     if (!results || !results.length) { sg.style.display = 'none'; return; }
     sg.innerHTML = results.slice(0, 8).map(function(m) {
-      var id = m.id, label = id.replace(/-GGUF$/i, '');
+      var id = m.id, label = id;
       var size = m.size ? fmtSize(m.size) : '';
       var likes = m.likes > 0 ? '♥' + m.likes : '';
       var downloads = m.downloads > 0 ? (m.downloads > 999 ? (m.downloads/1000).toFixed(0) + 'K' : m.downloads) + ' dl' : '';
