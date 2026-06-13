@@ -2,6 +2,7 @@
 #   iwr -useb https://raw.githubusercontent.com/majidkorai/gollama/main/install.ps1 | iex
 
 $repo = "majidkorai/gollama"
+$version = if ($env:VERSION) { $env:VERSION } else { "latest" }
 
 # Detect arch
 $arch = switch ([Environment]::Is64BitOperatingSystem) {
@@ -12,7 +13,11 @@ $arch = switch ([Environment]::Is64BitOperatingSystem) {
 Write-Host "gollama — installing for windows/$arch"
 
 # Download pre-built binary
-$url = "https://github.com/$repo/releases/latest/download/gollama-windows-$arch.exe"
+if ($version -eq "latest") {
+    $url = "https://github.com/$repo/releases/latest/download/gollama-windows-$arch.exe"
+} else {
+    $url = "https://github.com/$repo/releases/download/$version/gollama-windows-$arch.exe"
+}
 $out = Join-Path $env:USERPROFILE "gollama.exe"
 
 try {

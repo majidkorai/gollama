@@ -1,9 +1,11 @@
 #!/bin/sh
 # gollama — one-line install
 #   curl -fsSL https://raw.githubusercontent.com/majidkorai/gollama/main/install.sh | sh
+#   VERSION=v0.2.7-rc1 curl -fsSL https://raw.githubusercontent.com/majidkorai/gollama/main/install.sh | sh
 set -e
 
 REPO="majidkorai/gollama"
+VERSION="${VERSION:-latest}"
 
 # ── Detect platform ────────────────────────────────────────────────────
 RAW_OS=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -42,7 +44,11 @@ esac
 # ── Try pre-built binary ──────────────────────────────────────────────
 echo "gollama — installing for $OS/$ARCH"
 
-DOWNLOAD_URL="https://github.com/$REPO/releases/latest/download/gollama-$OS-$ARCH$EXE"
+if [ "$VERSION" = "latest" ]; then
+    DOWNLOAD_URL="https://github.com/$REPO/releases/latest/download/gollama-$OS-$ARCH$EXE"
+else
+    DOWNLOAD_URL="https://github.com/$REPO/releases/download/$VERSION/gollama-$OS-$ARCH$EXE"
+fi
 TMP_FILE=$(mktemp)
 trap 'rm -f "$TMP_FILE"' EXIT
 
@@ -77,8 +83,11 @@ fi
 BUILD_DIR=$(mktemp -d)
 trap 'rm -rf "$BUILD_DIR"' EXIT
 
-echo "Cloning $REPO..."
+echo "Cloning $REPO${VERSION:+ (tag: $VERSION)}..."
 git clone --depth 1 "https://github.com/$REPO.git" "$BUILD_DIR"
+if [ "$VERSION" != "latest" ]; then
+    cd "$BUILD_DIR" && git fetch --depth 1 origin "refs/tags/$VERSION" && git checkout -q "$VERSION" && cd - >/dev/null
+fi
 cd "$BUILD_DIR"
 
 echo "Building..."
