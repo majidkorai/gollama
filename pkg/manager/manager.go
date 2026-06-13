@@ -5,6 +5,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,6 +24,7 @@ type Instance struct {
 	Model        string     `json:"model"`
 	PID          int        `json:"pid"`
 	Status       string     `json:"status"`
+	Ready        bool       `json:"ready"`
 	TokensPerSec float64    `json:"tokens_per_sec,omitempty"`
 	Flags        []string   `json:"flags,omitempty"`
 	StartedAt    time.Time  `json:"started_at"`
@@ -117,6 +119,7 @@ func (m *Manager) recoverOrphans() {
 				Model:        modelName,
 				PID:          pid,
 				Status:       "running",
+				Ready:        true,
 				LastActivity: time.Now(),
 			}
 			log.Printf("recovered orphan instance: port=%d pid=%d model=%s", port, pid, modelName)
@@ -156,11 +159,12 @@ func (m *Manager) recoverOrphansWindows() {
 			}
 			port := m.nextPort
 			m.nextPort++
-			m.instances[port] = &Instance{
+		m.instances[port] = &Instance{
 				Port:         port,
 				Model:        "unknown",
 				PID:          pid,
 				Status:       "running",
+				Ready:        true,
 				LastActivity: time.Now(),
 			}
 			log.Printf("recovered orphan instance (limited): port=%d pid=%d", port, pid)
@@ -391,6 +395,27 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 	m.instances[port] = inst
 
 	log.Printf("instance started: model=%s port=%d pid=%d", modelName, port, cmd.Process.Pid)
+
+	// Wait for instance to be ready before returning
+	go func() {
+		baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
+		deadline := time.Now().Add(120 * time.Second)
+		for time.Now().Before(deadline) {
+			resp, err := http.Get(baseURL + "/health")
+			if err == nil {
+				resp.Body.Close()
+				if resp.StatusCode == 200 {
+					m.mu.Lock()
+					inst.Ready = true
+					m.mu.Unlock()
+					log.Printf("instance ready: port=%d", port)
+					return
+				}
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+		log.Printf("instance did not become ready: port=%d", port)
+	}()
 
 	go func() {
 		err := cmd.Wait()
