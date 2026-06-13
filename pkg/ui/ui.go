@@ -282,10 +282,6 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
 .modal-content h2 { font-size: 15px; font-weight: 700; }
 .modal-content pre { background: var(--bg); padding: 14px; border-radius: var(--radius-sm); margin-top: 14px; font-size: 11.5px; line-height: 1.5; overflow: auto; max-height: 55vh; white-space: pre-wrap; color: var(--text-muted); font-family: var(--font-mono); }
 
-/* ── Loading state ───────────────────────────────────── */
-.inst-card.loading { opacity: .65; pointer-events: none; }
-.inst-card.loading .title::after { content: ' (loading…)'; font-size: 11px; color: var(--text-dim); font-weight: 400; }
-
 /* ── Error line ───────────────────────────────────────── */
 .error-line { font-size: 11px; color: var(--red); margin-top: 8px; padding: 6px 10px; background: var(--red-bg); border-radius: var(--radius-sm); word-break: break-all; font-family: var(--font-mono); }
 
@@ -650,7 +646,7 @@ async function loadInstances() {
   try {
     var r = await fetch('/api/v1/instances'), list = await r.json();
     ic.textContent = '(' + list.length + ')';
-    var running = list.filter(function(i) { return i.status == 'running' && i.ready; });
+    var running = list.filter(function(i) { return i.status == 'running'; });
 
     cs.innerHTML = '<option value="">— select a running instance —</option>';
     list.forEach(function(i) { var mn = i.model || '?'; cs.innerHTML += '<option value="' + i.port + '"' + (chatPort == i.port ? ' selected' : '') + '>' + i.port + ' - ' + (mn.length > 35 ? mn.slice(0, 35) + '…' : escHtml(mn)) + '</option>'; });
@@ -664,9 +660,9 @@ async function loadInstances() {
 
     c.setAttribute('data-list', JSON.stringify(list));
     c.innerHTML = list.map(function(i) {
-      var cls = i.status == 'running' ? (i.ready ? '' : ' loading') : ' stopped';
-      var bc = i.status == 'running' ? (i.ready ? 'badge-green' : 'badge-blue') : 'badge-red';
-      var statusLabel = i.status == 'running' ? (i.ready ? 'running' : 'loading…') : i.status;
+      var cls = i.status == 'running' ? '' : ' stopped';
+      var bc = i.status == 'running' ? 'badge-green' : 'badge-red';
+      var statusLabel = i.status == 'running' ? 'running' : i.status;
       var mn = i.model || '?';
       var tps = i.tokens_per_sec ? '<span style="color: var(--green); font-variant-numeric: tabular-nums">⚡ ' + i.tokens_per_sec.toFixed(1) + ' t/s</span>' : '';
       var uptime = i.started_at ? (function() { var s = Math.floor((Date.now() - new Date(i.started_at).getTime()) / 1000); return '<span title="Uptime">⏱ ' + (s > 86400 ? Math.floor(s/86400)+'d ' : '') + (s > 3600 ? Math.floor((s%86400)/3600)+'h ' : '') + Math.floor((s%3600)/60)+'m</span>'; })() : '';
@@ -1245,6 +1241,8 @@ setTimeout(loadDefaultFlags, 50);
 setTimeout(loadPresets, 50);
 setTimeout(loadInstances, 100);
 setTimeout(loadSettings, 150);
+// Poll instances every 5s to pick up state changes (ready, stopped, etc.)
+setInterval(loadInstances, 5000);
 </script>
 </body>
 </html>`
