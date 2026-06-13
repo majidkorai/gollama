@@ -300,15 +300,14 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
 .tag { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; background: var(--surface-2); color: var(--text-muted); font-family: var(--font-mono); }
 .tps { font-variant-numeric: tabular-nums; }
 
-/* ── Search results ─────────────────────────────────── */
-.sresult { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; border-radius: var(--radius-sm); transition: background var(--transition); }
-.sresult:hover { background: var(--surface-2); }
-.sresult + .sresult { border-top: 1px solid var(--border); }
-.sresult .name { font-size: 13px; font-weight: 500; word-break: break-all; }
-.sresult .meta { font-size: 11px; color: var(--text-dim); margin-top: 2px; display: flex; gap: 12px; }
-.sresult .actions { display: flex; gap: 6px; flex-shrink: 0; }
-.sresult .pull-btn { font-size: 11px; padding: 4px 10px; }
-.sresult .badge { font-size: 10px; }
+/* ── Pull suggestions dropdown ──────────────────────── */
+.suggestion { display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; cursor: pointer; transition: background var(--transition); }
+.suggestion:hover { background: var(--surface-2); }
+.suggestion + .suggestion { border-top: 1px solid var(--border); }
+.suggestion .name { font-size: 12px; font-weight: 500; word-break: break-all; }
+.suggestion .meta { font-size: 10px; color: var(--text-dim); margin-top: 1px; display: flex; gap: 8px; }
+.suggestion .badge { font-size: 9px; }
+.suggestion .pull-btn { font-size: 10px; padding: 2px 8px; flex-shrink: 0; margin-left: 8px; }
 
 /* ── Pull model row ────────────────────────────────────── */
 .pull-row { display: flex; gap: 8px; margin-bottom: 12px; }
@@ -417,23 +416,13 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
   </div>
   <div id="modelList" class="card"><div class="card-body"><div class="empty-state"><span class="spinner"></span> Loading models…</div></div></div>
   <div class="section" style="margin-top:32px">
-    <div class="section-header"><h2>Browse HuggingFace</h2></div>
+    <div class="section-header"><h2>Pull Model</h2></div>
     <div class="card"><div class="card-body">
-      <div class="pull-row">
-        <input type="text" id="searchInput" placeholder="Search models on HuggingFace… (e.g. qwen, llama, deepseek)" autocomplete="off" onkeydown="if(event.key=='Enter') searchModels()">
-        <button class="primary" onclick="searchModels()" id="searchBtn">Search</button>
-      </div>
-      <div id="searchResults" style="margin-top: 12px;"></div>
-      <div class="spinner" id="searchSpinner" style="display:none; margin-top:8px"></div>
-    </div></div>
-  </div>
-  <div class="section" style="margin-top:20px">
-    <div class="section-header"><h2>Pull by Reference</h2></div>
-    <div class="card"><div class="card-body">
-      <div class="pull-row">
-        <input type="text" id="pullInput" placeholder="hf.co/user/repo:Q4_K_M…" value="hf.co/unsloth/Qwen3.5-0.8B-GGUF:Q4_K_M" autocomplete="off">
+      <div class="pull-row" style="position:relative">
+        <input type="text" id="pullInput" placeholder="Search or enter hf.co/user/repo:Q4_K_M…" autocomplete="off" oninput="onPullInputChange(this.value)">
         <button class="primary" onclick="pullModel()" id="pullBtn">Pull</button>
       </div>
+      <div id="pullSuggestions" style="display:none;margin-top:4px;border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden"></div>
       <div id="pullStatus" style="font-size: 12px; color: var(--text-muted); margin-top: 6px;"></div>
       <div class="spinner" id="pullSpinner" style="display:none; margin-top:8px"></div>
     </div></div>
@@ -854,6 +843,7 @@ async function deletePreset() {
 async function pullModel() {
   var ref = document.getElementById('pullInput').value.trim();
   if (!ref) { alert('Enter a model reference'); return; }
+  document.getElementById('pullSuggestions').style.display = 'none';
   var btn = document.getElementById('pullBtn'), st = document.getElementById('pullStatus'), sp = document.getElementById('pullSpinner');
   btn.disabled = true; btn.textContent = 'Pulling…'; st.textContent = 'Downloading…'; sp.style.display = 'inline-block';
   try {
@@ -867,43 +857,45 @@ async function pullModel() {
   btn.disabled = false; btn.textContent = 'Pull';
 }
 
-// ── Search Models ──────────────────────────────────────
-async function searchModels() {
-  var q = document.getElementById('searchInput').value.trim();
-  if (!q) { document.getElementById('searchResults').innerHTML = ''; return; }
-  var btn = document.getElementById('searchBtn'), sp = document.getElementById('searchSpinner'), sr = document.getElementById('searchResults');
-  btn.disabled = true; btn.textContent = 'Searching…'; sp.style.display = 'inline-block';
-  sr.innerHTML = '';
-  try {
-    var r = await fetch('/api/v1/models/search?q=' + encodeURIComponent(q));
-    if (!r.ok) { var e = await r.json(); sr.innerHTML = '<div style="color:var(--red);padding:8px">Error: ' + escHtml(e.error) + '</div>'; return; }
-    var results = await r.json();
-    if (!results || !results.length) {
-      sr.innerHTML = '<div style="color:var(--text-muted);padding:8px">No GGUF models found. Try a different search term.</div>';
-      return;
-    }
-    sr.innerHTML = results.map(function(m) {
-      var id = m.id, label = id.replace(/-GGUF$/i, '');
-      var likes = m.likes > 0 ? '<span>❤️ ' + m.likes + '</span>' : '';
-      var downloads = m.downloads > 0 ? '<span>⬇️ ' + (m.downloads > 999 ? (m.downloads/1000).toFixed(0) + 'K' : m.downloads) + '</span>' : '';
-      var tag = m.pipeline_tag ? '<span class="badge badge-amber">' + escHtml(m.pipeline_tag) + '</span>' : '';
-      return '<div class="sresult"><div><div class="name">' + escHtml(label) + '</div><div class="meta">' + tag + ' ' + likes + ' ' + downloads + '</div></div><div class="actions"><button class="small primary pull-btn" onclick="pullSearchModel(\'' + escAttr(id) + '\', this)">Pull</button></div></div>';
-    }).join('');
-  } catch (e) { sr.innerHTML = '<div style="color:var(--red);padding:8px">Error: ' + escHtml(e.message) + '</div>'; }
-  sp.style.display = 'none';
-  btn.disabled = false; btn.textContent = 'Search';
+// ── Search-as-you-type ────────────────────────────────
+var searchTimeout = null;
+
+function onPullInputChange(val) {
+  var sg = document.getElementById('pullSuggestions');
+  if (searchTimeout) clearTimeout(searchTimeout);
+  if (val.length < 2) { sg.style.display = 'none'; return; }
+  searchTimeout = setTimeout(function() { doSearch(val); }, 300);
 }
 
-async function pullSearchModel(id, btn) {
-  var orig = btn.textContent; btn.disabled = true; btn.textContent = 'Pulling…';
+async function doSearch(q) {
+  var sg = document.getElementById('pullSuggestions');
+  try {
+    var r = await fetch('/api/v1/models/search?q=' + encodeURIComponent(q));
+    if (!r.ok) { sg.style.display = 'none'; return; }
+    var results = await r.json();
+    if (!results || !results.length) { sg.style.display = 'none'; return; }
+    sg.innerHTML = results.slice(0, 8).map(function(m) {
+      var id = m.id, label = id.replace(/-GGUF$/i, '');
+      var likes = m.likes > 0 ? '♥' + m.likes : '';
+      var downloads = m.downloads > 0 ? (m.downloads > 999 ? (m.downloads/1000).toFixed(0) + 'K' : m.downloads) + ' dl' : '';
+      var tag = m.pipeline_tag ? '<span class="badge badge-amber">' + escHtml(m.pipeline_tag) + '</span>' : '';
+      var meta = [tag, likes, downloads].filter(Boolean).join(' · ');
+      return '<div class="suggestion"><div><div class="name">' + escHtml(label) + '</div>' + (meta ? '<div class="meta">' + meta + '</div>' : '') + '</div><button class="small primary pull-btn" onclick="pullSuggestion(\'' + escAttr(id) + '\', this)">Pull</button></div>';
+    }).join('');
+    sg.style.display = 'block';
+  } catch (e) { sg.style.display = 'none'; }
+}
+
+async function pullSuggestion(id, btn) {
+  var orig = btn.textContent; btn.disabled = true; btn.textContent = '…';
   try {
     var r = await fetch('/api/v1/models/pull', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: id }) });
     var d = await r.json();
-    if (d.error) { alert(d.error); btn.textContent = 'Failed'; return; }
-    btn.textContent = d.status === 'exists' ? 'Exists' : '✓ Done';
+    if (d.error) { alert(d.error); btn.textContent = '✕'; return; }
+    btn.textContent = d.status === 'exists' ? 'Exists' : '✓';
+    document.getElementById('pullSuggestions').style.display = 'none';
     loadModels();
-  } catch (e) { alert('Error: ' + e); btn.textContent = 'Error'; }
-  setTimeout(function() { btn.disabled = false; btn.textContent = orig; }, 3000);
+  } catch (e) { alert('Error: ' + e); btn.textContent = '✕'; }
 }
 
 // ── Default Flags ─────────────────────────────────────
