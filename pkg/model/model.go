@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -242,6 +243,66 @@ func UpdateIndex(fn func(map[string]ModelInfo) error) error {
 	}
 	unsafeSaveIndex(idx)
 	return nil
+}
+
+type SearchResult struct {
+	ID          string `json:"id"`
+	Likes       int    `json:"likes"`
+	Downloads   int    `json:"downloads"`
+	PipelineTag string `json:"pipeline_tag"`
+	Description string `json:"description"`
+	HasGGUF     bool   `json:"has_gguf"`
+}
+
+func SearchModels(query string) ([]SearchResult, error) {
+	apiURL := fmt.Sprintf("https://huggingface.co/api/models?search=%s&sort=likes&direction=-1&limit=20&full=true", url.QueryEscape(query))
+	resp, err := HTTPClient.Get(apiURL)
+	if err != nil {
+		return nil, fmt.Errorf("searching models: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("search failed (HTTP %d)", resp.StatusCode)
+	}
+
+	var hfResults []struct {
+		ID          string `json:"id"`
+		Likes       int    `json:"likes"`
+		Downloads   int    `json:"downloads"`
+		PipelineTag string `json:"pipeline_tag"`
+		Siblings    []struct {
+			Filename string `json:"rfilename"`
+		} `json:"siblings"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&hfResults); err != nil {
+		return nil, fmt.Errorf("parsing search results: %w", err)
+	}
+
+	results := make([]SearchResult, 0, len(hfResults))
+	for _, r := range hfResults {
+		if r.PipelineTag != "" && r.PipelineTag != "text-generation" && r.PipelineTag != "text-generation-instruct" {
+			continue
+		}
+		hasGGUF := false
+		for _, s := range r.Siblings {
+			if strings.HasSuffix(s.Filename, ".gguf") {
+				hasGGUF = true
+				break
+			}
+		}
+		if !hasGGUF {
+			continue
+		}
+		results = append(results, SearchResult{
+			ID:          r.ID,
+			Likes:       r.Likes,
+			Downloads:   r.Downloads,
+			PipelineTag: r.PipelineTag,
+			HasGGUF:     true,
+		})
+	}
+	return results, nil
 }
 
 func ListModels() ([]ModelInfo, error) {

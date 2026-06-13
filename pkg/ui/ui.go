@@ -300,6 +300,16 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
 .tag { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; background: var(--surface-2); color: var(--text-muted); font-family: var(--font-mono); }
 .tps { font-variant-numeric: tabular-nums; }
 
+/* ── Search results ─────────────────────────────────── */
+.sresult { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; border-radius: var(--radius-sm); transition: background var(--transition); }
+.sresult:hover { background: var(--surface-2); }
+.sresult + .sresult { border-top: 1px solid var(--border); }
+.sresult .name { font-size: 13px; font-weight: 500; word-break: break-all; }
+.sresult .meta { font-size: 11px; color: var(--text-dim); margin-top: 2px; display: flex; gap: 12px; }
+.sresult .actions { display: flex; gap: 6px; flex-shrink: 0; }
+.sresult .pull-btn { font-size: 11px; padding: 4px 10px; }
+.sresult .badge { font-size: 10px; }
+
 /* ── Pull model row ────────────────────────────────────── */
 .pull-row { display: flex; gap: 8px; margin-bottom: 12px; }
 .pull-row input { flex: 1; }
@@ -407,7 +417,18 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
   </div>
   <div id="modelList" class="card"><div class="card-body"><div class="empty-state"><span class="spinner"></span> Loading models…</div></div></div>
   <div class="section" style="margin-top:32px">
-    <div class="section-header"><h2>Pull Model</h2></div>
+    <div class="section-header"><h2>Browse HuggingFace</h2></div>
+    <div class="card"><div class="card-body">
+      <div class="pull-row">
+        <input type="text" id="searchInput" placeholder="Search models on HuggingFace… (e.g. qwen, llama, deepseek)" autocomplete="off" onkeydown="if(event.key=='Enter') searchModels()">
+        <button class="primary" onclick="searchModels()" id="searchBtn">Search</button>
+      </div>
+      <div id="searchResults" style="margin-top: 12px;"></div>
+      <div class="spinner" id="searchSpinner" style="display:none; margin-top:8px"></div>
+    </div></div>
+  </div>
+  <div class="section" style="margin-top:20px">
+    <div class="section-header"><h2>Pull by Reference</h2></div>
     <div class="card"><div class="card-body">
       <div class="pull-row">
         <input type="text" id="pullInput" placeholder="hf.co/user/repo:Q4_K_M…" value="hf.co/unsloth/Qwen3.5-0.8B-GGUF:Q4_K_M" autocomplete="off">
@@ -844,6 +865,45 @@ async function pullModel() {
   } catch (e) { st.textContent = 'Error: ' + e; alert(e); }
   sp.style.display = 'none';
   btn.disabled = false; btn.textContent = 'Pull';
+}
+
+// ── Search Models ──────────────────────────────────────
+async function searchModels() {
+  var q = document.getElementById('searchInput').value.trim();
+  if (!q) { document.getElementById('searchResults').innerHTML = ''; return; }
+  var btn = document.getElementById('searchBtn'), sp = document.getElementById('searchSpinner'), sr = document.getElementById('searchResults');
+  btn.disabled = true; btn.textContent = 'Searching…'; sp.style.display = 'inline-block';
+  sr.innerHTML = '';
+  try {
+    var r = await fetch('/api/v1/models/search?q=' + encodeURIComponent(q));
+    if (!r.ok) { var e = await r.json(); sr.innerHTML = '<div style="color:var(--red);padding:8px">Error: ' + escHtml(e.error) + '</div>'; return; }
+    var results = await r.json();
+    if (!results || !results.length) {
+      sr.innerHTML = '<div style="color:var(--text-muted);padding:8px">No GGUF models found. Try a different search term.</div>';
+      return;
+    }
+    sr.innerHTML = results.map(function(m) {
+      var id = m.id, label = id.replace(/-GGUF$/i, '');
+      var likes = m.likes > 0 ? '<span>❤️ ' + m.likes + '</span>' : '';
+      var downloads = m.downloads > 0 ? '<span>⬇️ ' + (m.downloads > 999 ? (m.downloads/1000).toFixed(0) + 'K' : m.downloads) + '</span>' : '';
+      var tag = m.pipeline_tag ? '<span class="badge badge-amber">' + escHtml(m.pipeline_tag) + '</span>' : '';
+      return '<div class="sresult"><div><div class="name">' + escHtml(label) + '</div><div class="meta">' + tag + ' ' + likes + ' ' + downloads + '</div></div><div class="actions"><button class="small primary pull-btn" onclick="pullSearchModel(\'' + escAttr(id) + '\', this)">Pull</button></div></div>';
+    }).join('');
+  } catch (e) { sr.innerHTML = '<div style="color:var(--red);padding:8px">Error: ' + escHtml(e.message) + '</div>'; }
+  sp.style.display = 'none';
+  btn.disabled = false; btn.textContent = 'Search';
+}
+
+async function pullSearchModel(id, btn) {
+  var orig = btn.textContent; btn.disabled = true; btn.textContent = 'Pulling…';
+  try {
+    var r = await fetch('/api/v1/models/pull', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: id }) });
+    var d = await r.json();
+    if (d.error) { alert(d.error); btn.textContent = 'Failed'; return; }
+    btn.textContent = d.status === 'exists' ? 'Exists' : '✓ Done';
+    loadModels();
+  } catch (e) { alert('Error: ' + e); btn.textContent = 'Error'; }
+  setTimeout(function() { btn.disabled = false; btn.textContent = orig; }, 3000);
 }
 
 // ── Default Flags ─────────────────────────────────────

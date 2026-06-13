@@ -37,6 +37,7 @@ func New(mgr *manager.Manager, port string) *Server {
 func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/logo.svg", s.handleLogo)
 	s.mux.HandleFunc("/api/v1/models", s.handleModels)
+	s.mux.HandleFunc("/api/v1/models/search", s.handleModelSearch)
 	s.mux.HandleFunc("/api/v1/models/delete", s.handleModelDelete)
 	s.mux.HandleFunc("/api/v1/models/pull", s.handleModelPull)
 	s.mux.HandleFunc("/api/v1/instances", s.handleInstances)
@@ -77,6 +78,27 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 		models = []model.ModelInfo{}
 	}
 	jsonResponse(w, models)
+}
+
+func (s *Server) handleModelSearch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	query := r.URL.Query().Get("q")
+	if query == "" {
+		jsonError(w, "query parameter 'q' is required", 400)
+		return
+	}
+	results, err := model.SearchModels(query)
+	if err != nil {
+		jsonError(w, err.Error(), 502)
+		return
+	}
+	if results == nil {
+		results = []model.SearchResult{}
+	}
+	jsonResponse(w, results)
 }
 
 func (s *Server) handleModelDelete(w http.ResponseWriter, r *http.Request) {
