@@ -473,9 +473,20 @@ func (m *Manager) StopIdle(ttl time.Duration) []int {
 	m.mu.Lock()
 	var ports []int
 	for port, inst := range m.instances {
-		if inst.Status == "running" && time.Since(inst.LastActivity) >= ttl {
-			ports = append(ports, port)
+		if inst.Status != "running" {
+			continue
 		}
+		// Check log file modification time for activity (catches direct requests)
+		logFile := filepath.Join(model.GollamaDir(), "logs", fmt.Sprintf("port-%d.log", port))
+		if fi, err := os.Stat(logFile); err == nil {
+			if fi.ModTime().After(inst.LastActivity) {
+				inst.LastActivity = fi.ModTime()
+			}
+		}
+		if time.Since(inst.LastActivity) < ttl {
+			continue
+		}
+		ports = append(ports, port)
 	}
 	m.mu.Unlock()
 	for _, port := range ports {
