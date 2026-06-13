@@ -472,13 +472,18 @@ func pullModelInternal(ref string, fn ProgressFn, progress io.Writer) error {
 	// Check if model file already exists on disk
 	if _, err := os.Stat(dest); err == nil {
 		// File exists — ensure it's in the index
+		// Read GGUF metadata directly to avoid deadlock (populateModelInfo calls UpdateIndex)
+		info := ModelInfo{Name: modelName, BlobPath: dest}
+		if fi, err := os.Stat(dest); err == nil {
+			info.Size = fi.Size()
+		}
+		if meta, err := readGGUFMetadata(dest); err == nil && meta != nil {
+			info.Architecture = meta.Architecture
+			info.Quantization = meta.Quantization
+			info.ContextLength = meta.ContextLength
+		}
 		UpdateIndex(func(idx map[string]ModelInfo) error {
 			if _, exists := idx[modelName]; !exists {
-				info := ModelInfo{Name: modelName, BlobPath: dest}
-				if fi, err := os.Stat(dest); err == nil {
-					info.Size = fi.Size()
-				}
-				populateModelInfo(&info)
 				idx[modelName] = info
 			}
 			return nil

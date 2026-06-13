@@ -854,59 +854,73 @@ function pullModel() {
   startPull(ref, document.getElementById('pullBtn'));
 }
 
-function startPull(ref, btn) {
+async function startPull(ref, btn) {
   document.getElementById('pullSuggestions').style.display = 'none';
   btn.disabled = true;
   document.getElementById('pullProgress').style.display = 'block';
   document.getElementById('pullBar').style.width = '0%';
   document.getElementById('pullPct').textContent = '0%';
   document.getElementById('pullSpeed').textContent = '';
+  document.getElementById('pullStatus').textContent = 'Connecting…';
 
-  var es = new EventSource('/api/v1/models/pull/stream?model=' + encodeURIComponent(ref));
-  var done = false;
-
-  es.addEventListener('progress', function(e) {
-    var d = JSON.parse(e.data);
-    document.getElementById('pullPct').textContent = d.pct.toFixed(1) + '%';
-    document.getElementById('pullBar').style.width = d.pct + '%';
-    document.getElementById('pullSpeed').textContent = d.speed || '';
-    document.getElementById('pullStatus').textContent = d.pct < 100 ? 'Downloading…' : 'Finalizing…';
-  });
-
-  es.onmessage = function(e) {
-    if (done) return;
-    var d = JSON.parse(e.data);
-    if (d.status === 'done') {
-      done = true; es.close();
-      document.getElementById('pullBar').style.width = '100%';
-      document.getElementById('pullPct').textContent = '100%';
-      document.getElementById('pullStatus').textContent = '\u2713 Done';
-      loadModels();
-      setTimeout(function() {
-        document.getElementById('pullProgress').style.display = 'none';
-        btn.disabled = false; btn.textContent = 'Pull';
-      }, 2000);
-    } else if (d.status === 'exists') {
-      done = true; es.close();
-      document.getElementById('pullStatus').textContent = 'Already exists';
-      loadModels();
-      setTimeout(function() {
-        document.getElementById('pullProgress').style.display = 'none';
-        btn.disabled = false; btn.textContent = 'Pull';
-      }, 2000);
-    } else if (d.status === 'error') {
-      done = true; es.close();
-      document.getElementById('pullStatus').textContent = 'Error: ' + d.error;
+  try {
+    var r = await fetch('/api/v1/models/pull/stream?model=' + encodeURIComponent(ref));
+    if (!r.ok) {
+      document.getElementById('pullStatus').textContent = 'HTTP ' + r.status;
       btn.disabled = false; btn.textContent = 'Pull';
+      return;
     }
-  };
+    var reader = r.body.getReader(), decoder = new TextDecoder(), buf = '', done = false;
 
-  es.onerror = function() {
-    if (done) return;
-    es.close();
-    document.getElementById('pullStatus').textContent = 'Connection lost';
+    while (true) {
+      var { done: streamDone, value } = await reader.read();
+      if (streamDone) break;
+      buf += decoder.decode(value, { stream: true });
+      var events = buf.split('\n\n'); buf = events.pop() || '';
+      for (var e of events) {
+        var lines = e.split('\n');
+        var dataLine = '';
+        for (var l of lines) {
+          if (l.startsWith('data: ')) dataLine += l.slice(6);
+        }
+        if (!dataLine) continue;
+        try {
+          var d = JSON.parse(dataLine);
+          if (d.status === 'progress' || d.pct !== undefined) {
+            document.getElementById('pullPct').textContent = (d.pct || 0).toFixed(1) + '%';
+            document.getElementById('pullBar').style.width = (d.pct || 0) + '%';
+            document.getElementById('pullSpeed').textContent = d.speed || '';
+            document.getElementById('pullStatus').textContent = 'Downloading…';
+          } else if (d.status === 'done') {
+            done = true;
+            document.getElementById('pullBar').style.width = '100%';
+            document.getElementById('pullPct').textContent = '100%';
+            document.getElementById('pullStatus').textContent = '\u2713 Done';
+            loadModels();
+            setTimeout(function() {
+              document.getElementById('pullProgress').style.display = 'none';
+              btn.disabled = false; btn.textContent = 'Pull';
+            }, 2000);
+          } else if (d.status === 'exists') {
+            done = true;
+            document.getElementById('pullStatus').textContent = 'Already exists';
+            loadModels();
+            setTimeout(function() {
+              document.getElementById('pullProgress').style.display = 'none';
+              btn.disabled = false; btn.textContent = 'Pull';
+            }, 2000);
+          } else if (d.status === 'error') {
+            done = true;
+            document.getElementById('pullStatus').textContent = 'Error: ' + d.error;
+            btn.disabled = false; btn.textContent = 'Pull';
+          }
+        } catch (e) {}
+      }
+    }
+  } catch (e) {
+    document.getElementById('pullStatus').textContent = 'Error: ' + e.message;
     btn.disabled = false; btn.textContent = 'Retry';
-  };
+  }
 }
 
 // ── Search-as-you-type ────────────────────────────────
