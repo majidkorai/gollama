@@ -137,7 +137,7 @@ func main() {
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
-		srv := server.New(mgr, port)
+		srv := server.NewWithVersion(mgr, port, version)
 		go func() {
 			if err := srv.Start(); err != nil {
 				fmt.Fprintf(os.Stderr, "Server error: %v\n", err)

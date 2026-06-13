@@ -19,16 +19,22 @@ import (
 )
 
 type Server struct {
-	mgr  *manager.Manager
-	port string
-	mux  *http.ServeMux
+	mgr     *manager.Manager
+	port    string
+	version string
+	mux     *http.ServeMux
 }
 
 func New(mgr *manager.Manager, port string) *Server {
+	return NewWithVersion(mgr, port, "")
+}
+
+func NewWithVersion(mgr *manager.Manager, port, version string) *Server {
 	s := &Server{
-		mgr:  mgr,
-		port: port,
-		mux:  http.NewServeMux(),
+		mgr:     mgr,
+		port:    port,
+		version: version,
+		mux:     http.NewServeMux(),
 	}
 	s.registerRoutes()
 	return s
@@ -50,6 +56,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/v1/chats/", s.handleChatByID)
 	s.mux.HandleFunc("/api/v1/chat", s.handleChat)
 	s.mux.HandleFunc("/api/v1/config", s.handleConfig)
+	s.mux.HandleFunc("/api/v1/version", s.handleVersion)
 	s.mux.HandleFunc("/v1/models", s.handleV1Models)
 	s.mux.HandleFunc("/v1/models/", s.handleV1ModelsByID)
 	s.mux.HandleFunc("/v1/chat/completions", s.handleV1ChatCompletions)
@@ -293,6 +300,10 @@ func (s *Server) handleInstanceLogs(w http.ResponseWriter, r *http.Request) {
 		"port":  portStr,
 		"lines": lines,
 	})
+}
+
+func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
+	jsonResponse(w, map[string]string{"version": s.version})
 }
 
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {

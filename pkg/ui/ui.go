@@ -1186,6 +1186,10 @@ function toggleTheme() {
 // ── Settings ────────────────────────────────────────────
 async function loadSettings() {
   try {
+    var vr = await fetch('/api/v1/version'), vd = await vr.json();
+    if (vd.version) document.getElementById('s-version').textContent = vd.version;
+  } catch (e) {}
+  try {
     var r = await fetch('/api/v1/config'), cfg = await r.json();
     document.getElementById('idleTtlInput').value = cfg.idle_ttl || 0;
     var c = document.getElementById('settingsFlagsContainer'); c.innerHTML = '';
