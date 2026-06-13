@@ -1,6 +1,6 @@
 # gollama 🦙
 
-**Spin up GGUF models in seconds** — a single Go binary that downloads, manages, and runs llama.cpp instances with real-time streaming chat, reasoning display, web UI, REST API, and full flag control.
+**Spin up GGUF models in seconds** — a single Go binary that downloads, manages, and runs llama.cpp instances with an OpenAI-compatible API, real-time streaming chat, reasoning display, web UI, REST API, and full flag control.
 
 Pull any model from HuggingFace, launch it on any port, chat with streaming token-by-token responses — all from one command. No dependencies, no Docker, no Python.
 
@@ -17,6 +17,11 @@ iwr -useb https://raw.githubusercontent.com/majidkorai/gollama/main/install.ps1 
 ```
 
 The script detects your platform, downloads a pre-built binary (linux/darwin/windows × amd64/arm64), and installs it to `/usr/local/bin`. If no pre-built binary exists, it falls back to building from source.
+
+**Install a specific version** (e.g. release candidate):
+```bash
+VERSION=v0.2.7 curl -fsSL https://raw.githubusercontent.com/majidkorai/gollama/main/install.sh | sh
+```
 
 **Manual build:**
 ```bash
@@ -45,9 +50,13 @@ The first-run wizard:
 
 ## Features
 
+- **OpenAI-compatible API** — `/v1/chat/completions`, `/v1/completions`, `/v1/models`. Works with any OpenAI SDK or tool (Cursor, continue.dev, Open Interpreter). Auto-routes by model name.
 - **Real-time streaming chat** — tokens arrive as they're generated. Reasoning models show thinking process live.
-- **Web UI** — dashboard, model management, chat, log viewer. Built-in, no extra setup.
+- **Web UI** — dashboard, model management, chat, log viewer, settings. Built-in, no extra setup.
 - **Structured flag editing** — dropdown of 30+ common llama-server flags with value hints. Pre-filled with sensible defaults.
+- **Model search-as-you-type** — search HuggingFace directly from the pull input. Shows model sizes, likes, and downloads. Click any result to pull.
+- **Streaming download progress** — real-time progress bar with speed when pulling models.
+- **Auto-stop idle instances** — configurable TTL (default 30 min). Stops unused instances to free GPU memory. Activity tracked via proxy and direct requests.
 - **Model management** — list, pull, delete models from HuggingFace. Click any model to see architecture, quantization, context length, and file path.
 - **Multi-instance** — run multiple models on separate ports simultaneously. Restart with modified flags.
 - **Live log tail** — view llama-server logs in the UI with auto-refresh.
@@ -101,12 +110,34 @@ The capital of France is Paris.
 
 Open **http://<your-ip>:9080** in your browser.
 
-- **Dashboard** — metrics overview (models, instances, tokens/sec), quick launch, pull model
-- **Models** — list all downloaded models with metadata (arch, quant, context length)
-- **Chat** — full chat workspace with any running instance (proxied, no CORS)
-- **Left sidebar** — navigation between views
-- **Instance cards** — port, PID, status, tokens/sec, actions (stop, chat, open, logs)
-- **Theme toggle** — dark/light mode
+- **Dashboard** — metrics overview (models, instances, tokens/sec), quick launch with flag editor and presets
+- **Models** — list all downloaded models with metadata (arch, quant, context length, file path), search-as-you-type pull input
+- **Chat** — full chat workspace with any running instance (proxied, no CORS), chat history, copy button
+- **Settings** — gollama version, default launch flags editor, auto-stop idle TTL configuration
+- **Left sidebar** — navigation between views, theme toggle, collapse
+- **Instance cards** — port, model, status, tokens/sec, uptime, idle time, total tokens, flags, actions (stop, restart, chat, open, logs)
+
+## OpenAI-Compatible API
+
+gollama exposes an OpenAI-compatible API at `/v1` that auto-routes to running instances by model name. Point any OpenAI SDK or tool at gollama:
+
+```python
+from openai import OpenAI
+client = OpenAI(base_url="http://<host>:9080/v1", api_key="not-needed")
+response = client.chat.completions.create(
+    model="qwen3.5-0.8b",
+    messages=[{"role": "user", "content": "Hello!"}]
+)
+```
+
+**Endpoints:**
+| Endpoint | Description |
+|----------|-------------|
+| `GET /v1/models` | List running instances |
+| `POST /v1/chat/completions` | Chat completions (streaming supported) |
+| `POST /v1/completions` | Text completions (streaming supported) |
+
+The `model` field accepts the full name (e.g. `hf.co/unsloth/Qwen3.5-0.8B-GGUF:Q4_K_M`) or any substring like `qwen3.5-0.8b`. Streaming with `stream: true` works as expected.
 
 ## Updating
 
@@ -127,11 +158,17 @@ gollama update
 
 ```json
 {
-  "default_flags": ["--host", "0.0.0.0", "--ctx-size", "2048", "--flash-attn", "on", "--temp", "0.7", "--repeat-penalty", "1.1"]
+  "default_flags": ["--host", "0.0.0.0", "--ctx-size", "2048", "--flash-attn", "on", "--temp", "0.7", "--repeat-penalty", "1.1"],
+  "idle_ttl": 30
 }
 ```
 
-If a GPU is detected, `--n-gpu-layers` is added to the pre-filled form. Edit the file directly to customize defaults.
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `default_flags` | string[] | — | Default flags for launched instances |
+| `idle_ttl` | int | 30 | Auto-stop idle instances after N minutes (0 = disable) |
+
+Edit via the **Settings** page in the web UI or directly in the file. If a GPU is detected, `--n-gpu-layers` is added to the pre-filled form.
 
 ## Custom Flags
 
