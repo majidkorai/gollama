@@ -423,8 +423,16 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
         <button class="primary" onclick="pullModel()" id="pullBtn">Pull</button>
       </div>
       <div id="pullSuggestions" style="display:none;margin-top:4px;border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden"></div>
-      <div id="pullStatus" style="font-size: 12px; color: var(--text-muted); margin-top: 6px;"></div>
-      <div class="spinner" id="pullSpinner" style="display:none; margin-top:8px"></div>
+      <div id="pullProgress" style="display:none;margin-top:10px">
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-bottom:4px">
+          <span id="pullPct">0%</span>
+          <span id="pullSpeed"></span>
+        </div>
+        <div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden">
+          <div id="pullBar" style="height:100%;width:0%;background:var(--accent);border-radius:3px;transition:width 200ms ease"></div>
+        </div>
+        <div id="pullStatus" style="font-size: 11px; color: var(--text-muted); margin-top: 4px;"></div>
+      </div>
     </div></div>
   </div>
 </div>
@@ -839,22 +847,66 @@ async function deletePreset() {
   } catch (e) { alert('Error: ' + e); }
 }
 
-// ── Pull Model ────────────────────────────────────────
-async function pullModel() {
+// ── Pull Model (streaming) ────────────────────────────
+function pullModel() {
   var ref = document.getElementById('pullInput').value.trim();
   if (!ref) { alert('Enter a model reference'); return; }
+  startPull(ref, document.getElementById('pullBtn'));
+}
+
+function startPull(ref, btn) {
   document.getElementById('pullSuggestions').style.display = 'none';
-  var btn = document.getElementById('pullBtn'), st = document.getElementById('pullStatus'), sp = document.getElementById('pullSpinner');
-  btn.disabled = true; btn.textContent = 'Pulling…'; st.textContent = 'Downloading…'; sp.style.display = 'inline-block';
-  try {
-    var r = await fetch('/api/v1/models/pull', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: ref }) });
-    var d = await r.json();
-    if (d.error) { st.innerHTML = 'Error: ' + d.error; alert(d.error); }
-    else if (d.status === 'exists') { st.innerHTML = '<span style="color:var(--text-muted)">Model already exists</span>'; loadModels(); }
-    else { st.innerHTML = '<span style="color:var(--green)">\u2713</span> Pulled ' + escHtml(ref); loadModels(); }
-  } catch (e) { st.textContent = 'Error: ' + e; alert(e); }
-  sp.style.display = 'none';
-  btn.disabled = false; btn.textContent = 'Pull';
+  btn.disabled = true;
+  document.getElementById('pullProgress').style.display = 'block';
+  document.getElementById('pullBar').style.width = '0%';
+  document.getElementById('pullPct').textContent = '0%';
+  document.getElementById('pullSpeed').textContent = '';
+
+  var es = new EventSource('/api/v1/models/pull/stream?model=' + encodeURIComponent(ref));
+  var done = false;
+
+  es.addEventListener('progress', function(e) {
+    var d = JSON.parse(e.data);
+    document.getElementById('pullPct').textContent = d.pct.toFixed(1) + '%';
+    document.getElementById('pullBar').style.width = d.pct + '%';
+    document.getElementById('pullSpeed').textContent = d.speed || '';
+    document.getElementById('pullStatus').textContent = d.pct < 100 ? 'Downloading…' : 'Finalizing…';
+  });
+
+  es.onmessage = function(e) {
+    if (done) return;
+    var d = JSON.parse(e.data);
+    if (d.status === 'done') {
+      done = true; es.close();
+      document.getElementById('pullBar').style.width = '100%';
+      document.getElementById('pullPct').textContent = '100%';
+      document.getElementById('pullStatus').textContent = '\u2713 Done';
+      loadModels();
+      setTimeout(function() {
+        document.getElementById('pullProgress').style.display = 'none';
+        btn.disabled = false; btn.textContent = 'Pull';
+      }, 2000);
+    } else if (d.status === 'exists') {
+      done = true; es.close();
+      document.getElementById('pullStatus').textContent = 'Already exists';
+      loadModels();
+      setTimeout(function() {
+        document.getElementById('pullProgress').style.display = 'none';
+        btn.disabled = false; btn.textContent = 'Pull';
+      }, 2000);
+    } else if (d.status === 'error') {
+      done = true; es.close();
+      document.getElementById('pullStatus').textContent = 'Error: ' + d.error;
+      btn.disabled = false; btn.textContent = 'Pull';
+    }
+  };
+
+  es.onerror = function() {
+    if (done) return;
+    es.close();
+    document.getElementById('pullStatus').textContent = 'Connection lost';
+    btn.disabled = false; btn.textContent = 'Retry';
+  };
 }
 
 // ── Search-as-you-type ────────────────────────────────
@@ -887,16 +939,9 @@ async function doSearch(q) {
   } catch (e) { sg.style.display = 'none'; }
 }
 
-async function pullSuggestion(id, btn) {
-  var orig = btn.textContent; btn.disabled = true; btn.textContent = '…';
-  try {
-    var r = await fetch('/api/v1/models/pull', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: id }) });
-    var d = await r.json();
-    if (d.error) { alert(d.error); btn.textContent = '✕'; return; }
-    btn.textContent = d.status === 'exists' ? 'Exists' : '✓';
-    document.getElementById('pullSuggestions').style.display = 'none';
-    loadModels();
-  } catch (e) { alert('Error: ' + e); btn.textContent = '✕'; }
+function pullSuggestion(id, btn) {
+  document.getElementById('pullSuggestions').style.display = 'none';
+  startPull(id, document.getElementById('pullBtn'));
 }
 
 // ── Default Flags ─────────────────────────────────────

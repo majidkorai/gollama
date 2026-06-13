@@ -40,6 +40,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/v1/models/search", s.handleModelSearch)
 	s.mux.HandleFunc("/api/v1/models/delete", s.handleModelDelete)
 	s.mux.HandleFunc("/api/v1/models/pull", s.handleModelPull)
+	s.mux.HandleFunc("/api/v1/models/pull/stream", s.handleModelPullStream)
 	s.mux.HandleFunc("/api/v1/instances", s.handleInstances)
 	s.mux.HandleFunc("/api/v1/instances/stop", s.handleInstanceStop)
 	s.mux.HandleFunc("/api/v1/instances/logs", s.handleInstanceLogs)
@@ -165,6 +166,60 @@ func (s *Server) handleModelPull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	jsonResponse(w, map[string]string{"status": "ok", "model": req.Model})
+}
+
+func (s *Server) handleModelPullStream(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	modelRef := r.URL.Query().Get("model")
+	if modelRef == "" {
+		jsonError(w, "model query parameter is required", 400)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		jsonError(w, "streaming not supported", 500)
+		return
+	}
+
+	writeSSE := func(event string, data interface{}) {
+		var buf strings.Builder
+		if event != "" {
+			buf.WriteString("event: ")
+			buf.WriteString(event)
+			buf.WriteString("\n")
+		}
+		buf.WriteString("data: ")
+		json.NewEncoder(&buf).Encode(data)
+		buf.WriteString("\n")
+		w.Write([]byte(buf.String()))
+		flusher.Flush()
+	}
+
+	err := model.PullModelWithCallback(modelRef, func(pct float64, done, total int64, speed string) {
+		writeSSE("progress", map[string]interface{}{
+			"pct":   pct,
+			"done":  done,
+			"total": total,
+			"speed": speed,
+		})
+	})
+
+	if err != nil {
+		if err.Error() == "already_exists" {
+			writeSSE("", map[string]string{"status": "exists"})
+		} else {
+			writeSSE("", map[string]string{"status": "error", "error": err.Error()})
+		}
+		return
+	}
+	writeSSE("", map[string]string{"status": "done"})
 }
 
 type flushWriter struct{ w http.ResponseWriter }
