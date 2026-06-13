@@ -197,10 +197,13 @@ func (s *Server) handleModelPullStream(w http.ResponseWriter, r *http.Request) {
 		}
 		buf.WriteString("data: ")
 		json.NewEncoder(&buf).Encode(data)
-		buf.WriteString("\n")
+		buf.WriteString("\n\n")
 		w.Write([]byte(buf.String()))
 		flusher.Flush()
 	}
+
+	// Send initial event so browser gets HTTP headers immediately
+	writeSSE("", map[string]string{"status": "connecting"})
 
 	err := model.PullModelWithCallback(modelRef, func(pct float64, done, total int64, speed string) {
 		writeSSE("progress", map[string]interface{}{
