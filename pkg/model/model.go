@@ -257,6 +257,19 @@ type SearchResult struct {
 	Size        int64  `json:"size"`
 }
 
+func isGated(v interface{}) bool {
+	if v == nil {
+		return false
+	}
+	switch val := v.(type) {
+	case bool:
+		return val
+	case string:
+		return val != "" && val != "false"
+	}
+	return false
+}
+
 func SearchModels(query string) ([]SearchResult, error) {
 	// Auto-append GGUF to surface real GGUF conversion repos, not original model repos
 	searchQuery := query
@@ -279,6 +292,7 @@ func SearchModels(query string) ([]SearchResult, error) {
 		Likes       int    `json:"likes"`
 		Downloads   int    `json:"downloads"`
 		PipelineTag string `json:"pipeline_tag"`
+		Gated       interface{} `json:"gated"`
 		Siblings    []struct {
 			Filename string `json:"rfilename"`
 		} `json:"siblings"`
@@ -302,8 +316,12 @@ func SearchModels(query string) ([]SearchResult, error) {
 				hasSafeTensor = true
 			}
 		}
-		// Skip repos that primarily contain safetensor files (original model format, not GGUF conversion)
+		// Skip repos that are primarily the original model format (safetensors)
 		if !hasGGUF || hasSafeTensor {
+			continue
+		}
+		// Skip gated models that require manual license acceptance (download will 401)
+		if isGated(r.Gated) {
 			continue
 		}
 		results = append(results, SearchResult{
