@@ -47,6 +47,10 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/v1/chats", s.handleChats)
 	s.mux.HandleFunc("/api/v1/chats/", s.handleChatByID)
 	s.mux.HandleFunc("/api/v1/chat", s.handleChat)
+	s.mux.HandleFunc("/v1/models", s.handleV1Models)
+	s.mux.HandleFunc("/v1/models/", s.handleV1ModelsByID)
+	s.mux.HandleFunc("/v1/chat/completions", s.handleV1ChatCompletions)
+	s.mux.HandleFunc("/v1/completions", s.handleV1Completions)
 	s.mux.HandleFunc("/", s.handleUI)
 }
 
@@ -423,6 +427,184 @@ func (s *Server) handleUI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
 	w.Header().Set("Pragma", "no-cache")
 	w.Write([]byte(ui.Page))
+}
+
+// ── OpenAI-compatible API ─────────────────────────────────
+
+type openAIModel struct {
+	ID      string `json:"id"`
+	Object  string `json:"object"`
+	Created int64  `json:"created"`
+	OwnedBy string `json:"owned_by"`
+}
+
+func (s *Server) handleV1Models(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	instances := s.mgr.List()
+	data := make([]openAIModel, 0, len(instances))
+	for _, inst := range instances {
+		if inst.Status == "running" {
+			data = append(data, openAIModel{
+				ID:      inst.Model,
+				Object:  "model",
+				Created: inst.StartedAt.Unix(),
+				OwnedBy: "gollama",
+			})
+		}
+	}
+	jsonResponse(w, map[string]interface{}{
+		"object": "list",
+		"data":   data,
+	})
+}
+
+func (s *Server) handleV1ModelsByID(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	modelName := strings.TrimPrefix(r.URL.Path, "/v1/models/")
+	if modelName == "" {
+		jsonError(w, "model name is required", 400)
+		return
+	}
+	inst := s.mgr.FindInstanceByModel(modelName)
+	if inst == nil {
+		jsonError(w, fmt.Sprintf("model %q not found — run 'gollama serve' and start it from the UI", modelName), 404)
+		return
+	}
+	jsonResponse(w, openAIModel{
+		ID:      inst.Model,
+		Object:  "model",
+		Created: inst.StartedAt.Unix(),
+		OwnedBy: "gollama",
+	})
+}
+
+func (s *Server) handleV1ChatCompletions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	s.proxyToInstance(w, r, "/v1/chat/completions")
+}
+
+func (s *Server) handleV1Completions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	s.proxyToInstance(w, r, "/v1/completions")
+}
+
+func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetPath string) {
+	var body json.RawMessage
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		jsonError(w, "invalid request body", 400)
+		return
+	}
+
+	var reqMap map[string]interface{}
+	json.Unmarshal(body, &reqMap)
+
+	modelName, _ := reqMap["model"].(string)
+	if modelName == "" {
+		jsonError(w, "model field is required", 400)
+		return
+	}
+
+	inst := s.mgr.FindInstanceByModel(modelName)
+	if inst == nil {
+		// List available models to help the user
+		available := s.mgr.List()
+		names := make([]string, 0, len(available))
+		for _, a := range available {
+			if a.Status == "running" {
+				names = append(names, a.Model)
+			}
+		}
+		if len(names) == 0 {
+			jsonError(w, fmt.Sprintf("model %q not found — no instances running. Start one from the gollama UI.", modelName), 404)
+		} else {
+			jsonError(w, fmt.Sprintf("model %q not found. running instances: %s", modelName, strings.Join(names, ", ")), 404)
+		}
+		return
+	}
+
+	isStream, _ := reqMap["stream"].(bool)
+	target := fmt.Sprintf("http://127.0.0.1:%d%s", inst.Port, targetPath)
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
+	defer cancel()
+
+	proxyReq, err := http.NewRequestWithContext(ctx, "POST", target, strings.NewReader(string(body)))
+	if err != nil {
+		jsonError(w, fmt.Sprintf("proxy error: %v", err), 502)
+		return
+	}
+	proxyReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(proxyReq)
+	if err != nil {
+		jsonError(w, fmt.Sprintf("proxy error: %v", err), 502)
+		return
+	}
+	defer resp.Body.Close()
+
+	if isStream {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			jsonError(w, "streaming not supported", 500)
+			return
+		}
+		buf := make([]byte, 256)
+		for {
+			n, err := resp.Body.Read(buf)
+			if n > 0 {
+				w.Write(buf[:n])
+				flusher.Flush()
+				var usage struct {
+					Usage *struct {
+						CompletionTokens int64 `json:"completion_tokens"`
+					} `json:"usage"`
+				}
+				if json.Unmarshal(buf[:n], &usage) == nil && usage.Usage != nil {
+					s.mgr.AddCompletionTokens(inst.Port, usage.Usage.CompletionTokens)
+				}
+			}
+			if err != nil {
+				break
+			}
+		}
+		return
+	}
+
+	respBody, _ := io.ReadAll(resp.Body)
+	var responseData struct {
+		Usage *struct {
+			CompletionTokens int64 `json:"completion_tokens"`
+		} `json:"usage"`
+		Timings *struct {
+			PredictedPerSecond float64 `json:"predicted_per_second"`
+		} `json:"timings"`
+	}
+	if json.Unmarshal(respBody, &responseData) == nil {
+		if responseData.Timings != nil {
+			s.mgr.UpdateTokens(inst.Port, responseData.Timings.PredictedPerSecond)
+		}
+		if responseData.Usage != nil {
+			s.mgr.AddCompletionTokens(inst.Port, responseData.Usage.CompletionTokens)
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(respBody)
 }
 
 func jsonResponse(w http.ResponseWriter, data interface{}) {

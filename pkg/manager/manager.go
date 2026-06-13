@@ -439,6 +439,37 @@ func (m *Manager) AddCompletionTokens(port int, n int64) {
 	}
 }
 
+func (m *Manager) FindInstanceByModel(modelName string) *Instance {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Exact match first
+	if inst, ok := m.instancesByModelLocked(modelName); ok {
+		return inst
+	}
+	// Suffix match (e.g. "qwen2.5-7b" matches "hf.co/Qwen/Qwen2.5-7B-Instruct-GGUF:Q4_K_M")
+	for _, inst := range m.instances {
+		if inst.Status == "running" && containsIgnoreCase(inst.Model, modelName) {
+			return inst
+		}
+	}
+	return nil
+}
+
+func (m *Manager) instancesByModelLocked(modelName string) (*Instance, bool) {
+	for _, inst := range m.instances {
+		if inst.Status == "running" && strings.EqualFold(inst.Model, modelName) {
+			return inst, true
+		}
+	}
+	return nil, false
+}
+
+func containsIgnoreCase(s, substr string) bool {
+	s, substr = strings.ToLower(s), strings.ToLower(substr)
+	return strings.Contains(s, substr)
+}
+
 func (m *Manager) List() []*Instance {
 	m.mu.Lock()
 	defer m.mu.Unlock()
