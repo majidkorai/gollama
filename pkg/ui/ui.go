@@ -524,6 +524,15 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
       <span id="idleTtlStatus" style="font-size:12px;color:var(--text-muted)"></span>
     </div>
   </div></div>
+  <div class="card" style="margin-top:16px"><div class="card-body">
+    <div style="font-size:13px;font-weight:600;margin-bottom:8px">Default Launch Flags</div>
+    <div id="settingsFlagsContainer"></div>
+    <button class="ghost small" onclick="addSettingsFlag()" style="margin-top:4px">＋ Add Flag</button>
+    <div style="margin-top:10px">
+      <button class="primary small" onclick="saveSettingsFlags()">Save Default Flags</button>
+      <span id="settingsFlagsStatus" style="font-size:12px;color:var(--text-muted);margin-left:8px"></span>
+    </div>
+  </div></div>
 </div>
 
 <!-- ── Logs Modal ──────────────────────────────────── -->
@@ -1175,11 +1184,23 @@ function toggleTheme() {
 })();
 
 // ── Settings ────────────────────────────────────────────
-async function loadIdleTTL() {
+async function loadSettings() {
   try {
     var r = await fetch('/api/v1/config'), cfg = await r.json();
     document.getElementById('idleTtlInput').value = cfg.idle_ttl || 0;
+    var c = document.getElementById('settingsFlagsContainer'); c.innerHTML = '';
+    if (cfg.default_flags) {
+      for (var i = 0; i < cfg.default_flags.length; i += 2) {
+        var name = cfg.default_flags[i];
+        var value = (i + 1 < cfg.default_flags.length && !cfg.default_flags[i + 1].startsWith('--')) ? cfg.default_flags[i + 1] : '';
+        c.appendChild(makeFlagRow(name, value));
+      }
+    }
   } catch (e) {}
+}
+
+function addSettingsFlag() {
+  document.getElementById('settingsFlagsContainer').appendChild(makeFlagRow('', ''));
 }
 
 async function saveIdleTTL() {
@@ -1192,12 +1213,29 @@ async function saveIdleTTL() {
   } catch (e) { st.textContent = 'Error: ' + e.message; }
 }
 
+async function saveSettingsFlags() {
+  var flags = [];
+  document.querySelectorAll('#settingsFlagsContainer .flag-row').forEach(function(row) {
+    var sel = row.querySelector('.flag-name'), valInput = row.querySelector('.flag-value'), customInput = row.querySelector('.flag-custom');
+    var name = sel.value || customInput.value.trim(), val = valInput.value.trim();
+    if (!name) return;
+    flags.push(name);
+    if (val) flags.push(val);
+  });
+  var st = document.getElementById('settingsFlagsStatus');
+  try {
+    var r = await fetch('/api/v1/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ default_flags: flags }) });
+    if (r.ok) { st.textContent = 'Saved'; setTimeout(function() { st.textContent = ''; }, 2000); }
+    else { st.textContent = 'Error saving'; }
+  } catch (e) { st.textContent = 'Error: ' + e.message; }
+}
+
 // ── Init (staggered, no pile-up) ─────────────────────
 loadModels();
 setTimeout(loadDefaultFlags, 50);
 setTimeout(loadPresets, 50);
 setTimeout(loadInstances, 100);
-setTimeout(loadIdleTTL, 150);
+setTimeout(loadSettings, 150);
 </script>
 </body>
 </html>`

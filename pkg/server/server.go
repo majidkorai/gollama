@@ -311,6 +311,19 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 				cfg.IdleTTL = int(n)
 			}
 		}
+		if v, ok := incoming["default_flags"]; ok {
+			if arr, ok := v.([]interface{}); ok {
+				flags := make([]string, 0, len(arr))
+				for _, item := range arr {
+					if s, ok := item.(string); ok {
+						flags = append(flags, s)
+					}
+				}
+				if len(flags) > 0 {
+					cfg.DefaultFlags = flags
+				}
+			}
+		}
 		model.SaveConfig(cfg)
 		jsonResponse(w, map[string]string{"status": "saved"})
 	default:
