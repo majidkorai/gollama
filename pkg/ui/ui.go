@@ -661,8 +661,8 @@ async function loadInstances() {
     c.setAttribute('data-list', JSON.stringify(list));
     c.innerHTML = list.map(function(i) {
       var cls = i.status == 'running' ? '' : ' stopped';
-      var bc = i.status == 'running' ? 'badge-green' : 'badge-red';
-      var statusLabel = i.status == 'running' ? 'running' : i.status;
+      var bc = i.status == 'running' ? (i.ready ? 'badge-green' : 'badge-blue') : 'badge-red';
+      var statusLabel = i.status == 'running' ? (i.ready ? 'running' : 'starting…') : i.status;
       var mn = i.model || '?';
       var tps = i.tokens_per_sec ? '<span style="color: var(--green); font-variant-numeric: tabular-nums">⚡ ' + i.tokens_per_sec.toFixed(1) + ' t/s</span>' : '';
       var uptime = i.started_at ? (function() { var s = Math.floor((Date.now() - new Date(i.started_at).getTime()) / 1000); return '<span title="Uptime">⏱ ' + (s > 86400 ? Math.floor(s/86400)+'d ' : '') + (s > 3600 ? Math.floor((s%86400)/3600)+'h ' : '') + Math.floor((s%3600)/60)+'m</span>'; })() : '';

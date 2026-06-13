@@ -451,6 +451,25 @@ func (s *Server) handleChatByID(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (s *Server) waitForInstanceReady(port int) {
+	healthClient := &http.Client{Timeout: 2 * time.Second}
+	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
+	deadline := time.Now().Add(120 * time.Second)
+	for time.Now().Before(deadline) {
+		// Check cached readiness first
+		s.mgr.TouchActivity(port)
+		// Then check /health endpoint
+		resp, err := healthClient.Get(baseURL + "/health")
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == 200 {
+				return
+			}
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
 func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		http.Error(w, "method not allowed", 405)
@@ -474,6 +493,9 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	isStream, _ := reqMap["stream"].(bool)
 
 	s.mgr.TouchActivity(port)
+
+	// Wait for instance to be ready (model loaded, health check passing)
+	s.waitForInstanceReady(port)
 
 	target := fmt.Sprintf("http://127.0.0.1:%d/v1/chat/completions", port)
 
@@ -665,6 +687,7 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 		return
 	}
 	s.mgr.TouchActivity(inst.Port)
+	s.waitForInstanceReady(inst.Port)
 
 	isStream, _ := reqMap["stream"].(bool)
 	target := fmt.Sprintf("http://127.0.0.1:%d%s", inst.Port, targetPath)
