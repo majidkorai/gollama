@@ -876,10 +876,11 @@ async function doSearch(q) {
     if (!results || !results.length) { sg.style.display = 'none'; return; }
     sg.innerHTML = results.slice(0, 8).map(function(m) {
       var id = m.id, label = id.replace(/-GGUF$/i, '');
+      var size = m.size ? fmtSize(m.size) : '';
       var likes = m.likes > 0 ? '♥' + m.likes : '';
       var downloads = m.downloads > 0 ? (m.downloads > 999 ? (m.downloads/1000).toFixed(0) + 'K' : m.downloads) + ' dl' : '';
       var tag = m.pipeline_tag ? '<span class="badge badge-amber">' + escHtml(m.pipeline_tag) + '</span>' : '';
-      var meta = [tag, likes, downloads].filter(Boolean).join(' · ');
+      var meta = [tag, size, likes, downloads].filter(Boolean).join(' · ');
       return '<div class="suggestion"><div><div class="name">' + escHtml(label) + '</div>' + (meta ? '<div class="meta">' + meta + '</div>' : '') + '</div><button class="small primary pull-btn" onclick="pullSuggestion(\'' + escAttr(id) + '\', this)">Pull</button></div>';
     }).join('');
     sg.style.display = 'block';

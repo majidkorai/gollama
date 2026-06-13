@@ -252,6 +252,7 @@ type SearchResult struct {
 	PipelineTag string `json:"pipeline_tag"`
 	Description string `json:"description"`
 	HasGGUF     bool   `json:"has_gguf"`
+	Size        int64  `json:"size"`
 }
 
 func SearchModels(query string) ([]SearchResult, error) {
@@ -280,6 +281,7 @@ func SearchModels(query string) ([]SearchResult, error) {
 	}
 
 	results := make([]SearchResult, 0, len(hfResults))
+	var ggufIDs []string
 	for _, r := range hfResults {
 		if r.PipelineTag != "" && r.PipelineTag != "text-generation" && r.PipelineTag != "text-generation-instruct" {
 			continue
@@ -301,7 +303,42 @@ func SearchModels(query string) ([]SearchResult, error) {
 			PipelineTag: r.PipelineTag,
 			HasGGUF:     true,
 		})
+		ggufIDs = append(ggufIDs, r.ID)
 	}
+
+	// Fetch sizes concurrently from individual model endpoints
+	type sizeResult struct {
+		idx  int
+		size int64
+	}
+	sizeCh := make(chan sizeResult, len(ggufIDs))
+	for i, id := range ggufIDs {
+		go func(idx int, modelID string) {
+			var total int64
+			u := fmt.Sprintf("https://huggingface.co/api/models/%s", modelID)
+			if resp, err := HTTPClient.Get(u); err == nil {
+				defer resp.Body.Close()
+				if resp.StatusCode == 200 {
+					var detail struct {
+						GGUF *struct {
+							Total int64 `json:"total"`
+						} `json:"gguf"`
+					}
+					if json.NewDecoder(resp.Body).Decode(&detail) == nil && detail.GGUF != nil {
+						total = detail.GGUF.Total
+					}
+				}
+			}
+			sizeCh <- sizeResult{idx, total}
+		}(i, id)
+	}
+	for range ggufIDs {
+		sr := <-sizeCh
+		if sr.idx < len(results) {
+			results[sr.idx].Size = sr.size
+		}
+	}
+
 	return results, nil
 }
 
