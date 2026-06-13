@@ -398,10 +398,11 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 
 	// Wait for instance to be ready before returning
 	go func() {
+		healthClient := &http.Client{Timeout: 2 * time.Second}
 		baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
 		deadline := time.Now().Add(120 * time.Second)
 		for time.Now().Before(deadline) {
-			resp, err := http.Get(baseURL + "/health")
+			resp, err := healthClient.Get(baseURL + "/health")
 			if err == nil {
 				resp.Body.Close()
 				if resp.StatusCode == 200 {
@@ -414,7 +415,7 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 			}
 			time.Sleep(500 * time.Millisecond)
 		}
-		log.Printf("instance did not become ready: port=%d", port)
+		log.Printf("instance did not become ready: port=%d — check logs with 'gollama logs %d'", port, port)
 	}()
 
 	go func() {
