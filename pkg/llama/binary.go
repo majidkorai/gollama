@@ -54,7 +54,35 @@ func DetectGPUBackends() []BackendOption {
 		})
 	}
 
-	options = append(options, BackendOption{Name: "Vulkan", Suffix: "-vulkan", GPU: true})
+	// Only offer Vulkan if the runtime library is available (prevents segfaults on bare metal)
+	vulkanAvailable := func() bool {
+		if runtime.GOOS == "darwin" {
+			return true // macOS uses Metal via the default build, not Vulkan
+		}
+		// Check for Vulkan loader library
+		for _, path := range []string{
+			"/usr/lib/libvulkan.so.1",
+			"/usr/lib/x86_64-linux-gnu/libvulkan.so.1",
+			"/usr/lib/aarch64-linux-gnu/libvulkan.so.1",
+			"/usr/local/lib/libvulkan.so.1",
+		} {
+			if _, err := os.Stat(path); err == nil {
+				return true
+			}
+		}
+		// Also check via ldconfig cache
+		if _, err := os.Stat("/etc/ld.so.cache"); err == nil {
+			cmd := exec.Command("ldconfig", "-p")
+			out, _ := cmd.Output()
+			if strings.Contains(string(out), "libvulkan.so.1") {
+				return true
+			}
+		}
+		return false
+	}()
+	if vulkanAvailable {
+		options = append(options, BackendOption{Name: "Vulkan", Suffix: "-vulkan", GPU: true})
+	}
 
 	return options
 }
