@@ -19,14 +19,15 @@ import (
 )
 
 type Instance struct {
-	Port         int      `json:"port"`
-	Model        string   `json:"model"`
-	PID          int      `json:"pid"`
-	Status       string   `json:"status"`
-	TokensPerSec float64  `json:"tokens_per_sec,omitempty"`
-	Flags        []string `json:"flags,omitempty"`
-	StartedAt    time.Time `json:"started_at"`
-	TotalTokens  int64    `json:"total_tokens"`
+	Port         int        `json:"port"`
+	Model        string     `json:"model"`
+	PID          int        `json:"pid"`
+	Status       string     `json:"status"`
+	TokensPerSec float64    `json:"tokens_per_sec,omitempty"`
+	Flags        []string   `json:"flags,omitempty"`
+	StartedAt    time.Time  `json:"started_at"`
+	TotalTokens  int64      `json:"total_tokens"`
+	LastActivity time.Time  `json:"last_activity"`
 }
 
 type Manager struct {
@@ -42,6 +43,19 @@ func NewManager() *Manager {
 		nextPort:  8081,
 	}
 	m.recoverOrphans()
+
+	// Auto-stop idle instances
+	go func() {
+		for {
+			time.Sleep(60 * time.Second)
+			cfg := model.LoadConfig()
+			if cfg.IdleTTL <= 0 {
+				continue
+			}
+			m.StopIdle(time.Duration(cfg.IdleTTL) * time.Minute)
+		}
+	}()
+
 	return m
 }
 
@@ -99,10 +113,11 @@ func (m *Manager) recoverOrphans() {
 		}
 		if _, exists := m.instances[port]; !exists && port > 0 && !m.pidExists(pid) {
 			m.instances[port] = &Instance{
-				Port:   port,
-				Model:  modelName,
-				PID:    pid,
-				Status: "running",
+				Port:         port,
+				Model:        modelName,
+				PID:          pid,
+				Status:       "running",
+				LastActivity: time.Now(),
 			}
 			log.Printf("recovered orphan instance: port=%d pid=%d model=%s", port, pid, modelName)
 		}
@@ -142,10 +157,11 @@ func (m *Manager) recoverOrphansWindows() {
 			port := m.nextPort
 			m.nextPort++
 			m.instances[port] = &Instance{
-				Port:   port,
-				Model:  "unknown",
-				PID:    pid,
-				Status: "running",
+				Port:         port,
+				Model:        "unknown",
+				PID:          pid,
+				Status:       "running",
+				LastActivity: time.Now(),
 			}
 			log.Printf("recovered orphan instance (limited): port=%d pid=%d", port, pid)
 			continue
@@ -187,10 +203,11 @@ func (m *Manager) recoverOrphansWindows() {
 		}
 		if _, exists := m.instances[port]; !exists && port > 0 && !m.pidExists(pid) {
 			m.instances[port] = &Instance{
-				Port:   port,
-				Model:  modelName,
-				PID:    pid,
-				Status: "running",
+				Port:         port,
+				Model:        modelName,
+				PID:          pid,
+				Status:       "running",
+				LastActivity: time.Now(),
 			}
 			log.Printf("recovered orphan instance: port=%d pid=%d model=%s", port, pid, modelName)
 		}
@@ -363,12 +380,13 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 	}
 
 	inst := &Instance{
-		Port:      port,
-		Model:     modelName,
-		PID:       cmd.Process.Pid,
-		Status:    "running",
-		Flags:     args,
-		StartedAt: time.Now(),
+		Port:         port,
+		Model:        modelName,
+		PID:          cmd.Process.Pid,
+		Status:       "running",
+		Flags:        args,
+		StartedAt:    time.Now(),
+		LastActivity: time.Now(),
 	}
 	m.instances[port] = inst
 
@@ -437,6 +455,34 @@ func (m *Manager) AddCompletionTokens(port int, n int64) {
 	if inst, ok := m.instances[port]; ok {
 		inst.TotalTokens += n
 	}
+}
+
+func (m *Manager) TouchActivity(port int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.touchActivityLocked(port)
+}
+
+func (m *Manager) touchActivityLocked(port int) {
+	if inst, ok := m.instances[port]; ok {
+		inst.LastActivity = time.Now()
+	}
+}
+
+func (m *Manager) StopIdle(ttl time.Duration) []int {
+	m.mu.Lock()
+	var ports []int
+	for port, inst := range m.instances {
+		if inst.Status == "running" && time.Since(inst.LastActivity) >= ttl {
+			ports = append(ports, port)
+		}
+	}
+	m.mu.Unlock()
+	for _, port := range ports {
+		log.Printf("auto-stopping idle instance: port=%d (idle >= %v)", port, ttl)
+		m.Stop(port)
+	}
+	return ports
 }
 
 func (m *Manager) FindInstanceByModel(modelName string) *Instance {

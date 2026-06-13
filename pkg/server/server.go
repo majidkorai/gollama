@@ -49,6 +49,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/v1/chats", s.handleChats)
 	s.mux.HandleFunc("/api/v1/chats/", s.handleChatByID)
 	s.mux.HandleFunc("/api/v1/chat", s.handleChat)
+	s.mux.HandleFunc("/api/v1/config", s.handleConfig)
 	s.mux.HandleFunc("/v1/models", s.handleV1Models)
 	s.mux.HandleFunc("/v1/models/", s.handleV1ModelsByID)
 	s.mux.HandleFunc("/v1/chat/completions", s.handleV1ChatCompletions)
@@ -294,6 +295,29 @@ func (s *Server) handleInstanceLogs(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		jsonResponse(w, model.LoadConfig())
+	case http.MethodPost:
+		var incoming map[string]interface{}
+		if err := json.NewDecoder(r.Body).Decode(&incoming); err != nil {
+			jsonError(w, err.Error(), 400)
+			return
+		}
+		cfg := model.LoadConfig()
+		if v, ok := incoming["idle_ttl"]; ok {
+			if n, ok := v.(float64); ok {
+				cfg.IdleTTL = int(n)
+			}
+		}
+		model.SaveConfig(cfg)
+		jsonResponse(w, map[string]string{"status": "saved"})
+	default:
+		http.Error(w, "method not allowed", 405)
+	}
+}
+
 func (s *Server) handleDefaultFlags(w http.ResponseWriter, r *http.Request) {
 	cfg := model.DefaultConfig()
 	flags := cfg.DefaultFlags
@@ -424,6 +448,8 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	var reqMap map[string]interface{}
 	json.Unmarshal(body, &reqMap)
 	isStream, _ := reqMap["stream"].(bool)
+
+	s.mgr.TouchActivity(port)
 
 	target := fmt.Sprintf("http://127.0.0.1:%d/v1/chat/completions", port)
 
@@ -613,6 +639,7 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 		}
 		return
 	}
+	s.mgr.TouchActivity(inst.Port)
 
 	isStream, _ := reqMap["stream"].(bool)
 	target := fmt.Sprintf("http://127.0.0.1:%d%s", inst.Port, targetPath)

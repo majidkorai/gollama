@@ -515,6 +515,15 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
       <div><strong style="color: var(--text)">Models dir</strong> <code style="font-size: 11px; color: var(--text-dim)">~/.gollama/models/</code></div>
     </div>
   </div></div>
+  <div class="card" style="margin-top:16px"><div class="card-body">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <label for="idleTtlInput" style="font-size:13px;font-weight:600">Auto-stop idle instances after</label>
+      <input type="number" id="idleTtlInput" value="30" min="0" max="1440" style="width:70px;text-align:center">
+      <span style="font-size:12px;color:var(--text-muted)">minutes (0 = disable)</span>
+      <button class="primary small" onclick="saveIdleTTL()">Save</button>
+      <span id="idleTtlStatus" style="font-size:12px;color:var(--text-muted)"></span>
+    </div>
+  </div></div>
 </div>
 
 <!-- ── Logs Modal ──────────────────────────────────── -->
@@ -647,12 +656,13 @@ async function loadInstances() {
       var mn = i.model || '?';
       var tps = i.tokens_per_sec ? '<span style="color: var(--green); font-variant-numeric: tabular-nums">⚡ ' + i.tokens_per_sec.toFixed(1) + ' t/s</span>' : '';
       var uptime = i.started_at ? (function() { var s = Math.floor((Date.now() - new Date(i.started_at).getTime()) / 1000); return '<span title="Uptime">⏱ ' + (s > 86400 ? Math.floor(s/86400)+'d ' : '') + (s > 3600 ? Math.floor((s%86400)/3600)+'h ' : '') + Math.floor((s%3600)/60)+'m</span>'; })() : '';
+      var idle = i.last_activity ? (function() { var s = Math.floor((Date.now() - new Date(i.last_activity).getTime()) / 1000); if (s < 60) return ''; return '<span title="Idle time">💤 ' + (s > 3600 ? Math.floor(s/3600)+'h ' : '') + Math.floor((s%3600)/60)+'m</span>'; })() : '';
       var tokens = i.total_tokens ? '<span title="Total tokens">🔤 ' + (i.total_tokens > 999 ? Math.round(i.total_tokens/1000) + 'K' : i.total_tokens) + '</span>' : '';
       var flags = i.flags && i.flags.length ? formatFlags(i.flags) : '';
       var flagsHtml = flags ? '<div style="font-size: 11px; color: var(--text-dim); margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); word-break: break-all; font-family: var(--font-mono)">' + escHtml(flags) + '</div>' : '';
       var errDiv = i.status != 'running' ? '<div class="error-line" id="err-' + i.port + '"></div>' : '';
       return '<div class="inst-card' + cls + '"><div class="title">' + escHtml(mn.length > 40 ? mn.slice(0, 40) + '…' : mn) + '</div>' +
-        '<div class="meta"><span>Port ' + i.port + '</span>' + tps + uptime + tokens + '<span class="badge ' + bc + '">' + i.status + '</span></div>' +
+        '<div class="meta"><span>Port ' + i.port + '</span>' + tps + uptime + idle + tokens + '<span class="badge ' + bc + '">' + i.status + '</span></div>' +
         errDiv + flagsHtml +
         '<div class="actions"><button class="small danger" onclick="stopInstance(' + i.port + ')" aria-label="Stop instance on port ' + i.port + '">⏹ Stop</button>' +
         '<button class="small secondary" onclick="restartInstance(' + i.port + ')" aria-label="Restart instance on port ' + i.port + '">🔄 Restart</button>' +
@@ -1164,11 +1174,30 @@ function toggleTheme() {
   if (localStorage.getItem('gollama-theme') === 'light') { document.body.classList.add('light'); document.documentElement.classList.add('light'); document.getElementById('themeToggle').innerHTML = '<span>☀️</span><span class="label">Theme</span>'; }
 })();
 
+// ── Settings ────────────────────────────────────────────
+async function loadIdleTTL() {
+  try {
+    var r = await fetch('/api/v1/config'), cfg = await r.json();
+    document.getElementById('idleTtlInput').value = cfg.idle_ttl || 0;
+  } catch (e) {}
+}
+
+async function saveIdleTTL() {
+  var val = parseInt(document.getElementById('idleTtlInput').value) || 0;
+  var st = document.getElementById('idleTtlStatus');
+  try {
+    var r = await fetch('/api/v1/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idle_ttl: val }) });
+    if (r.ok) { st.textContent = 'Saved'; setTimeout(function() { st.textContent = ''; }, 2000); }
+    else { st.textContent = 'Error saving'; }
+  } catch (e) { st.textContent = 'Error: ' + e.message; }
+}
+
 // ── Init (staggered, no pile-up) ─────────────────────
 loadModels();
 setTimeout(loadDefaultFlags, 50);
 setTimeout(loadPresets, 50);
 setTimeout(loadInstances, 100);
+setTimeout(loadIdleTTL, 150);
 </script>
 </body>
 </html>`
