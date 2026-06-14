@@ -567,7 +567,13 @@ function switchView(name) {
   document.querySelector('.nav-item[onclick*="' + name + '"]').classList.add('active');
   currentView = name;
   if (name == 'dashboard') loadInstances();
-  if (name == 'chat' && chatPort) selectChatFor(chatPort, '');
+  if (name == 'chat') {
+    if (chatPort) {
+      document.getElementById('chatPanel').style.display = 'block';
+      document.getElementById('chatEmpty').style.display = 'none';
+      updateContextMeter();
+    }
+  }
   if (name == 'models') loadModels();
 }
 
