@@ -493,6 +493,12 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
       <div class="title">No instance selected</div>
       <p>Launch an instance from the Dashboard to start chatting</p>
     </div>
+    <div id="contextMeter" style="display:none;height:3px;background:var(--border);border-radius:2px;overflow:hidden;margin-bottom:8px">
+      <div id="contextBar" style="height:100%;width:0%;background:var(--accent);border-radius:2px;transition:width 300ms ease"></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text-dim);margin-bottom:4px;min-height:14px">
+      <span id="ctxLabel"></span>
+    </div>
     <div class="chat-input-row">
       <textarea id="chatInput" rows="1" placeholder="Type a message… (Enter to send)" onkeydown="if(event.key=='Enter'&&!event.shiftKey){event.preventDefault();sendChat()}" autocomplete="off" style="resize:none;padding:9px 12px;font-family:inherit;font-size:13px;line-height:1.5;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);outline:none;width:100%" oninput="autoGrow(this)"></textarea>
       <button class="primary" onclick="sendChat()">Send</button>
@@ -1003,6 +1009,8 @@ function selectChatFor(port, model) {
   document.getElementById('chatPanel').innerHTML = '';
   document.getElementById('chatPanel').style.display = 'block';
   document.getElementById('chatEmpty').style.display = 'none';
+  resolveCtxLimit();
+  updateContextMeter();
   addSystemMsg('Chatting with ' + (model || 'port ' + port));
   if (currentView != 'chat') switchView('chat');
   setTimeout(function() { document.getElementById('chatInput').focus(); }, 100);
@@ -1027,10 +1035,85 @@ function clearChat() { chatHistory = []; chatSessionId = null; var p = document.
 function escHtml(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 function escAttr(s) { return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
 
+// ── Context window ─────────────────────────────────────
+var chatCtxLimit = 0;
+var chatLastIdleUpdate = 0;
+
+function estimateTokens(text) {
+  // Rough estimate: ~4 chars per token for English, ~2 chars per token for code/CJK
+  var len = text.length;
+  // Count non-ASCII characters (roughly 2 bytes per char for CJK)
+  var nonAscii = 0;
+  for (var i = 0; i < len; i++) { if (text.charCodeAt(i) > 127) nonAscii++; }
+  return Math.ceil((len - nonAscii) / 4 + nonAscii / 2);
+}
+
+function historyTokens() {
+  var t = 0;
+  for (var i = 0; i < chatHistory.length; i++) {
+    t += estimateTokens(chatHistory[i].content || '');
+    t += 4; // overhead per message
+  }
+  t += 20; // system prompt overhead
+  return t;
+}
+
+function updateContextMeter() {
+  var el = document.getElementById('ctxLabel');
+  if (!chatCtxLimit || !chatHistory.length) {
+    document.getElementById('contextMeter').style.display = 'none';
+    el.textContent = '';
+    return;
+  }
+  var used = historyTokens();
+  var pct = Math.min(used / chatCtxLimit * 100, 100);
+  var bar = document.getElementById('contextBar');
+  bar.style.width = pct + '%';
+  if (pct > 85) bar.style.background = 'var(--red)';
+  else if (pct > 65) bar.style.background = 'var(--amber)';
+  else bar.style.background = 'var(--accent)';
+  document.getElementById('contextMeter').style.display = pct > 10 ? 'block' : 'none';
+  el.textContent = (used > 999 ? Math.round(used/1000) + 'K' : used) + ' / ' + (chatCtxLimit > 999 ? Math.round(chatCtxLimit/1000) + 'K' : chatCtxLimit) + ' tokens (' + pct.toFixed(0) + '%)';
+}
+
+function trimHistory() {
+  if (!chatCtxLimit) return;
+  var target = Math.floor(chatCtxLimit * 0.65);
+  while (historyTokens() > target && chatHistory.length > 4) {
+    // Remove oldest user+assistant pair, keep system
+    for (var i = 0; i < chatHistory.length; i++) {
+      if (i > 0 && chatHistory[i].role !== 'system' && (chatHistory[i-1].role === 'user' || chatHistory[i-1].role === 'system')) {
+        chatHistory.splice(i-1, 2);
+        break;
+      }
+    }
+  }
+}
+
+function resolveCtxLimit() {
+  chatCtxLimit = 0;
+  var list = JSON.parse(document.querySelector('#instances').getAttribute('data-list') || '[]');
+  for (var i = 0; i < list.length; i++) { if (list[i].port == chatPort && list[i].model) { chatCtxLimit = 8192; break; } }
+  // Try to find model in cachedModels for a more accurate context_length
+  for (var i = 0; i < cachedModels.length; i++) {
+    var cm = cachedModels[i];
+    var list = JSON.parse(document.querySelector('#instances').getAttribute('data-list') || '[]');
+    for (var j = 0; j < list.length; j++) {
+      if (list[j].port == chatPort && list[j].model && list[j].model.indexOf(cm.name.split(':')[0]) >= 0) {
+        if (cm.context_length) chatCtxLimit = cm.context_length;
+        return;
+      }
+    }
+  }
+}
+
 async function sendChat() {
   var input = document.getElementById('chatInput'), msg = input.value.trim();
   if (!msg || !chatPort) return;
   input.value = ''; addMsg('user', msg); chatHistory.push({ role: 'user', content: msg });
+  resolveCtxLimit();
+  trimHistory();
+  updateContextMeter();
   var content = '', reasoning = '', msgEl = null, reasoningEl = null, chatPanel = document.getElementById('chatPanel');
   try {
     var r = await fetch('/api/v1/chat?port=' + chatPort, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'default', messages: chatHistory.slice(-20), max_tokens: 4096, stream: true }) });
@@ -1060,6 +1143,7 @@ async function sendChat() {
       chatPanel.scrollTop = chatPanel.scrollHeight;
     }
     if (msgEl) { chatHistory.push({ role: 'assistant', content: content }); saveChatHistory(); }
+    updateContextMeter();
   } catch (e) { if (msgEl) { msgEl.innerHTML = 'Error: ' + escHtml(e.message); msgEl.className = 'msg system'; } else { var em = addMsg('assistant', ''); em.innerHTML = 'Error: ' + escHtml(e.message); em.className = 'msg system'; } }
 }
 
@@ -1100,6 +1184,7 @@ async function loadChat(id) {
     if (!session || !session.messages) return;
     chatHistory = session.messages;
     chatSessionId = session.id;
+    resolveCtxLimit();
     document.getElementById('chatPanel').innerHTML = '';
     document.getElementById('chatPanel').style.display = 'block';
     document.getElementById('chatEmpty').style.display = 'none';
@@ -1110,6 +1195,7 @@ async function loadChat(id) {
     }
     addSystemMsg('Loaded chat' + (firstUser ? ': ' + (firstUser.length > 50 ? firstUser.slice(0, 50) + '…' : firstUser) : ''));
     session.messages.forEach(function(m) { addMsg(m.role, m.content); });
+    updateContextMeter();
     if (currentView != 'chat') switchView('chat');
   } catch (e) {}
 }
