@@ -18,6 +18,7 @@ type ChatMessage struct {
 
 type ChatSession struct {
 	ID        string        `json:"id"`
+	Title     string        `json:"title"`
 	Model     string        `json:"model"`
 	Messages  []ChatMessage `json:"messages"`
 	CreatedAt time.Time     `json:"created_at"`
@@ -26,6 +27,7 @@ type ChatSession struct {
 
 type ChatSummary struct {
 	ID        string    `json:"id"`
+	Title     string    `json:"title"`
 	Model     string    `json:"model"`
 	Preview   string    `json:"preview"`
 	MsgCount  int       `json:"msg_count"`
@@ -47,6 +49,18 @@ func SaveChat(session *ChatSession) error {
 	if session.ID == "" {
 		session.ID = fmt.Sprintf("%d", time.Now().UnixNano())
 		session.CreatedAt = session.UpdatedAt
+	}
+	// Auto-generate title from first user message if empty
+	if session.Title == "" {
+		for _, m := range session.Messages {
+			if m.Role == "user" && m.Content != "" {
+				session.Title = m.Content
+				if len(session.Title) > 60 {
+					session.Title = session.Title[:60] + "…"
+				}
+				break
+			}
+		}
 	}
 	data, err := json.MarshalIndent(session, "", "  ")
 	if err != nil {
@@ -109,8 +123,13 @@ func ListChats() ([]ChatSummary, error) {
 		if preview == "" {
 			preview = "(empty)"
 		}
+		title := session.Title
+		if title == "" {
+			title = preview
+		}
 		summaries = append(summaries, ChatSummary{
 			ID:        session.ID,
+			Title:     title,
 			Model:     session.Model,
 			Preview:   preview,
 			MsgCount:  len(session.Messages),

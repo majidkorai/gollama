@@ -285,6 +285,15 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
 /* ── Error line ───────────────────────────────────────── */
 .error-line { font-size: 11px; color: var(--red); margin-top: 8px; padding: 6px 10px; background: var(--red-bg); border-radius: var(--radius-sm); word-break: break-all; font-family: var(--font-mono); }
 
+/* ── Chat history ─────────────────────────────────────── */
+.chat-history-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; border-radius: var(--radius-sm); transition: background var(--transition); cursor: pointer; }
+.chat-history-item:hover { background: var(--surface-2); }
+.chat-history-item + .chat-history-item { border-top: 1px solid var(--border); }
+.chat-history-main { flex: 1; min-width: 0; }
+.chat-history-title { font-size: 13px; font-weight: 500; word-break: break-all; }
+.chat-history-meta { font-size: 10px; color: var(--text-dim); margin-top: 2px; }
+.chat-history-actions { display: flex; gap: 4px; flex-shrink: 0; margin-left: 8px; }
+
 /* ── Model list ────────────────────────────────────────── */
 .model-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border-radius: var(--radius-sm); transition: background var(--transition); cursor: pointer; }
 .model-row:hover .name { color: var(--accent); }
@@ -1154,17 +1163,43 @@ async function sendChat() {
 }
 
 // ── Chat History ────────────────────────────────────────
+function generateChatTitle() {
+  for (var i = 0; i < chatHistory.length; i++) {
+    if (chatHistory[i].role === 'user' && chatHistory[i].content) {
+      var t = chatHistory[i].content;
+      return t.length > 60 ? t.slice(0, 60) + '…' : t;
+    }
+  }
+  return '';
+}
+
 async function saveChatHistory() {
   if (!chatPort || !chatHistory.length) return;
   var model = '';
   var list = JSON.parse(document.querySelector('#instances').getAttribute('data-list') || '[]');
   for (var i = 0; i < list.length; i++) { if (list[i].port == chatPort) { model = list[i].model || ''; break; } }
+  var title = generateChatTitle();
   try {
-    var r = await fetch('/api/v1/chats/' + (chatSessionId || ''), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: chatSessionId, model: model, messages: chatHistory }) });
+    var payload = { id: chatSessionId, model: model, messages: chatHistory };
+    if (title) payload.title = title;
+    var r = await fetch('/api/v1/chats/' + (chatSessionId || ''), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     if (r.ok) {
       var d = await r.json();
       if (d.id) chatSessionId = d.id;
     }
+  } catch (e) {}
+}
+
+async function renameChat(id, currentTitle) {
+  var newTitle = prompt('Rename chat:', currentTitle);
+  if (!newTitle || newTitle === currentTitle) return;
+  try {
+    var r = await fetch('/api/v1/chats/' + id);
+    if (!r.ok) return;
+    var session = await r.json();
+    session.title = newTitle;
+    await fetch('/api/v1/chats/' + id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(session) });
+    showChatHistory();
   } catch (e) {}
 }
 
@@ -1175,7 +1210,9 @@ async function showChatHistory() {
     var r = await fetch('/api/v1/chats'), chats = await r.json();
     if (!chats || !chats.length) { list.innerHTML = '<div class="empty-state"><div class="icon">💬</div><div class="title">No saved chats</div></div>'; return; }
     list.innerHTML = chats.map(function(c) {
-      return '<div class="model-row" onclick="loadChat(\'' + c.id + '\')"><div><div class="name">' + escHtml(c.preview || '(empty)') + '</div><div class="info">' + c.msg_count + ' messages · ' + escHtml(c.model) + ' · ' + new Date(c.updated_at).toLocaleDateString() + '</div></div><button class="small danger" onclick="event.stopPropagation();deleteChat(\'' + c.id + '\')" aria-label="Delete chat">🗑</button></div>';
+      var title = c.title || c.preview || '(empty)';
+      var shortModel = c.model ? c.model.split('/').pop().split(':')[0].replace(/-GGUF$/i, '').slice(0, 25) : '';
+      return '<div class="chat-history-item" data-id="' + c.id + '"><div class="chat-history-main" onclick="loadChat(\'' + c.id + '\')"><div class="chat-history-title">' + escHtml(title.length > 50 ? title.slice(0, 50) + '…' : title) + '</div><div class="chat-history-meta">' + c.msg_count + ' msgs · ' + escHtml(shortModel) + ' · ' + new Date(c.updated_at).toLocaleDateString() + '</div></div><div class="chat-history-actions"><button class="small ghost" onclick="event.stopPropagation();renameChat(\'' + c.id + '\', \'' + escAttr(title.replace(/'/g, '')) + '\')" title="Rename">✏️</button><button class="small danger" onclick="event.stopPropagation();deleteChat(\'' + c.id + '\')" title="Delete">🗑</button></div></div>';
     }).join('');
   } catch (e) { list.innerHTML = '<div class="empty-state"><div class="title">Error loading chats</div></div>'; }
 }
