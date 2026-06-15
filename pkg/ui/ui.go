@@ -271,8 +271,9 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
 .chat-msgs .assistant .copy-btn { position: absolute; top: 8px; right: 8px; font-size: 12px; background: none; border: none; cursor: pointer; opacity: 0; padding: 2px 4px; border-radius: 4px; transition: opacity var(--transition), background var(--transition); }
 .chat-msgs .assistant:hover .copy-btn { opacity: 0.5; }
 .chat-msgs .assistant .copy-btn:hover { opacity: 1; background: var(--surface-2); }
-.chat-input-row { display: flex; gap: 8px; background: var(--surface); border-radius: var(--radius-sm); padding: 15px; border: 1px solid var(--border); align-items: flex-end; }
-.chat-input-row textarea { flex: 1; max-height: 200px; }
+.chat-input-row { display: flex; flex-direction: column; gap: 8px; background: var(--surface); border-radius: var(--radius-sm); padding: 15px; border: 1px solid var(--border); }
+.chat-input-row .input-wrap { display: flex; gap: 8px; align-items: flex-end; }
+.chat-input-row .input-wrap textarea { flex: 1; max-height: 200px; }
 .chat-loading { animation: pulse 1.2s infinite; display: inline-block; letter-spacing: 4px; font-size: 18px; line-height: 1; color: var(--text-dim); }
 .reasoning { color: var(--text-dim); font-style: italic; font-size: 12px; border-left: 2px solid var(--accent); padding-left: 12px; margin-bottom: 8px; opacity: .85; }
 .ctx-label { padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; background: var(--accent-bg); color: var(--accent); font-family: var(--font-mono); }
@@ -503,15 +504,17 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
       <div class="title">No instance selected</div>
       <p>Launch an instance from the Dashboard to start chatting</p>
     </div>
-    <div id="contextMeter" style="display:none;height:3px;background:var(--border);border-radius:2px;overflow:hidden;margin-bottom:8px">
-      <div id="contextBar" style="height:100%;width:0%;background:var(--accent);border-radius:2px;transition:width 300ms ease"></div>
-    </div>
-    <div style="display:flex;justify-content:center;font-size:10px;color:var(--text-dim);margin-bottom:4px;min-height:14px">
-      <span id="ctxLabel" class="ctx-label"></span>
-    </div>
     <div class="chat-input-row">
-      <textarea id="chatInput" rows="1" placeholder="Type a message… (Enter to send)" onkeydown="if(event.key=='Enter'&&!event.shiftKey){event.preventDefault();sendChat()}" autocomplete="off" style="resize:none;padding:9px 12px;font-family:inherit;font-size:13px;line-height:1.5;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);outline:none;width:100%" oninput="autoGrow(this)"></textarea>
-      <button class="primary" onclick="sendChat()">Send</button>
+      <div id="contextMeter" style="display:none;height:3px;background:var(--border);border-radius:2px;overflow:hidden">
+        <div id="contextBar" style="height:100%;width:0%;background:var(--accent);border-radius:2px;transition:width 300ms ease"></div>
+      </div>
+      <div class="input-wrap">
+        <textarea id="chatInput" rows="1" placeholder="Type a message… (Enter to send)" onkeydown="if(event.key=='Enter'&&!event.shiftKey){event.preventDefault();sendChat()}" autocomplete="off" style="resize:none;padding:9px 12px;font-family:inherit;font-size:13px;line-height:1.5;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);outline:none;" oninput="autoGrow(this)"></textarea>
+        <button class="primary" onclick="sendChat()">Send</button>
+      </div>
+      <div style="display:flex;justify-content:center;font-size:10px;color:var(--text-dim);min-height:14px">
+        <span id="ctxLabel" class="ctx-label"></span>
+      </div>
     </div>
   </div>
 </div>
