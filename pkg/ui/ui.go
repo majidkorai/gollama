@@ -271,7 +271,7 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
 .chat-msgs .assistant .copy-btn { position: absolute; top: 8px; right: 8px; font-size: 12px; background: none; border: none; cursor: pointer; opacity: 0; padding: 2px 4px; border-radius: 4px; transition: opacity var(--transition), background var(--transition); }
 .chat-msgs .assistant:hover .copy-btn { opacity: 0.5; }
 .chat-msgs .assistant .copy-btn:hover { opacity: 1; background: var(--surface-2); }
-.chat-input-row { display: flex; gap: 8px; padding-top: 12px; border-top: 1px solid var(--border); align-items: flex-end; }
+.chat-input-row { display: flex; gap: 8px; background: var(--surface); border-radius: var(--radius); padding: 12px; border: 1px solid var(--border); align-items: flex-end; }
 .chat-input-row textarea { flex: 1; max-height: 200px; }
 .chat-loading { animation: pulse 1.2s infinite; display: inline-block; letter-spacing: 4px; font-size: 18px; line-height: 1; color: var(--text-dim); }
 .reasoning { color: var(--text-dim); font-style: italic; font-size: 12px; border-left: 2px solid var(--accent); padding-left: 12px; margin-bottom: 8px; opacity: .85; }
