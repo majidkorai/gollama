@@ -184,21 +184,31 @@ func SelfUpdate(version string) error {
 	// Resolve version: if not specified, find latest stable (non-prerelease)
 	tag := version
 	if tag == "" {
-		resp, err := model.HTTPClient.Get("https://api.github.com/repos/majidkorai/gollama/releases/latest")
+		// List recent releases and find the latest non-prerelease
+		resp, err := model.HTTPClient.Get("https://api.github.com/repos/majidkorai/gollama/releases?per_page=10")
 		if err != nil {
-			return fmt.Errorf("fetching latest release: %w", err)
+			return fmt.Errorf("fetching releases: %w", err)
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode != 200 {
-			return fmt.Errorf("fetching latest release (HTTP %d)", resp.StatusCode)
+			return fmt.Errorf("fetching releases (HTTP %d)", resp.StatusCode)
 		}
-		var release struct {
-			TagName string `json:"tag_name"`
+		var releases []struct {
+			TagName    string `json:"tag_name"`
+			Prerelease bool   `json:"prerelease"`
 		}
-		if json.NewDecoder(resp.Body).Decode(&release) != nil {
-			return fmt.Errorf("parsing release info")
+		if json.NewDecoder(resp.Body).Decode(&releases) != nil {
+			return fmt.Errorf("parsing releases")
 		}
-		tag = release.TagName
+		for _, r := range releases {
+			if !r.Prerelease {
+				tag = r.TagName
+				break
+			}
+		}
+		if tag == "" {
+			return fmt.Errorf("no stable release found")
+		}
 	}
 
 	url := fmt.Sprintf("https://github.com/majidkorai/gollama/releases/download/%s/gollama-%s-%s%s", tag, osName, archName, exe)
