@@ -201,7 +201,7 @@ func SelfUpdate(version string) error {
 			return fmt.Errorf("parsing releases")
 		}
 		for _, r := range releases {
-			if !r.Prerelease {
+			if !r.Prerelease && !strings.Contains(r.TagName, "-rc") {
 				tag = r.TagName
 				break
 			}
