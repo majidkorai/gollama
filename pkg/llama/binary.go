@@ -315,16 +315,26 @@ func FindLlamaServer() string {
 }
 
 func EnsureLlamaServer() error {
-	tagName, assets, err := GetReleaseData()
-	if err != nil {
-		return fmt.Errorf("fetching release info: %w", err)
-	}
-
-	// Check if latest version is already installed in gollama's bin dir
 	installedPath := filepath.Join(model.BinDir(), "llama-server")
 	if runtime.GOOS == "windows" {
 		installedPath += ".exe"
 	}
+
+	tagName, assets, err := GetReleaseData()
+	if err != nil {
+		// If release info fails but a binary already exists, proceed silently
+		if _, statErr := os.Stat(installedPath); statErr == nil {
+			return nil
+		}
+		if other := FindLlamaServer(); other != "llama-server" {
+			if _, statErr := os.Stat(other); statErr == nil {
+				return nil
+			}
+		}
+		return fmt.Errorf("fetching release info: %w", err)
+	}
+
+	// Check if latest version is already installed in gollama's bin dir
 	if data, err := os.ReadFile(model.VersionFile()); err == nil && string(data) == tagName {
 		if _, err := os.Stat(installedPath); err == nil {
 			fmt.Printf("llama-server %s already installed at %s\n", tagName, installedPath)

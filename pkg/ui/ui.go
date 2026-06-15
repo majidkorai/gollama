@@ -520,7 +520,7 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
         <textarea id="chatInput" rows="1" placeholder="Type a message… (Enter to send)" onkeydown="if(event.key=='Enter'&&!event.shiftKey){event.preventDefault();sendChat()}" autocomplete="off" style="resize:none;padding:9px 12px;font-family:inherit;font-size:13px;line-height:1.5;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);outline:none;" oninput="autoGrow(this)"></textarea>
         <button class="primary" onclick="sendChat()">Send</button>
       </div>
-      <div style="display:flex;justify-content:center;font-size:10px;color:var(--text-dim);min-height:14px">
+      <div id="ctxLabelWrap" style="display:none;justify-content:center;font-size:10px;color:var(--text-dim)">
         <span id="ctxLabel" class="ctx-label"></span>
       </div>
     </div>
@@ -1087,8 +1087,10 @@ function historyTokens() {
 
 function updateContextMeter() {
   var el = document.getElementById('ctxLabel');
+  var wrap = document.getElementById('ctxLabelWrap');
   if (!chatCtxLimit || !chatHistory.length) {
     document.getElementById('contextMeter').style.display = 'none';
+    wrap.style.display = 'none';
     el.textContent = '';
     return;
   }
@@ -1100,6 +1102,7 @@ function updateContextMeter() {
   else if (pct > 65) bar.style.background = 'var(--amber)';
   else bar.style.background = 'var(--accent)';
   document.getElementById('contextMeter').style.display = pct > 10 ? 'block' : 'none';
+  wrap.style.display = pct > 10 ? 'flex' : 'none';
   el.textContent = (used > 999 ? Math.round(used/1000) + 'K' : used) + ' / ' + (chatCtxLimit > 999 ? Math.round(chatCtxLimit/1000) + 'K' : chatCtxLimit) + ' tokens (' + pct.toFixed(0) + '%)';
 }
 
