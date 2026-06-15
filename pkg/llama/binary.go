@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -88,11 +89,22 @@ func DetectGPUBackends() []BackendOption {
 }
 
 func GetReleaseData() (string, map[string]string, error) {
-	resp, err := model.HTTPClient.Get("https://api.github.com/repos/ggml-org/llama.cpp/releases/latest")
+	req, err := http.NewRequest("GET", "https://api.github.com/repos/ggml-org/llama.cpp/releases/latest", nil)
+	if err != nil {
+		return "", nil, fmt.Errorf("creating request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "gollama")
+
+	resp, err := model.HTTPClient.Do(req)
 	if err != nil {
 		return "", nil, fmt.Errorf("fetching latest release: %w", err)
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", nil, fmt.Errorf("GitHub API returned HTTP %d", resp.StatusCode)
+	}
 
 	var release struct {
 		TagName string `json:"tag_name"`

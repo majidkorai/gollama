@@ -265,15 +265,11 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
 .chat-header .header-left { display: flex; align-items: center; gap: 12px; flex: 1; flex-wrap: wrap; }
 .chat-header .header-left h1 { font-size: 22px; font-weight: 800; letter-spacing: -.5px; }
 .chat-header select { width: auto; min-width: 220px; }
-.chat-header .header-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-.chat-header .header-actions .icon-btn { font-size: 16px; padding: 8px 10px; background: transparent; color: var(--text-muted); border: 1px solid transparent; border-radius: var(--radius-sm); cursor: pointer; transition: all var(--transition); }
-.chat-header .header-actions .icon-btn:hover { background: var(--surface-2); color: var(--text); border-color: var(--border); }
-.chat-header .header-actions .action-btn { display: inline-flex; align-items: center; gap: 5px; padding: 8px 14px; font-size: 13px; font-weight: 600; border-radius: var(--radius-sm); border: 1px solid var(--border); cursor: pointer; transition: all var(--transition); white-space: nowrap; }
-.chat-header .header-actions .action-btn:hover { transform: translateY(-1px); }
-.chat-header .header-actions .action-btn.secondary { background: var(--surface-2); color: var(--text); }
-.chat-header .header-actions .action-btn.secondary:hover { background: var(--border); border-color: var(--text-dim); }
-.chat-header .header-actions .action-btn.danger { background: transparent; color: var(--text-dim); border-color: transparent; }
-.chat-header .header-actions .action-btn.danger:hover { background: var(--red-bg); color: var(--red); border-color: var(--red); }
+.chat-header .header-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.chat-header .header-actions .pill-btn { display: inline-flex; align-items: center; gap: 5px; padding: 5px 12px; font-size: 12px; font-weight: 500; border-radius: 9999px; border: none; cursor: pointer; transition: all var(--transition); white-space: nowrap; background: transparent; color: var(--text-muted); }
+.chat-header .header-actions .pill-btn:hover { background: var(--surface-2); color: var(--text); }
+.chat-header .header-actions .pill-btn.history:hover { background: var(--accent-bg); color: var(--accent); }
+.chat-header .header-actions .pill-btn.clear:hover { background: var(--red-bg); color: var(--red); }
 .chat-msgs { flex: 1; overflow-y: auto; padding: 6px 0; margin-bottom: 12px; }
 .chat-msgs .msg { margin-bottom: 12px; padding: 12px 16px; border-radius: 12px; max-width: 80%; line-height: 1.7; font-size: 13.5px; animation: slideUp 200ms ease both; position: relative; }
 .chat-msgs .user { background: var(--accent-bg); margin-left: auto; border-bottom-right-radius: 4px; color: var(--text); }
@@ -506,9 +502,8 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
         <select id="chatInstanceSelect" onchange="selectChatInstance()" aria-label="Select instance"><option value="">— select a running instance —</option></select>
       </div>
       <div class="header-actions">
-        <button class="icon-btn" onclick="selectChatFor(chatPort, '')" aria-label="Refresh" title="Refresh">↻</button>
-        <button class="action-btn secondary" onclick="showChatHistory()" aria-label="Chat history" title="Chat history">📋 History</button>
-        <button class="action-btn danger" onclick="clearChat()" aria-label="Clear chat" title="Clear chat">✕ Clear</button>
+        <button class="pill-btn history" onclick="showChatHistory()" aria-label="Chat history" title="Chat history">📋 History</button>
+        <button class="pill-btn clear" onclick="clearChat()" aria-label="Clear chat" title="Clear chat">✕ Clear</button>
       </div>
     </div>
     <div id="chatPanel" class="chat-msgs" style="display: none" aria-live="polite"></div>
