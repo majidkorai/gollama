@@ -507,7 +507,7 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
       <div id="contextBar" style="height:100%;width:0%;background:var(--accent);border-radius:2px;transition:width 300ms ease"></div>
     </div>
     <div style="display:flex;justify-content:center;font-size:10px;color:var(--text-dim);margin-bottom:4px;min-height:14px">
-      <span id="ctxLabel" class="ctxLabel"></span>
+      <span id="ctxLabel" class="ctx-label"></span>
     </div>
     <div class="chat-input-row">
       <textarea id="chatInput" rows="1" placeholder="Type a message… (Enter to send)" onkeydown="if(event.key=='Enter'&&!event.shiftKey){event.preventDefault();sendChat()}" autocomplete="off" style="resize:none;padding:9px 12px;font-family:inherit;font-size:13px;line-height:1.5;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);outline:none;width:100%" oninput="autoGrow(this)"></textarea>
