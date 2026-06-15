@@ -1385,8 +1385,6 @@ setTimeout(loadDefaultFlags, 50);
 setTimeout(loadPresets, 50);
 setTimeout(loadInstances, 100);
 setTimeout(loadSettings, 150);
-// Poll instances every 5s to pick up state changes (ready, stopped, etc.)
-setInterval(loadInstances, 5000);
 </script>
 </body>
 </html>`
