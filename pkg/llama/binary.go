@@ -160,7 +160,7 @@ func FindAsset(tagName, kind string, assets map[string]string) (string, error) {
 	return "", fmt.Errorf("no matching asset for %s/%s (kind=%s)", osName, arch, kind)
 }
 
-func SelfUpdate() error {
+func SelfUpdate(version string) error {
 	rawOS := runtime.GOOS
 	rawArch := runtime.GOARCH
 
@@ -181,7 +181,27 @@ func SelfUpdate() error {
 		exe = ".exe"
 	}
 
-	url := fmt.Sprintf("https://github.com/majidkorai/gollama/releases/latest/download/gollama-%s-%s%s", osName, archName, exe)
+	// Resolve version: if not specified, find latest stable (non-prerelease)
+	tag := version
+	if tag == "" {
+		resp, err := model.HTTPClient.Get("https://api.github.com/repos/majidkorai/gollama/releases/latest")
+		if err != nil {
+			return fmt.Errorf("fetching latest release: %w", err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != 200 {
+			return fmt.Errorf("fetching latest release (HTTP %d)", resp.StatusCode)
+		}
+		var release struct {
+			TagName string `json:"tag_name"`
+		}
+		if json.NewDecoder(resp.Body).Decode(&release) != nil {
+			return fmt.Errorf("parsing release info")
+		}
+		tag = release.TagName
+	}
+
+	url := fmt.Sprintf("https://github.com/majidkorai/gollama/releases/download/%s/gollama-%s-%s%s", tag, osName, archName, exe)
 
 	self, err := os.Executable()
 	if err != nil {

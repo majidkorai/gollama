@@ -53,7 +53,11 @@ func main() {
 		}
 
 	case "self-update":
-		if err := llama.SelfUpdate(); err != nil {
+		version := ""
+		if len(os.Args) > 2 {
+			version = os.Args[2]
+		}
+		if err := llama.SelfUpdate(version); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
@@ -424,7 +428,7 @@ func printUsage() {
 
 Usage:
   gollama update                 Download/update llama-server binary
-  gollama self-update            Update gollama itself
+  gollama self-update [version]  Update gollama (default: latest stable, e.g. v0.2.7-rc10)
   gollama pull <model>           Download model from HuggingFace
   gollama serve [port]           Web UI + REST API on :9080 (main workflow)
   gollama chat <model> [flags]   Start a terminal chat session
@@ -437,7 +441,8 @@ Usage:
 
 Examples:
   gollama serve                 # Web UI on http://<ip>:9080
-  gollama self-update           # Update gollama binary
+  gollama self-update           # Update gollama to latest stable
+  gollama self-update v0.2.7-rc10  # Update to a specific version/RC
   gollama update                # Update llama-server
   gollama pull hf.co/unsloth/Qwen3.5-0.8B-GGUF:Q4_K_M
   gollama delete my-model       # Remove a model
