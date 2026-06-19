@@ -22,7 +22,7 @@ import (
 
 // version is set at build time via -ldflags=-X main.version=v0.x.x
 // local builds fall back to this default
-var version = "0.2.12"
+var version = "0.2.13"
 
 func main() {
 	if len(os.Args) < 2 || os.Args[1] == "--version" || os.Args[1] == "-v" {
@@ -431,7 +431,7 @@ func printUsage() {
 
 Usage:
   gollama update                 Download/update llama-server binary
-  gollama self-update [version]  Update gollama (default: latest stable, e.g. v0.2.12)
+  gollama self-update [version]  Update gollama (default: latest stable, e.g. v0.2.13)
   gollama pull <model>           Download model from HuggingFace
   gollama serve [port]           Web UI + REST API on :9080 (main workflow)
   gollama chat <model> [flags]   Start a terminal chat session
@@ -445,7 +445,7 @@ Usage:
 Examples:
   gollama serve                 # Web UI on http://<ip>:9080
   gollama self-update           # Update gollama to latest stable
-  gollama self-update v0.2.12  # Update to a specific version/RC
+  gollama self-update v0.2.13  # Update to a specific version/RC
   gollama update                # Update llama-server
   gollama pull hf.co/unsloth/Qwen3.5-0.8B-GGUF:Q4_K_M
   gollama delete my-model       # Remove a model

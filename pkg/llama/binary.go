@@ -381,7 +381,9 @@ func EnsureLlamaServer() error {
 		fmt.Println("  apt install git cmake build-essential nvidia-cuda-toolkit")
 		fmt.Println("Then run  gollama update  again to rebuild with CUDA support.")
 		if _, err := exec.LookPath("nvcc"); err == nil {
-			fmt.Println("CUDA toolkit detected. Building from source...")
+			fmt.Println("\nCUDA toolkit detected — building from source.")
+			fmt.Println("This takes 30-60 minutes on most systems (compiling ~200 CUDA kernels).")
+			fmt.Println("Press Ctrl+C to abort and pick Vulkan instead (5-second install, same perf).")
 			if err := buildLlamaServerCUDA(); err != nil {
 				return fmt.Errorf("build failed: %w", err)
 			}
@@ -667,6 +669,39 @@ func extractZip(path, dest string) (bool, error) {
 	return found, nil
 }
 
+func detectCUDAArch() string {
+	cmd := exec.Command("nvidia-smi", "--query-gpu=name", "--format=csv,noheader")
+	out, err := cmd.Output()
+	if err != nil {
+		return "all"
+	}
+	name := strings.TrimSpace(string(out))
+	name = strings.ToLower(name)
+
+	switch {
+	case strings.Contains(name, "a100"), strings.Contains(name, "a10"), strings.Contains(name, "a30"), strings.Contains(name, "a40"):
+		return "80"
+	case strings.Contains(name, "rtx 30"), strings.Contains(name, "rtx 40"), strings.Contains(name, "rtx 50"):
+		return "89"
+	case strings.Contains(name, "rtx 20"), strings.Contains(name, "titan rtx"), strings.Contains(name, "t4"), strings.Contains(name, "quadro rtx"):
+		return "75"
+	case strings.Contains(name, "gtx 16"), strings.Contains(name, "gtx 10"):
+		return "61"
+	case strings.Contains(name, "gtx 9"):
+		return "52"
+	default:
+		// Try to extract compute capability from nvidia-smi
+		capCmd := exec.Command("nvidia-smi", "--query-gpu=compute_cap", "--format=csv,noheader")
+		if capOut, capErr := capCmd.Output(); capErr == nil {
+			parts := strings.SplitN(strings.TrimSpace(string(capOut)), ".", 2)
+			if len(parts) > 0 && parts[0] != "" {
+				return parts[0]
+			}
+		}
+		return "all"
+	}
+}
+
 func buildLlamaServerCUDA() error {
 	for _, tool := range []string{"git", "cmake", "make", "nvcc"} {
 		if _, err := exec.LookPath(tool); err != nil {
@@ -691,9 +726,12 @@ func buildLlamaServerCUDA() error {
 
 	srcDir := filepath.Join(buildDir, "llama.cpp")
 	fmt.Println("  Configuring with cmake (CUDA)...")
+	// Only build for the detected GPU arch instead of all — cuts compile time 5-10x
+	cudaArch := detectCUDAArch()
+	fmt.Printf("  Targeting CUDA arch %s\n", cudaArch)
 	cmake := exec.Command("cmake", "-B", "build",
 		"-DGGML_CUDA=ON",
-		"-DCMAKE_CUDA_ARCHITECTURES=all")
+		"-DCMAKE_CUDA_ARCHITECTURES="+cudaArch)
 	cmake.Dir = srcDir
 	cmake.Stdout = os.Stdout
 	cmake.Stderr = os.Stderr
