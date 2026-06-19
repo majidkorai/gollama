@@ -763,16 +763,25 @@ func buildLlamaServerCUDA() error {
 		return fmt.Errorf("writing binary: %w", err)
 	}
 
-	// Also copy any .so files needed by the binary
-	libDir := filepath.Join(srcDir, "build", "bin")
-	entries, _ := os.ReadDir(libDir)
-	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), ".so") {
-			data, err := os.ReadFile(filepath.Join(libDir, e.Name()))
-			if err != nil {
-				continue
+	// Copy any .so files the binary needs (may be in bin/, lib/, or src/)
+	for _, libDir := range []string{
+		filepath.Join(srcDir, "build", "bin"),
+		filepath.Join(srcDir, "build", "lib"),
+		filepath.Join(srcDir, "build", "src"),
+		filepath.Join(srcDir, "build"),
+	} {
+		entries, err := os.ReadDir(libDir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if strings.HasSuffix(e.Name(), ".so") {
+				data, err := os.ReadFile(filepath.Join(libDir, e.Name()))
+				if err != nil {
+					continue
+				}
+				os.WriteFile(filepath.Join(model.BinDir(), e.Name()), data, 0755)
 			}
-			os.WriteFile(filepath.Join(model.BinDir(), e.Name()), data, 0755)
 		}
 	}
 

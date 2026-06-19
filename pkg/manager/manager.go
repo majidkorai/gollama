@@ -371,6 +371,16 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 	}
 
 	cmd := exec.Command(llamaBin, args...)
+	binDir := model.BinDir()
+	libVar := "LD_LIBRARY_PATH"
+	if runtime.GOOS == "darwin" {
+		libVar = "DYLD_LIBRARY_PATH"
+	}
+	libPath := binDir
+	if existing := os.Getenv(libVar); existing != "" {
+		libPath = binDir + ":" + existing
+	}
+	cmd.Env = append(os.Environ(), libVar+"="+libPath)
 	if logF != nil {
 		cmd.Stdout = logF
 		cmd.Stderr = logF
