@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 
@@ -376,7 +377,8 @@ func EnsureLlamaServer() error {
 
 	if selected.Suffix == "-cuda" && runtime.GOOS == "linux" {
 		fmt.Println("\nllama.cpp does not ship pre-built CUDA binaries for Linux.")
-		fmt.Println("To build from source, install the CUDA toolkit:  apt install nvidia-cuda-toolkit")
+		fmt.Println("To build from source, install build tools and the CUDA toolkit:")
+		fmt.Println("  apt install git cmake build-essential nvidia-cuda-toolkit")
 		fmt.Println("Then run  gollama update  again to rebuild with CUDA support.")
 		if _, err := exec.LookPath("nvcc"); err == nil {
 			fmt.Println("CUDA toolkit detected. Building from source...")
@@ -700,7 +702,12 @@ func buildLlamaServerCUDA() error {
 	}
 
 	fmt.Println("  Building llama-server (this may take a while)...")
-	build := exec.Command("cmake", "--build", "build", "-j", "--target", "llama-server")
+	// Limit parallel jobs on low-memory systems — CUDA compilation is RAM-hungry
+	jobLimit := runtime.NumCPU()
+	if jobLimit > 4 {
+		jobLimit = 4
+	}
+	build := exec.Command("cmake", "--build", "build", "-j", strconv.Itoa(jobLimit), "--target", "llama-server")
 	build.Dir = srcDir
 	build.Stdout = os.Stdout
 	build.Stderr = os.Stderr

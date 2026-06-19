@@ -218,7 +218,7 @@ Metadata is shown in the web UI and populated when downloading or listing models
 
 - **Ports**: `gollama serve` uses port 9080. `gollama run`/`chat` auto-pick free ports starting from 8081. If a port is busy, the next available port is used automatically.
 - **VRAM**: gollama needs free GPU memory. Stop any other tool that might be using GPU before launching instances if both use the same GPUs.
-- **Linux CUDA**: llama.cpp does not ship pre-built CUDA binaries for Linux. To build from source, install the CUDA toolkit (`apt install nvidia-cuda-toolkit`) and run `gollama update` — it will detect `nvcc` and compile llama-server with CUDA support. Otherwise it falls back to Vulkan (also supports NVIDIA GPUs with good performance).
+- **Linux CUDA**: llama.cpp does not ship pre-built CUDA binaries for Linux. To build from source, install the required tools (`apt install git cmake build-essential nvidia-cuda-toolkit`) and run `gollama update` — it will detect `nvcc` and compile llama-server with CUDA support. Otherwise it falls back to Vulkan (also supports NVIDIA GPUs with good performance).
 - **Dependencies**: On minimal Linux installations, gollama auto-installs missing shared libraries (libgomp1, libatomic1) via apt-get.
 - **Multi-instance**: each instance runs on its own port. Chat with any running instance from the web UI or terminal.
 
