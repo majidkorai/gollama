@@ -18,9 +18,9 @@ iwr -useb https://raw.githubusercontent.com/majidkorai/gollama/main/install.ps1 
 
 The script detects your platform, downloads a pre-built binary (linux/darwin/windows × amd64/arm64), and installs it to `/usr/local/bin`. If no pre-built binary exists, it falls back to building from source.
 
-**Install a specific version** (e.g. release candidate):
+**Install a specific version** (e.g. release):
 ```bash
-VERSION=v0.2.7 curl -fsSL https://raw.githubusercontent.com/majidkorai/gollama/main/install.sh | sh
+VERSION=v0.2.10 curl -fsSL https://raw.githubusercontent.com/majidkorai/gollama/main/install.sh | sh
 ```
 
 **Manual build:**
@@ -38,7 +38,7 @@ sudo cp gollama /usr/local/bin/
 gollama
 
 # Or step by step:
-gollama update                  # Install llama-server binary
+gollama update                  # Install llama-server binary (select GPU backend)
 gollama pull hf.co/...          # Download a model from HuggingFace
 gollama serve                   # Open web UI — manage everything from the browser
 ```
@@ -68,7 +68,7 @@ The first-run wizard:
 | Command | Description |
 |---------|-------------|
 | `gollama` | First-run wizard (auto-setup if fresh install) |
-| `gollama update` | Download/update llama-server binary |
+| `gollama update` | Download/update llama-server binary (re-select GPU backend) |
 | `gollama self-update` | Update gollama itself to the latest version |
 | `gollama pull <model>` | Download a GGUF model from HuggingFace |
 | `gollama serve [port]` | Web UI + REST API on :9080 (main workflow) |
@@ -144,7 +144,7 @@ The `model` field accepts the full name (e.g. `hf.co/unsloth/Qwen3.5-0.8B-GGUF:Q
 gollama has two separate update commands:
 
 - **`gollama self-update`** — updates the `gollama` binary itself. Downloads the latest release from GitHub and replaces the current binary.
-- **`gollama update`** — updates the `llama-server` inference engine. Downloads the latest pre-built binary or rebuilds from source.
+- **`gollama update`** — updates the `llama-server` inference engine. Re-detects your GPU and prompts to select a backend, then downloads the latest pre-built binary or rebuilds from source.
 
 Run both to stay fully up to date:
 ```bash
@@ -218,7 +218,7 @@ Metadata is shown in the web UI and populated when downloading or listing models
 
 - **Ports**: `gollama serve` uses port 9080. `gollama run`/`chat` auto-pick free ports starting from 8081. If a port is busy, the next available port is used automatically.
 - **VRAM**: gollama needs free GPU memory. Stop any other tool that might be using GPU before launching instances if both use the same GPUs.
-- **Linux CUDA**: pre-built CUDA binaries are not available for Linux on the llama.cpp release page. If CUDA toolkit is detected (`nvcc` in PATH), `gollama update` will build llama-server from source automatically with CUDA support. Otherwise it falls back to Vulkan (also supports NVIDIA GPUs).
+- **Linux CUDA**: llama.cpp does not ship pre-built CUDA binaries for Linux. To build from source, install the CUDA toolkit (`apt install nvidia-cuda-toolkit`) and run `gollama update` — it will detect `nvcc` and compile llama-server with CUDA support. Otherwise it falls back to Vulkan (also supports NVIDIA GPUs with good performance).
 - **Dependencies**: On minimal Linux installations, gollama auto-installs missing shared libraries (libgomp1, libatomic1) via apt-get.
 - **Multi-instance**: each instance runs on its own port. Chat with any running instance from the web UI or terminal.
 

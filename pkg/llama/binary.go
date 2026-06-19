@@ -375,7 +375,9 @@ func EnsureLlamaServer() error {
 	fmt.Printf("Selected: %s\n", selected.Name)
 
 	if selected.Suffix == "-cuda" && runtime.GOOS == "linux" {
-		fmt.Println("\nCUDA pre-built binaries are not available for Linux on the release page.")
+		fmt.Println("\nllama.cpp does not ship pre-built CUDA binaries for Linux.")
+		fmt.Println("To build from source, install the CUDA toolkit:  apt install nvidia-cuda-toolkit")
+		fmt.Println("Then run  gollama update  again to rebuild with CUDA support.")
 		if _, err := exec.LookPath("nvcc"); err == nil {
 			fmt.Println("CUDA toolkit detected. Building from source...")
 			if err := buildLlamaServerCUDA(); err != nil {
@@ -386,8 +388,7 @@ func EnsureLlamaServer() error {
 			fmt.Printf("\nllama-server %s (%s) built and installed to %s\n", tagName, selected.Name, installedPath)
 			return nil
 		}
-		fmt.Println("CUDA toolkit not found (nvcc missing).")
-		fmt.Println("Falling back to Vulkan build which also supports NVIDIA GPUs.")
+		fmt.Println("\nFalling back to Vulkan, which also supports NVIDIA GPUs with good performance.")
 		selected = backends[len(backends)-1]
 	}
 
