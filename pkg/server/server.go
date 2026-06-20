@@ -318,6 +318,10 @@ func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", 405)
 		return
 	}
+	// Stop all running instances before restart
+	for _, inst := range s.mgr.List() {
+		s.mgr.Stop(inst.Port)
+	}
 	jsonResponse(w, map[string]string{"status": "restarting"})
 	flusher, ok := w.(http.Flusher)
 	if ok {

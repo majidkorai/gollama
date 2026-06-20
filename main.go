@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
 	"runtime"
@@ -22,7 +23,7 @@ import (
 
 // version is set at build time via -ldflags=-X main.version=v0.x.x
 // local builds fall back to this default
-var version = "0.2.28"
+var version = "0.2.29"
 
 func main() {
 	if len(os.Args) < 2 || os.Args[1] == "--version" || os.Args[1] == "-v" {
@@ -253,6 +254,38 @@ func main() {
 			}
 		}
 
+	case "install-service":
+		bin, err := os.Executable()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		unit := fmt.Sprintf(`[Unit]
+Description=gollama — llama.cpp instance manager
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%s serve
+Restart=on-failure
+RestartSec=5
+Environment=HOME=/root
+
+[Install]
+WantedBy=multi-user.target
+`, bin)
+		path := "/etc/systemd/system/gollama.service"
+		if err := os.WriteFile(path, []byte(unit), 0644); err != nil {
+			fmt.Fprintf(os.Stderr, "Error writing service file: %v\n", err)
+			os.Exit(1)
+		}
+		exec.Command("systemctl", "daemon-reload").Run()
+		exec.Command("systemctl", "enable", "gollama").Run()
+		exec.Command("systemctl", "start", "gollama").Run()
+		fmt.Printf("gollama service installed at %s and started.\n", path)
+		fmt.Println("Manage with: systemctl status gollama | stop | restart | logs")
+
 	case "ps":
 		instances := mgr.List()
 		if len(instances) == 0 {
@@ -387,6 +420,7 @@ func runWizard() {
 	fmt.Println("\nStep 3: You're ready!")
 	fmt.Println()
 	fmt.Println("  Web UI:             gollama serve")
+	fmt.Println("  System service:     sudo gollama install-service")
 	fmt.Println("  Terminal chat:      gollama chat <model>")
 	fmt.Println("  See all commands:   gollama help")
 	fmt.Println()
@@ -441,6 +475,7 @@ Usage:
   gollama ps                     List running instances
   gollama stop <port>            Stop an instance
   gollama run <model> [flags]    Run a model directly (debug/advanced)
+  gollama install-service        Install as systemd service (auto-start on boot)
 
 Examples:
   gollama serve                 # Web UI on http://<ip>:9080
