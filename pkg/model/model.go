@@ -10,7 +10,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -451,41 +453,81 @@ func pullModelInternal(ref string, fn ProgressFn, progress io.Writer) error {
 		return fmt.Errorf("parsing model info: %w", err)
 	}
 
-	var targetFile string
-	var targetSize int64
+	// Find matching GGUF files (handles multi-file splits)
+	type sibling struct {
+		Filename string `json:"rfilename"`
+		Size     int64  `json:"size"`
+	}
+	var targetFiles []sibling
 	for _, s := range modelData.Siblings {
 		if strings.HasSuffix(s.Filename, ".gguf") && strings.Contains(s.Filename, quant) {
-			targetFile = s.Filename
-			targetSize = s.Size
-			break
+			targetFiles = append(targetFiles, s)
 		}
 	}
-	if targetFile == "" {
+	if len(targetFiles) == 0 {
 		for _, s := range modelData.Siblings {
 			if strings.HasSuffix(s.Filename, ".gguf") {
-				targetFile = s.Filename
-				targetSize = s.Size
-				break
+				targetFiles = append(targetFiles, s)
 			}
 		}
 	}
-	if targetFile == "" {
+	if len(targetFiles) == 0 {
 		return fmt.Errorf("no GGUF file found in %s", modelID)
 	}
 
-	EnsureDir(ModelsDir())
-	dest := filepath.Join(ModelsDir(), filepath.Base(targetFile))
+	// Check for multi-file split pattern (e.g. model-00001-of-00004.gguf)
+	splitRe := regexp.MustCompile(`-(\d{5})-of-(\d{5})\.gguf$`)
+	firstMatch := splitRe.FindStringSubmatch(targetFiles[0].Filename)
+	if firstMatch != nil {
+		prefix := targetFiles[0].Filename[:len(targetFiles[0].Filename)-len(firstMatch[0])]
+		totalParts, _ := strconv.Atoi(firstMatch[2])
+		var resolved []sibling
+		for i := 1; i <= totalParts; i++ {
+			partName := fmt.Sprintf("%s-%05d-of-%05d.gguf", prefix, i, totalParts)
+			found := false
+			for _, s := range targetFiles {
+				if s.Filename == partName {
+					resolved = append(resolved, s)
+					found = true
+					break
+				}
+			}
+			if !found {
+				// Try full sibling list in case quant filter excluded a part
+				for _, s := range modelData.Siblings {
+					if s.Filename == partName {
+						resolved = append(resolved, s)
+						found = true
+						break
+					}
+				}
+			}
+			if !found {
+				return fmt.Errorf("missing split file: %s (part %d of %d)", partName, i, totalParts)
+			}
+		}
+		targetFiles = resolved
+	}
 
-	if targetSize > 0 {
+	modelName := fmt.Sprintf("hf.co/%s:%s", modelID, quant)
+
+	EnsureDir(ModelsDir())
+
+	// Check disk space for all parts combined
+	var totalSize int64
+	for _, f := range targetFiles {
+		totalSize += f.Size
+	}
+	if totalSize > 0 {
 		free, err := freeDiskBytes(ModelsDir())
 		if err != nil {
 			return fmt.Errorf("unable to check disk space: %w", err)
 		} else {
 			buffer := uint64(500 * 1024 * 1024)
-			if uint64(targetSize) > buffer {
-				buffer = uint64(targetSize) / 4 // 25% buffer for large models
+			if uint64(totalSize) > buffer {
+				buffer = uint64(totalSize) / 4
 			}
-			need := uint64(targetSize) + buffer
+			need := uint64(totalSize) + buffer
 			if free < need {
 				return fmt.Errorf("not enough disk space: need %s but only %s free — try a smaller quantization",
 					FormatSize(int64(need)), FormatSize(int64(free)))
@@ -493,13 +535,9 @@ func pullModelInternal(ref string, fn ProgressFn, progress io.Writer) error {
 		}
 	}
 
-	downloadURL := fmt.Sprintf("https://huggingface.co/%s/resolve/main/%s", modelID, targetFile)
-	modelName := fmt.Sprintf("hf.co/%s:%s", modelID, quant)
-
-	// Check if model file already exists on disk
+	// Check if all parts already exist — reuse index if first file exists
+	dest := filepath.Join(ModelsDir(), filepath.Base(targetFiles[0].Filename))
 	if _, err := os.Stat(dest); err == nil {
-		// File exists — ensure it's in the index
-		// Read GGUF metadata directly to avoid deadlock (populateModelInfo calls UpdateIndex)
 		info := ModelInfo{Name: modelName, BlobPath: dest}
 		if fi, err := os.Stat(dest); err == nil {
 			info.Size = fi.Size()
@@ -519,58 +557,72 @@ func pullModelInternal(ref string, fn ProgressFn, progress io.Writer) error {
 		return fmt.Errorf("already_exists")
 	}
 
-	// File doesn't exist — clean up stale index entry if present
+	// Clean up stale index entry
 	UpdateIndex(func(idx map[string]ModelInfo) error {
 		delete(idx, modelName)
 		return nil
 	})
 
-	if targetSize > 0 {
-		fmt.Printf("Downloading %s (%s)\n", targetFile, FormatSize(targetSize))
-	} else {
-		fmt.Printf("Downloading %s\n", targetFile)
+	for i, f := range targetFiles {
+		dest := filepath.Join(ModelsDir(), filepath.Base(f.Filename))
+		downloadURL := fmt.Sprintf("https://huggingface.co/%s/resolve/main/%s", modelID, f.Filename)
+
+		if f.Size > 0 {
+			fmt.Printf("[%d/%d] Downloading %s (%s)\n", i+1, len(targetFiles), f.Filename, FormatSize(f.Size))
+		} else {
+			fmt.Printf("[%d/%d] Downloading %s\n", i+1, len(targetFiles), f.Filename)
+		}
+
+		out, err := os.Create(dest)
+		if err != nil {
+			return fmt.Errorf("creating file %s: %w", f.Filename, err)
+		}
+
+		dlResp, err := HTTPClient.Get(downloadURL)
+		if err != nil {
+			out.Close()
+			os.Remove(dest)
+			return fmt.Errorf("downloading %s: %w", f.Filename, err)
+		}
+
+		if dlResp.StatusCode != 200 {
+			out.Close()
+			dlResp.Body.Close()
+			os.Remove(dest)
+			return fmt.Errorf("download failed for %s (HTTP %d)", f.Filename, dlResp.StatusCode)
+		}
+
+		dlSize := f.Size
+		if dlSize == 0 && dlResp.ContentLength > 0 {
+			dlSize = dlResp.ContentLength
+		}
+
+		pr := &ProgressReader{
+			Reader:     dlResp.Body,
+			Total:      dlSize,
+			Name:       "▸",
+			Start:      time.Now(),
+			Output:     progress,
+			ProgressFn: fn,
+		}
+		_, cpErr := io.Copy(out, pr)
+		out.Close()
+		dlResp.Body.Close()
+		if cpErr != nil {
+			os.Remove(dest)
+			return fmt.Errorf("downloading %s: %w", f.Filename, cpErr)
+		}
 	}
 
-	out, err := os.Create(dest)
-	if err != nil {
-		return fmt.Errorf("creating file: %w", err)
-	}
-	defer out.Close()
-
-	dlResp, err := HTTPClient.Get(downloadURL)
-	if err != nil {
-		return fmt.Errorf("downloading: %w", err)
-	}
-	defer dlResp.Body.Close()
-
-	if dlResp.StatusCode != 200 {
-		os.Remove(dest)
-		return fmt.Errorf("download failed (HTTP %d)", dlResp.StatusCode)
-	}
-
-	// Use Content-Length from download response as fallback for progress tracking
-	if targetSize == 0 && dlResp.ContentLength > 0 {
-		targetSize = dlResp.ContentLength
-	}
-
-	pr := &ProgressReader{
-		Reader:     dlResp.Body,
-		Total:      targetSize,
-		Name:       "▸",
-		Start:      time.Now(),
-		Output:     progress,
-		ProgressFn: fn,
-	}
-	written, err := io.Copy(out, pr)
-	if err != nil {
-		os.Remove(dest)
-		return fmt.Errorf("downloading: %w", err)
-	}
-
+	// Index using the first split file (llama-server discovers the rest by naming convention)
+	firstDest := filepath.Join(ModelsDir(), filepath.Base(targetFiles[0].Filename))
 	info := ModelInfo{
 		Name:     modelName,
-		BlobPath: dest,
-		Size:     written,
+		BlobPath: firstDest,
+		Size:     totalSize,
+	}
+	if fi, err := os.Stat(firstDest); err == nil {
+		info.Size = fi.Size()
 	}
 	populateModelInfo(&info)
 	UpdateIndex(func(idx map[string]ModelInfo) error {
@@ -578,7 +630,7 @@ func pullModelInternal(ref string, fn ProgressFn, progress io.Writer) error {
 		return nil
 	})
 
-	log.Printf("model downloaded: %s (%s) → %s", modelName, FormatSize(written), dest)
-	fmt.Printf("Downloaded %s (%s)\n", modelName, FormatSize(written))
+	log.Printf("model downloaded: %s (%s, %d files) → %s", modelName, FormatSize(totalSize), len(targetFiles), firstDest)
+	fmt.Printf("Downloaded %s (%s, %d files)\n", modelName, FormatSize(totalSize), len(targetFiles))
 	return nil
 }
