@@ -764,6 +764,7 @@ func buildLlamaServerCUDA() error {
 	}
 
 	// Copy any .so files the binary needs (may be in bin/, lib/, or src/)
+	soSeen := map[string]bool{}
 	for _, libDir := range []string{
 		filepath.Join(srcDir, "build", "bin"),
 		filepath.Join(srcDir, "build", "lib"),
@@ -775,14 +776,38 @@ func buildLlamaServerCUDA() error {
 			continue
 		}
 		for _, e := range entries {
-			if strings.HasSuffix(e.Name(), ".so") {
-				data, err := os.ReadFile(filepath.Join(libDir, e.Name()))
-				if err != nil {
-					continue
-				}
-				os.WriteFile(filepath.Join(model.BinDir(), e.Name()), data, 0755)
+			if !strings.HasPrefix(e.Name(), "lib") || !strings.Contains(e.Name(), ".so") {
+				continue
 			}
+			src := filepath.Join(libDir, e.Name())
+			dst := filepath.Join(model.BinDir(), e.Name())
+			if soSeen[dst] {
+				continue
+			}
+			soSeen[dst] = true
+			fi, err := os.Stat(src)
+			if err != nil {
+				continue
+			}
+			if fi.Mode()&os.ModeSymlink != 0 {
+				link, _ := os.Readlink(src)
+				os.Symlink(link, dst)
+				continue
+			}
+			data, err := os.ReadFile(src)
+			if err != nil {
+				continue
+			}
+			os.WriteFile(dst, data, 0755)
 		}
+	}
+
+	// llama.cpp b9720+ builds per-arch CPU libs (libggml-cpu-*.so)
+	// but not a generic libggml-cpu.so.0, which libggml.so dlopens at runtime.
+	// Create a symlink so the generic soname always resolves.
+	cpuVariant := filepath.Join(model.BinDir(), "libggml-cpu-x64.so")
+	if _, err := os.Stat(cpuVariant); err == nil {
+		os.Symlink("libggml-cpu-x64.so", filepath.Join(model.BinDir(), "libggml-cpu.so.0"))
 	}
 
 	fmt.Println("  Build complete.")
