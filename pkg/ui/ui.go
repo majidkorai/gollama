@@ -571,6 +571,10 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
       <span id="proxyFlagsStatus" style="font-size:12px;color:var(--text-muted);margin-left:8px"></span>
     </div>
   </div></div>
+  <div class="card" style="margin-top:16px"><div class="card-body" style="text-align:center">
+    <button class="danger" onclick="restartGollama()">🔄 Restart gollama</button>
+    <div style="font-size:11px;color:var(--text-dim);margin-top:6px">Applies config changes and picks up new version</div>
+  </div></div>
 </div>
 
 <!-- ── Logs Modal ──────────────────────────────────── -->
@@ -1430,6 +1434,14 @@ async function saveProxyFlags() {
     if (r.ok) { st.textContent = 'Saved'; setTimeout(function() { st.textContent = ''; }, 2000); }
     else { st.textContent = 'Error saving'; }
   } catch (e) { st.textContent = 'Error: ' + e.message; }
+}
+
+async function restartGollama() {
+  if (!confirm('Restart gollama? The web UI will be unavailable for a few seconds.')) return;
+  try {
+    await fetch('/api/v1/restart', { method: 'POST' });
+    setTimeout(function() { location.reload(); }, 2000);
+  } catch (e) { alert('Restart failed: ' + e.message); }
 }
 
 // ── Init (staggered, no pile-up) ─────────────────────

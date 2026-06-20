@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -57,6 +58,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/v1/chat", s.handleChat)
 	s.mux.HandleFunc("/api/v1/config", s.handleConfig)
 	s.mux.HandleFunc("/api/v1/version", s.handleVersion)
+	s.mux.HandleFunc("/api/v1/restart", s.handleRestart)
 	s.mux.HandleFunc("/v1/models", s.handleV1Models)
 	s.mux.HandleFunc("/v1/models/", s.handleV1ModelsByID)
 	s.mux.HandleFunc("/v1/chat/completions", s.handleV1ChatCompletions)
@@ -309,6 +311,31 @@ func (s *Server) handleInstanceLogs(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, map[string]string{"version": s.version})
+}
+
+func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	jsonResponse(w, map[string]string{"status": "restarting"})
+	flusher, ok := w.(http.Flusher)
+	if ok {
+		flusher.Flush()
+	}
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		cmd := exec.Command(os.Args[0], os.Args[1:]...)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		cmd.Stdin = os.Stdin
+		if err := cmd.Start(); err != nil {
+			log.Printf("restart failed: %v", err)
+			return
+		}
+		log.Printf("restarted with PID %d", cmd.Process.Pid)
+		os.Exit(0)
+	}()
 }
 
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
