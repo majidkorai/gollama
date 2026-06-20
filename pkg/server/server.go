@@ -676,20 +676,30 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 
 	inst := s.mgr.FindInstanceByModel(modelName)
 	if inst == nil {
-		// List available models to help the user
-		available := s.mgr.List()
-		names := make([]string, 0, len(available))
-		for _, a := range available {
-			if a.Status == "running" {
-				names = append(names, a.Model)
+		blob, err := model.ResolveModelBlob(modelName)
+		if err == nil && blob != "" {
+			cfg := model.LoadConfig()
+			inst, err = s.mgr.Start(modelName, 0, cfg.DefaultFlags, false)
+			if err != nil {
+				jsonError(w, fmt.Sprintf("starting model %q: %v", modelName, err), 500)
+				return
 			}
-		}
-		if len(names) == 0 {
-			jsonError(w, fmt.Sprintf("model %q not found — no instances running. Start one from the gollama UI.", modelName), 404)
+			log.Printf("auto-started model %q on port %d", modelName, inst.Port)
 		} else {
-			jsonError(w, fmt.Sprintf("model %q not found. running instances: %s", modelName, strings.Join(names, ", ")), 404)
+			available := s.mgr.List()
+			names := make([]string, 0, len(available))
+			for _, a := range available {
+				if a.Status == "running" {
+					names = append(names, a.Model)
+				}
+			}
+			if len(names) == 0 {
+				jsonError(w, fmt.Sprintf("model %q not found in index and no instances running. Pull it from the gollama UI first.", modelName), 404)
+			} else {
+				jsonError(w, fmt.Sprintf("model %q not found in index. running instances: %s", modelName, strings.Join(names, ", ")), 404)
+			}
+			return
 		}
-		return
 	}
 	s.mgr.TouchActivity(inst.Port)
 	s.waitForInstanceReady(inst.Port)
