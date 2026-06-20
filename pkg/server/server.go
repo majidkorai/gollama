@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -819,7 +820,9 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 			n, err := resp.Body.Read(buf)
 			if n > 0 {
 				s.mgr.TouchActivity(inst.Port)
-				w.Write(buf[:n])
+				// Strip reasoning_content from streaming chunks
+				cleaned := stripReasoningContent(buf[:n])
+				w.Write(cleaned)
 				flusher.Flush()
 				var usage struct {
 					Usage *struct {
@@ -855,8 +858,23 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 		}
 	}
 
+	// Strip reasoning_content from non-streaming response
+	respBody = stripReasoningContent(respBody)
+
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(respBody)
+}
+
+// stripReasoningContent removes "reasoning_content" fields from JSON responses.
+// Works for both full JSON objects and streaming chunks.
+func stripReasoningContent(data []byte) []byte {
+	// Remove ", "reasoning_content":..." patterns
+	re := regexp.MustCompile(`,\s*"reasoning_content"\s*:\s*"[^"]*"`)
+	result := re.ReplaceAll(data, []byte{})
+	// Remove starting "reasoning_content":..." patterns (after delta: {)
+	re2 := regexp.MustCompile(`"reasoning_content"\s*:\s*"[^"]*"\s*,?\s*`)
+	result = re2.ReplaceAll(result, []byte{})
+	return result
 }
 
 func jsonResponse(w http.ResponseWriter, data interface{}) {
