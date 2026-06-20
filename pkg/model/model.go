@@ -594,11 +594,19 @@ func pullModelInternal(ref string, fn ProgressFn, progress io.Writer) error {
 		return nil
 	})
 
+	type dlTask struct {
+		index      int
+		filename   string
+		url        string
+		remoteSize int64
+	}
+
+	// Pre-check all files: determine remote sizes and which to skip
+	var tasks []dlTask
 	for i, f := range targetFiles {
 		dest := filepath.Join(ModelsDir(), filepath.Base(f.Filename))
 		downloadURL := fmt.Sprintf("https://huggingface.co/%s/resolve/main/%s", modelID, f.Filename)
 
-		// Determine remote file size via HEAD or range request
 		remoteSize := f.Size
 		if remoteSize <= 0 {
 			if headResp, headErr := HTTPClient.Head(downloadURL); headErr == nil {
@@ -607,8 +615,6 @@ func pullModelInternal(ref string, fn ProgressFn, progress io.Writer) error {
 			}
 		}
 		if remoteSize <= 0 {
-			// HuggingFace CDN may not return Content-Length on HEAD.
-			// Try a Range request to get the total size from Content-Range.
 			rangeReq, _ := http.NewRequest("GET", downloadURL, nil)
 			rangeReq.Header.Set("Range", "bytes=0-0")
 			if rangeResp, rangeErr := HTTPClient.Do(rangeReq); rangeErr == nil {
@@ -624,60 +630,88 @@ func pullModelInternal(ref string, fn ProgressFn, progress io.Writer) error {
 				rangeResp.Body.Close()
 			}
 		}
-		// Skip if file already exists with correct size
-		if remoteSize > 0 {
-			if fi, err := os.Stat(dest); err == nil && fi.Size() == remoteSize {
-				fmt.Printf("[%d/%d] %s already exists, skipping\n", i+1, len(targetFiles), f.Filename)
-				continue
+
+		skip := remoteSize > 0
+		if skip {
+			if fi, err := os.Stat(dest); err != nil || fi.Size() != remoteSize {
+				skip = false
 			}
 		}
-
-		if remoteSize > 0 {
-			fmt.Printf("[%d/%d] Downloading %s (%s)\n", i+1, len(targetFiles), f.Filename, FormatSize(remoteSize))
-		} else {
-			fmt.Printf("[%d/%d] Downloading %s\n", i+1, len(targetFiles), f.Filename)
+		if skip {
+			fmt.Printf("[%d/%d] %s already exists, skipping\n", i+1, len(targetFiles), f.Filename)
+			continue
 		}
 
-		out, err := os.Create(dest)
-		if err != nil {
-			return fmt.Errorf("creating file %s: %w", f.Filename, err)
-		}
+		tasks = append(tasks, dlTask{index: i + 1, filename: f.Filename, url: downloadURL, remoteSize: remoteSize})
+	}
 
-		dlResp, err := HTTPClient.Get(downloadURL)
-		if err != nil {
-			out.Close()
-			os.Remove(dest)
-			return fmt.Errorf("downloading %s: %w", f.Filename, err)
-		}
+	// Download remaining files in parallel (up to 4 concurrent)
+	errCh := make(chan error, len(tasks))
+	sem := make(chan struct{}, 4)
+	for _, task := range tasks {
+		sem <- struct{}{}
+		go func(t dlTask) {
+			defer func() { <-sem }()
+			dest := filepath.Join(ModelsDir(), filepath.Base(t.filename))
 
-		if dlResp.StatusCode != 200 {
+			if t.remoteSize > 0 {
+				fmt.Printf("[%d/%d] Downloading %s (%s)\n", t.index, len(targetFiles), t.filename, FormatSize(t.remoteSize))
+			} else {
+				fmt.Printf("[%d/%d] Downloading %s\n", t.index, len(targetFiles), t.filename)
+			}
+
+			out, err := os.Create(dest)
+			if err != nil {
+				errCh <- fmt.Errorf("creating file %s: %w", t.filename, err)
+				return
+			}
+
+			dlResp, err := HTTPClient.Get(t.url)
+			if err != nil {
+				out.Close()
+				os.Remove(dest)
+				errCh <- fmt.Errorf("downloading %s: %w", t.filename, err)
+				return
+			}
+
+			if dlResp.StatusCode != 200 {
+				out.Close()
+				dlResp.Body.Close()
+				os.Remove(dest)
+				errCh <- fmt.Errorf("download failed for %s (HTTP %d)", t.filename, dlResp.StatusCode)
+				return
+			}
+
+			dlSize := t.remoteSize
+			if dlSize == 0 && dlResp.ContentLength > 0 {
+				dlSize = dlResp.ContentLength
+			}
+
+			pr := &ProgressReader{
+				Reader:     dlResp.Body,
+				Total:      dlSize,
+				Name:       "▸",
+				Start:      time.Now(),
+				Output:     progress,
+				ProgressFn: fn,
+				Part:       t.index,
+				TotalParts: len(targetFiles),
+			}
+			_, cpErr := io.Copy(out, pr)
 			out.Close()
 			dlResp.Body.Close()
-			os.Remove(dest)
-			return fmt.Errorf("download failed for %s (HTTP %d)", f.Filename, dlResp.StatusCode)
-		}
-
-		dlSize := f.Size
-		if dlSize == 0 && dlResp.ContentLength > 0 {
-			dlSize = dlResp.ContentLength
-		}
-
-		pr := &ProgressReader{
-			Reader:     dlResp.Body,
-			Total:      dlSize,
-			Name:       "▸",
-			Start:      time.Now(),
-			Output:     progress,
-			ProgressFn: fn,
-			Part:       i + 1,
-			TotalParts: len(targetFiles),
-		}
-		_, cpErr := io.Copy(out, pr)
-		out.Close()
-		dlResp.Body.Close()
-		if cpErr != nil {
-			os.Remove(dest)
-			return fmt.Errorf("downloading %s: %w", f.Filename, cpErr)
+			if cpErr != nil {
+				os.Remove(dest)
+				errCh <- fmt.Errorf("downloading %s: %w", t.filename, cpErr)
+				return
+			}
+			errCh <- nil
+		}(task)
+	}
+	// Wait for all downloads and check for errors
+	for range tasks {
+		if err := <-errCh; err != nil {
+			return err
 		}
 	}
 
