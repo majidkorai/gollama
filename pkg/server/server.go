@@ -655,18 +655,13 @@ func (s *Server) handleV1Models(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	models, err := model.ListModels()
-	if err != nil {
-		jsonError(w, err.Error(), 500)
-		return
-	}
-
+	// Use cached index — do NOT call ListModels (which reads GGUF metadata from every file)
+	idx := model.LoadIndex()
 	now := time.Now().Unix()
-	data := make([]openAIModel, 0, len(models)*2)
+	data := make([]openAIModel, 0, len(idx)*2)
 	seen := map[string]bool{}
-	for _, m := range models {
-		// Add short name (e.g. "gemma-4-12b-it")
-		shortID := m.ShortName
+	for _, info := range idx {
+		shortID := info.ShortName
 		if shortID != "" && !seen[shortID] {
 			seen[shortID] = true
 			data = append(data, openAIModel{
@@ -676,8 +671,7 @@ func (s *Server) handleV1Models(w http.ResponseWriter, r *http.Request) {
 				OwnedBy: "gollama",
 			})
 		}
-		// Add full indexed name (e.g. "hf.co/unsloth/gemma-4-12b-it-GGUF:Q4_K_M")
-		fullID := m.Name
+		fullID := info.Name
 		if fullID != "" && !seen[fullID] {
 			seen[fullID] = true
 			data = append(data, openAIModel{
@@ -761,6 +755,11 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 				return
 			}
 			log.Printf("auto-started model %q on port %d", modelName, inst.Port)
+			// Model just started — wait for readiness so next request succeeds
+			go s.waitForInstanceReady(inst.Port)
+			w.Header().Set("Retry-After", "5")
+			jsonError(w, fmt.Sprintf("model %q is starting, retry in a few seconds", modelName), 503)
+			return
 		} else {
 			available := s.mgr.List()
 			names := make([]string, 0, len(available))
@@ -776,11 +775,6 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 			}
 			return
 		}
-		// Auto-started — respond with 503 so client retries after model loads
-		go s.waitForInstanceReady(inst.Port)
-		w.Header().Set("Retry-After", "5")
-		jsonError(w, fmt.Sprintf("model %q is starting, please retry", modelName), 503)
-		return
 	}
 	s.mgr.TouchActivity(inst.Port)
 	s.waitForInstanceReady(inst.Port)
