@@ -335,12 +335,14 @@ func EnsureLlamaServer() error {
 		return fmt.Errorf("fetching release info: %w", err)
 	}
 
-	// Check if latest version is already installed in gollama's bin dir
-	if data, err := os.ReadFile(model.VersionFile()); err == nil && string(data) == tagName {
-		if _, err := os.Stat(installedPath); err == nil {
-			fmt.Printf("llama-server %s already installed at %s\n", tagName, installedPath)
-			return nil
+	// If binary already exists, use it regardless of version tag
+	if _, err := os.Stat(installedPath); err == nil {
+		if data, _ := os.ReadFile(model.VersionFile()); len(data) > 0 {
+			fmt.Printf("llama-server %s already installed at %s\n", strings.TrimSpace(string(data)), installedPath)
+		} else {
+			fmt.Printf("llama-server already installed at %s\n", installedPath)
 		}
+		return nil
 	}
 
 	// If found elsewhere (e.g. Homebrew), acknowledge but still download managed version
