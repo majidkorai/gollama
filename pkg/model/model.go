@@ -598,16 +598,24 @@ func pullModelInternal(ref string, fn ProgressFn, progress io.Writer) error {
 		dest := filepath.Join(ModelsDir(), filepath.Base(f.Filename))
 		downloadURL := fmt.Sprintf("https://huggingface.co/%s/resolve/main/%s", modelID, f.Filename)
 
+		// Determine remote file size via HEAD request or API data
+		remoteSize := f.Size
+		if remoteSize <= 0 {
+			if headResp, headErr := HTTPClient.Head(downloadURL); headErr == nil {
+				remoteSize = headResp.ContentLength
+				headResp.Body.Close()
+			}
+		}
 		// Skip if file already exists with correct size
-		if f.Size > 0 {
-			if fi, err := os.Stat(dest); err == nil && fi.Size() == f.Size {
+		if remoteSize > 0 {
+			if fi, err := os.Stat(dest); err == nil && fi.Size() == remoteSize {
 				fmt.Printf("[%d/%d] %s already exists, skipping\n", i+1, len(targetFiles), f.Filename)
 				continue
 			}
 		}
 
-		if f.Size > 0 {
-			fmt.Printf("[%d/%d] Downloading %s (%s)\n", i+1, len(targetFiles), f.Filename, FormatSize(f.Size))
+		if remoteSize > 0 {
+			fmt.Printf("[%d/%d] Downloading %s (%s)\n", i+1, len(targetFiles), f.Filename, FormatSize(remoteSize))
 		} else {
 			fmt.Printf("[%d/%d] Downloading %s\n", i+1, len(targetFiles), f.Filename)
 		}
