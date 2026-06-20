@@ -36,8 +36,9 @@ type Preset struct {
 }
 
 type Config struct {
-	DefaultFlags []string `json:"default_flags"`
-	IdleTTL      int      `json:"idle_ttl"` // minutes; 0 = disabled
+	DefaultFlags  []string `json:"default_flags"`
+	ProxyDefaults []string `json:"proxy_defaults"` // flags for auto-launched instances; falls back to default_flags
+	IdleTTL       int      `json:"idle_ttl"`       // minutes; 0 = disabled
 }
 
 func ConfigFile() string {
@@ -45,7 +46,6 @@ func ConfigFile() string {
 }
 
 func DefaultConfig() *Config {
-	// CPU-safe defaults that work on laptops and low-RAM systems
 	flags := []string{"--host", "0.0.0.0", "--ctx-size", "2048", "--flash-attn", "on", "--temp", "0.7", "--repeat-penalty", "1.1"}
 	return &Config{DefaultFlags: flags, IdleTTL: 30}
 }
@@ -64,6 +64,13 @@ func LoadConfig() *Config {
 		SaveConfig(&cfg)
 	}
 	return &cfg
+}
+
+func (c *Config) ProxyFlags() []string {
+	if len(c.ProxyDefaults) > 0 {
+		return c.ProxyDefaults
+	}
+	return c.DefaultFlags
 }
 
 func SaveConfig(cfg *Config) {

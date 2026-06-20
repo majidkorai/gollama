@@ -679,7 +679,7 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 		blob, err := model.ResolveModelBlob(modelName)
 		if err == nil && blob != "" {
 			cfg := model.LoadConfig()
-			inst, err = s.mgr.Start(modelName, 0, cfg.DefaultFlags, false)
+			inst, err = s.mgr.Start(modelName, 0, cfg.ProxyFlags(), false)
 			if err != nil {
 				jsonError(w, fmt.Sprintf("starting model %q: %v", modelName, err), 500)
 				return
