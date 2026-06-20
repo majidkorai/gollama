@@ -662,23 +662,31 @@ func (s *Server) handleV1Models(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now().Unix()
-	data := make([]openAIModel, 0, len(models))
+	data := make([]openAIModel, 0, len(models)*2)
 	seen := map[string]bool{}
 	for _, m := range models {
-		id := m.ShortName
-		if id == "" {
-			id = m.Name
+		// Add short name (e.g. "gemma-4-12b-it")
+		shortID := m.ShortName
+		if shortID != "" && !seen[shortID] {
+			seen[shortID] = true
+			data = append(data, openAIModel{
+				ID:      shortID,
+				Object:  "model",
+				Created: now,
+				OwnedBy: "gollama",
+			})
 		}
-		if seen[id] {
-			continue
+		// Add full indexed name (e.g. "hf.co/unsloth/gemma-4-12b-it-GGUF:Q4_K_M")
+		fullID := m.Name
+		if fullID != "" && !seen[fullID] {
+			seen[fullID] = true
+			data = append(data, openAIModel{
+				ID:      fullID,
+				Object:  "model",
+				Created: now,
+				OwnedBy: "gollama",
+			})
 		}
-		seen[id] = true
-		data = append(data, openAIModel{
-			ID:      id,
-			Object:  "model",
-			Created: now,
-			OwnedBy: "gollama",
-		})
 	}
 
 	jsonResponse(w, map[string]interface{}{
