@@ -674,6 +674,8 @@ function launchModelFromDetails() {
 document.getElementById('modelModal').addEventListener('click', closeModelDetails);
 
 // ── Instances + Metrics ──────────────────────────────
+var instancesPollTimer = null;
+
 async function loadInstances() {
   var ic = document.getElementById('instanceCount'), c = document.getElementById('instances'), cs = document.getElementById('chatInstanceSelect');
   try {
@@ -714,7 +716,17 @@ async function loadInstances() {
         '<button class="small secondary" onclick="viewLogs(' + i.port + ')" aria-label="View logs for port ' + i.port + '">📋 Logs</button></div></div>';
     }).join('');
     list.forEach(function(i) { if (i.status != 'running') fetchErrorLog(i.port); });
-  } catch (e) { /* retry on next poll */ }
+    var hasStarting = list.some(function(i) { return i.status == 'running' && !i.ready; });
+    if (hasStarting) {
+      if (instancesPollTimer) clearTimeout(instancesPollTimer);
+      instancesPollTimer = setTimeout(loadInstances, 1000);
+    } else {
+      if (instancesPollTimer) { clearTimeout(instancesPollTimer); instancesPollTimer = null; }
+    }
+  } catch (e) {
+    if (instancesPollTimer) clearTimeout(instancesPollTimer);
+    instancesPollTimer = setTimeout(loadInstances, 2000);
+  }
 }
 
 async function launchInstance() {
