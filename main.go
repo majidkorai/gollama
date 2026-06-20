@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -23,7 +25,7 @@ import (
 
 // version is set at build time via -ldflags=-X main.version=v0.x.x
 // local builds fall back to this default
-var version = "0.2.29"
+var version = "0.2.30"
 
 func main() {
 	if len(os.Args) < 2 || os.Args[1] == "--version" || os.Args[1] == "-v" {
@@ -309,6 +311,16 @@ WantedBy=multi-user.target
 		}
 		fmt.Printf("Stopped instance on port %d\n", port)
 
+	case "restart":
+		resp, err := http.Post("http://127.0.0.1:9080/api/v1/restart", "application/json", nil)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v (is gollama serve running?)\n", err)
+			os.Exit(1)
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		fmt.Println(string(body))
+
 	case "delete":
 		if len(os.Args) < 3 {
 			fmt.Println("Usage: gollama delete <model-name>")
@@ -474,6 +486,7 @@ Usage:
   gollama logs <port>            Show instance logs
   gollama ps                     List running instances
   gollama stop <port>            Stop an instance
+  gollama restart                Restart gollama server (stops all instances)
   gollama run <model> [flags]    Run a model directly (debug/advanced)
   gollama install-service        Install as systemd service (auto-start on boot)
 
