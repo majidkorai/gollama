@@ -598,12 +598,30 @@ func pullModelInternal(ref string, fn ProgressFn, progress io.Writer) error {
 		dest := filepath.Join(ModelsDir(), filepath.Base(f.Filename))
 		downloadURL := fmt.Sprintf("https://huggingface.co/%s/resolve/main/%s", modelID, f.Filename)
 
-		// Determine remote file size via HEAD request or API data
+		// Determine remote file size via HEAD or range request
 		remoteSize := f.Size
 		if remoteSize <= 0 {
 			if headResp, headErr := HTTPClient.Head(downloadURL); headErr == nil {
 				remoteSize = headResp.ContentLength
 				headResp.Body.Close()
+			}
+		}
+		if remoteSize <= 0 {
+			// HuggingFace CDN may not return Content-Length on HEAD.
+			// Try a Range request to get the total size from Content-Range.
+			rangeReq, _ := http.NewRequest("GET", downloadURL, nil)
+			rangeReq.Header.Set("Range", "bytes=0-0")
+			if rangeResp, rangeErr := HTTPClient.Do(rangeReq); rangeErr == nil {
+				cr := rangeResp.Header.Get("Content-Range")
+				if cr != "" {
+					parts := strings.Split(cr, "/")
+					if len(parts) == 2 {
+						if sz, err := strconv.ParseInt(parts[1], 10, 64); err == nil {
+							remoteSize = sz
+						}
+					}
+				}
+				rangeResp.Body.Close()
 			}
 		}
 		// Skip if file already exists with correct size
