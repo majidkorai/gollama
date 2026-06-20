@@ -22,6 +22,7 @@ import (
 type Instance struct {
 	Port         int        `json:"port"`
 	Model        string     `json:"model"`
+	BlobPath     string     `json:"blob_path"`
 	PID          int        `json:"pid"`
 	Status       string     `json:"status"`
 	Ready        bool       `json:"ready"`
@@ -396,6 +397,7 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 	inst := &Instance{
 		Port:         port,
 		Model:        modelName,
+		BlobPath:     blob,
 		PID:          cmd.Process.Pid,
 		Status:       "running",
 		Flags:        args,
@@ -540,10 +542,18 @@ func (m *Manager) FindInstanceByModel(modelName string) *Instance {
 	if inst, ok := m.instancesByModelLocked(modelName); ok {
 		return inst
 	}
-	// Suffix match (e.g. "qwen2.5-7b" matches "hf.co/Qwen/Qwen2.5-7B-Instruct-GGUF:Q4_K_M")
+	// Suffix match (e.g. "qwen3.6-27b" matches "hf.co/.../Qwen3.6-27B-GGUF:Q4_K_M")
 	for _, inst := range m.instances {
 		if inst.Status == "running" && containsIgnoreCase(inst.Model, modelName) {
 			return inst
+		}
+	}
+	// Blob path match — different model names that resolve to the same GGUF file
+	if blob, err := model.ResolveModelBlob(modelName); err == nil && blob != "" {
+		for _, inst := range m.instances {
+			if inst.Status == "running" && inst.BlobPath == blob {
+				return inst
+			}
 		}
 	}
 	return nil

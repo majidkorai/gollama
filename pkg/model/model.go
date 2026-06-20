@@ -558,10 +558,11 @@ func pullModelInternal(ref string, fn ProgressFn, progress io.Writer) error {
 		}
 	}
 
-	// Check if all parts already exist
+	// Check if all parts already exist with correct sizes
 	allExist := true
 	for _, f := range targetFiles {
-		if _, err := os.Stat(filepath.Join(ModelsDir(), filepath.Base(f.Filename))); err != nil {
+		fi, err := os.Stat(filepath.Join(ModelsDir(), filepath.Base(f.Filename)))
+		if err != nil || (f.Size > 0 && fi.Size() != f.Size) {
 			allExist = false
 			break
 		}
@@ -596,6 +597,14 @@ func pullModelInternal(ref string, fn ProgressFn, progress io.Writer) error {
 	for i, f := range targetFiles {
 		dest := filepath.Join(ModelsDir(), filepath.Base(f.Filename))
 		downloadURL := fmt.Sprintf("https://huggingface.co/%s/resolve/main/%s", modelID, f.Filename)
+
+		// Skip if file already exists with correct size
+		if f.Size > 0 {
+			if fi, err := os.Stat(dest); err == nil && fi.Size() == f.Size {
+				fmt.Printf("[%d/%d] %s already exists, skipping\n", i+1, len(targetFiles), f.Filename)
+				continue
+			}
+		}
 
 		if f.Size > 0 {
 			fmt.Printf("[%d/%d] Downloading %s (%s)\n", i+1, len(targetFiles), f.Filename, FormatSize(f.Size))
