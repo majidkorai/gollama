@@ -466,6 +466,7 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
       <div class="detail-row"><span class="detail-label">Architecture</span><span class="detail-value" id="md-arch">—</span></div>
       <div class="detail-row"><span class="detail-label">Quantization</span><span class="detail-value" id="md-quant">—</span></div>
       <div class="detail-row"><span class="detail-label">Context Length</span><span class="detail-value" id="md-ctx">—</span></div>
+      <div class="detail-row"><span class="detail-label">API Name</span><span class="detail-value" id="md-apiname" style="font-family:var(--font-mono);font-size:12px">—</span></div>
       <div class="detail-row"><span class="detail-label">Size</span><span class="detail-value" id="md-size">—</span></div>
       <div class="detail-row"><span class="detail-label">Path</span><span class="detail-value" id="md-path" style="word-break:break-all;font-family:var(--font-mono);font-size:11px">—</span></div>
     </div>
@@ -634,11 +635,12 @@ async function loadModels() {
 
     cachedModels = m;
     var names = [], seen = {};
-    m.forEach(function(x) { var n = x.name || '?'; if (!seen[n]) { seen[n] = 1; names.push(n); } });
+    m.forEach(function(x) { var n = x.short_name || x.name || '?'; if (!seen[n]) { seen[n] = 1; names.push(n); } });
     names.forEach(function(n, i) { s.innerHTML += '<option value="' + escAttr(n) + '"' + (names.length === 1 ? ' selected' : '') + '>' + escHtml(n) + '</option>'; });
     ml.innerHTML = '<div class="card-body">' + m.map(function(x) {
-      var name = x.name || '?', size = x.size ? fmtSize(x.size) : '?';
+      var name = x.name || '?', shortName = x.short_name || '', size = x.size ? fmtSize(x.size) : '?';
       var arch = x.architecture || '', quant = x.quantization || '', ctx = x.context_length || 0, badges = [];
+      if (shortName) badges.push('<span class="badge badge-green" style="cursor:help" title="API name">' + escHtml(shortName) + '</span>');
       if (quant) badges.push('<span class="badge badge-blue">' + escHtml(quant) + '</span>');
       if (arch) badges.push('<span class="badge badge-amber">' + escHtml(arch) + '</span>');
       if (ctx) badges.push('<span class="badge badge-green">' + (ctx > 999 ? Math.round(ctx / 1000) + 'K' : '<1K') + ' ctx</span>');
@@ -673,6 +675,7 @@ function showModelDetails(name) {
   document.getElementById('md-ctx').textContent = m.context_length ? (m.context_length > 999 ? Math.round(m.context_length / 1000) + 'K' : m.context_length.toString()) : '—';
   document.getElementById('md-size').textContent = m.size ? fmtSize(m.size) : '—';
   document.getElementById('md-path').textContent = m.blob_path || '—';
+  document.getElementById('md-apiname').textContent = m.short_name || '—';
   document.getElementById('modelModal').style.display = 'block';
 }
 
