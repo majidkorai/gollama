@@ -643,18 +643,29 @@ func (s *Server) handleV1Models(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", 405)
 		return
 	}
-	instances := s.mgr.List()
-	data := make([]openAIModel, 0, len(instances))
-	for _, inst := range instances {
-		if inst.Status == "running" {
-			data = append(data, openAIModel{
-				ID:      inst.Model,
-				Object:  "model",
-				Created: inst.StartedAt.Unix(),
-				OwnedBy: "gollama",
-			})
+	data := make([]openAIModel, 0)
+	now := time.Now().Unix()
+
+	// Add all downloaded models from index
+	idx := model.LoadIndex()
+	seen := map[string]bool{}
+	for _, info := range idx {
+		id := info.ShortName
+		if id == "" {
+			id = info.Name
 		}
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		data = append(data, openAIModel{
+			ID:      id,
+			Object:  "model",
+			Created: now,
+			OwnedBy: "gollama",
+		})
 	}
+
 	jsonResponse(w, map[string]interface{}{
 		"object": "list",
 		"data":   data,

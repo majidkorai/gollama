@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -192,7 +194,25 @@ func skipGGUFValue(r io.Reader, valueType uint32) error {
 	}
 }
 
+func deriveShortName(path string) string {
+	base := strings.TrimSuffix(filepath.Base(path), ".gguf")
+
+	// Remove split suffix e.g. "-00001-of-00005"
+	re := regexp.MustCompile(`-\d{5}-of-\d{5}$`)
+	base = re.ReplaceAllString(base, "")
+
+	// Remove quantization suffix (common patterns)
+	quantRe := regexp.MustCompile(`(?i)(-UD)?-[IQBF][QKBF][0-9]_[SLMX](_[SLMX])?$|-[BQKF][0-9]_[A-Z_]+$`)
+	base = quantRe.ReplaceAllString(base, "")
+
+	return strings.ToLower(base)
+}
+
 func populateModelInfo(info *ModelInfo) error {
+	if info.ShortName == "" && info.BlobPath != "" {
+		info.ShortName = deriveShortName(info.BlobPath)
+	}
+
 	if info.Architecture != "" && info.Quantization != "" && info.ContextLength > 0 {
 		return nil
 	}
@@ -225,6 +245,7 @@ func populateModelInfo(info *ModelInfo) error {
 				existing.Architecture = info.Architecture
 				existing.Quantization = info.Quantization
 				existing.ContextLength = info.ContextLength
+				existing.ShortName = info.ShortName
 				idx[info.Name] = existing
 			}
 			return nil

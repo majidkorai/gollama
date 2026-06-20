@@ -20,6 +20,7 @@ import (
 
 type ModelInfo struct {
 	Name          string `json:"name"`
+	ShortName     string `json:"short_name"` // clean API-friendly name e.g. "gemma-4-12b"
 	BlobPath      string `json:"blob_path"`
 	Size          int64  `json:"size"`
 	Architecture  string `json:"architecture,omitempty"`
@@ -412,9 +413,12 @@ func ResolveModelBlob(model string) (string, error) {
 			return info.BlobPath, nil
 		}
 	}
-	// Fuzzy match — find by suffix/substring (e.g. "gemma-4-12b" matches "hf.co/.../gemma-4-12b-it-GGUF:Q4_K_M")
-	for name, info := range idx {
-		if strings.Contains(strings.ToLower(name), strings.ToLower(model)) {
+	// Fuzzy match — find by short name or substring (e.g. "gemma-4-12b" matches short_name or full name)
+	lowerModel := strings.ToLower(model)
+	for _, info := range idx {
+		match := strings.ToLower(info.ShortName) == lowerModel ||
+			strings.Contains(strings.ToLower(info.Name), lowerModel)
+		if match {
 			if _, err := os.Stat(info.BlobPath); err == nil {
 				return info.BlobPath, nil
 			}
