@@ -535,14 +535,21 @@ func pullModelInternal(ref string, fn ProgressFn, progress io.Writer) error {
 		}
 	}
 
-	// Check if all parts already exist — reuse index if first file exists
-	dest := filepath.Join(ModelsDir(), filepath.Base(targetFiles[0].Filename))
-	if _, err := os.Stat(dest); err == nil {
-		info := ModelInfo{Name: modelName, BlobPath: dest}
-		if fi, err := os.Stat(dest); err == nil {
+	// Check if all parts already exist
+	allExist := true
+	for _, f := range targetFiles {
+		if _, err := os.Stat(filepath.Join(ModelsDir(), filepath.Base(f.Filename))); err != nil {
+			allExist = false
+			break
+		}
+	}
+	if allExist {
+		firstDest := filepath.Join(ModelsDir(), filepath.Base(targetFiles[0].Filename))
+		info := ModelInfo{Name: modelName, BlobPath: firstDest}
+		if fi, err := os.Stat(firstDest); err == nil {
 			info.Size = fi.Size()
 		}
-		if meta, err := readGGUFMetadata(dest); err == nil && meta != nil {
+		if meta, err := readGGUFMetadata(firstDest); err == nil && meta != nil {
 			info.Architecture = meta.Architecture
 			info.Quantization = meta.Quantization
 			info.ContextLength = meta.ContextLength
@@ -553,7 +560,7 @@ func pullModelInternal(ref string, fn ProgressFn, progress io.Writer) error {
 			}
 			return nil
 		})
-		log.Printf("model file %s already exists, skipping download", filepath.Base(dest))
+		log.Printf("model %s already exists, skipping download", modelName)
 		return fmt.Errorf("already_exists")
 	}
 
