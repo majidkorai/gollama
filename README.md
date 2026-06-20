@@ -50,13 +50,14 @@ The first-run wizard:
 
 ## Features
 
-- **OpenAI-compatible API** — `/v1/chat/completions`, `/v1/completions`, `/v1/models`. Works with any OpenAI SDK or tool (Cursor, continue.dev, Open Interpreter). Auto-routes by model name.
+- **OpenAI-compatible API** — `/v1/chat/completions`, `/v1/completions`, `/v1/models`. Works with any OpenAI SDK or tool (Flowise, Cursor, continue.dev). Auto-routes by model name. **Auto-launches** the model if not running — like Ollama but with multi-instance.
 - **Real-time streaming chat** — tokens arrive as they're generated. Reasoning models show thinking process live.
 - **Web UI** — dashboard, model management, chat, log viewer, settings. Built-in, no extra setup.
 - **Structured flag editing** — dropdown of 30+ common llama-server flags with value hints. Pre-filled with sensible defaults.
 - **Model search-as-you-type** — search HuggingFace directly from the pull input. Shows model sizes, likes, and downloads. Click any result to pull.
-- **Streaming download progress** — real-time progress bar with speed when pulling models.
-- **Auto-stop idle instances** — configurable TTL (default 30 min). Stops unused instances to free GPU memory. Activity tracked via proxy and direct requests.
+- **Multi-file GGUF split download** — automatically detects and downloads all parts of split models (e.g. `model-00001-of-00005.gguf` through `model-00005-of-00005.gguf`) with per-part progress.
+- **Per-part progress** — terminal and web UI show which part is downloading (`[2/6] Downloading…`).
+- **Auto-stop idle instances** — configurable TTL (default 30 min). Stops unused instances to free GPU memory.
 - **Model management** — list, pull, delete models from HuggingFace. Click any model to see architecture, quantization, context length, and file path.
 - **Multi-instance** — run multiple models on separate ports simultaneously. Restart with modified flags.
 - **Live log tail** — view llama-server logs in the UI with auto-refresh.
@@ -119,13 +120,13 @@ Open **http://<your-ip>:9080** in your browser.
 
 ## OpenAI-Compatible API
 
-gollama exposes an OpenAI-compatible API at `/v1` that auto-routes to running instances by model name. Point any OpenAI SDK or tool at gollama:
+gollama exposes an OpenAI-compatible API at `/v1`. **If the model isn't running, it auto-starts it** — like Ollama, but with multi-instance support. Point any OpenAI SDK or tool at the single fixed endpoint:
 
 ```python
 from openai import OpenAI
 client = OpenAI(base_url="http://<host>:9080/v1", api_key="not-needed")
 response = client.chat.completions.create(
-    model="qwen3.5-0.8b",
+    model="gemma-4-12b",    # auto-starts if not running
     messages=[{"role": "user", "content": "Hello!"}]
 )
 ```
@@ -133,11 +134,13 @@ response = client.chat.completions.create(
 **Endpoints:**
 | Endpoint | Description |
 |----------|-------------|
-| `GET /v1/models` | List running instances |
-| `POST /v1/chat/completions` | Chat completions (streaming supported) |
-| `POST /v1/completions` | Text completions (streaming supported) |
+| `GET /v1/models` | List downloaded models (not running instances) |
+| `POST /v1/chat/completions` | Chat completions — auto-starts model if needed (streaming supported) |
+| `POST /v1/completions` | Text completions — auto-starts model if needed (streaming supported) |
 
-The `model` field accepts the full name (e.g. `hf.co/unsloth/Qwen3.5-0.8B-GGUF:Q4_K_M`) or any substring like `qwen3.5-0.8b`. Streaming with `stream: true` works as expected.
+The `model` field accepts the full name (e.g. `hf.co/unsloth/gemma-4-12b-it-GGUF:Q4_K_M`) or **any substring** like `gemma-4-12b`. If it matches an indexed model, gollama auto-launches it on a free port, waits for it to be ready, then proxies your request.
+
+You can still launch multiple instances manually from the UI — the API will route to an already-running instance if one exists, or auto-start a new one for an unused model.
 
 ## Updating
 
@@ -216,7 +219,8 @@ Metadata is shown in the web UI and populated when downloading or listing models
 
 ## Notes
 
-- **Ports**: `gollama serve` uses port 9080. `gollama run`/`chat` auto-pick free ports starting from 8081. If a port is busy, the next available port is used automatically.
+- **Ports**: `gollama serve` uses port 9080. `gollama run`/`chat` auto-pick free ports starting from 8081. The API endpoint at `:9080/v1/chat/completions` auto-launches models — use it as a fixed endpoint like Ollama.
+- **Auto-launch**: Calling `/v1/chat/completions` with a model name that's indexed but not running will auto-start it on a free port. The instance appears in the UI and can be stopped/restarted like any manually launched one.
 - **VRAM**: gollama needs free GPU memory. Stop any other tool that might be using GPU before launching instances if both use the same GPUs.
 - **Linux CUDA**: llama.cpp does not ship pre-built CUDA binaries for Linux. To build from source, install the required tools (`apt install git cmake build-essential nvidia-cuda-toolkit`) and run `gollama update` — it will detect `nvcc` and compile llama-server with CUDA support. Otherwise it falls back to Vulkan (also supports NVIDIA GPUs with good performance).
 - **Dependencies**: On minimal Linux installations, gollama auto-installs missing shared libraries (libgomp1, libatomic1) via apt-get.
