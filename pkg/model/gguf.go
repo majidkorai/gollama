@@ -195,7 +195,8 @@ func skipGGUFValue(r io.Reader, valueType uint32) error {
 }
 
 func deriveShortName(path string) string {
-	base := strings.TrimSuffix(filepath.Base(path), ".gguf")
+	base := filepath.Base(path)
+	base = strings.TrimSuffix(base, ".gguf")
 
 	// Remove split suffix e.g. "-00001-of-00005"
 	re := regexp.MustCompile(`-\d{5}-of-\d{5}$`)
@@ -208,34 +209,47 @@ func deriveShortName(path string) string {
 	return strings.ToLower(base)
 }
 
+// DeriveShortNameFromRepo creates a clean API name from a HuggingFace model ID.
+// e.g. "unsloth/gemma-4-12b-it-GGUF" → "gemma-4-12b-it"
+func DeriveShortNameFromRepo(modelID string) string {
+	// Take the last segment (e.g. "gemma-4-12b-it-GGUF" from "unsloth/gemma-4-12b-it-GGUF")
+	parts := strings.Split(modelID, "/")
+	base := parts[len(parts)-1]
+	// Strip common repo suffixes
+	base = regexp.MustCompile(`(?i)-gguf$|-instruct$|-hf$`).ReplaceAllString(base, "")
+	return strings.ToLower(base)
+}
+
 func populateModelInfo(info *ModelInfo) error {
-	if info.ShortName == "" && info.BlobPath != "" {
-		info.ShortName = deriveShortName(info.BlobPath)
-	}
-
-	if info.Architecture != "" && info.Quantization != "" && info.ContextLength > 0 {
-		return nil
-	}
-
 	meta, err := readGGUFMetadata(info.BlobPath)
 	if err != nil {
 		return err
 	}
-	if meta == nil {
-		return nil
-	}
 
 	changed := false
-	if meta.Architecture != "" && info.Architecture == "" {
-		info.Architecture = meta.Architecture
-		changed = true
+	if meta != nil {
+		if meta.Architecture != "" && info.Architecture == "" {
+			info.Architecture = meta.Architecture
+			changed = true
+		}
+		if meta.Quantization != "" && info.Quantization == "" {
+			info.Quantization = meta.Quantization
+			changed = true
+		}
+		if meta.ContextLength > 0 && info.ContextLength == 0 {
+			info.ContextLength = meta.ContextLength
+			changed = true
+		}
 	}
-	if meta.Quantization != "" && info.Quantization == "" {
-		info.Quantization = meta.Quantization
-		changed = true
-	}
-	if meta.ContextLength > 0 && info.ContextLength == 0 {
-		info.ContextLength = meta.ContextLength
+
+	if info.ShortName == "" {
+		// Derive from model name (format: "hf.co/user/repo:quant")
+		if strings.HasPrefix(info.Name, "hf.co/") {
+			parts := strings.SplitN(strings.TrimPrefix(info.Name, "hf.co/"), ":", 2)
+			info.ShortName = DeriveShortNameFromRepo(parts[0])
+		} else if info.BlobPath != "" {
+			info.ShortName = deriveShortName(info.BlobPath)
+		}
 		changed = true
 	}
 

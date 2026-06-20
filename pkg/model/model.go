@@ -568,7 +568,7 @@ func pullModelInternal(ref string, fn ProgressFn, progress io.Writer) error {
 	}
 	if allExist {
 		firstDest := filepath.Join(ModelsDir(), filepath.Base(targetFiles[0].Filename))
-		info := ModelInfo{Name: modelName, BlobPath: firstDest}
+		info := ModelInfo{Name: modelName, BlobPath: firstDest, ShortName: DeriveShortNameFromRepo(modelID)}
 		if fi, err := os.Stat(firstDest); err == nil {
 			info.Size = fi.Size()
 		}
@@ -649,7 +649,8 @@ func pullModelInternal(ref string, fn ProgressFn, progress io.Writer) error {
 	// Index using the first split file (llama-server discovers the rest by naming convention)
 	firstDest := filepath.Join(ModelsDir(), filepath.Base(targetFiles[0].Filename))
 	info := ModelInfo{
-		Name:     modelName,
+		Name:      modelName,
+		ShortName: DeriveShortNameFromRepo(modelID),
 		BlobPath: firstDest,
 		Size:     totalSize,
 	}
