@@ -670,36 +670,21 @@ func extractZip(path, dest string) (bool, error) {
 }
 
 func detectCUDAArch() string {
-	cmd := exec.Command("nvidia-smi", "--query-gpu=name", "--format=csv,noheader")
-	out, err := cmd.Output()
-	if err != nil {
-		return "all"
-	}
-	name := strings.TrimSpace(string(out))
-	name = strings.ToLower(name)
-
-	switch {
-	case strings.Contains(name, "a100"), strings.Contains(name, "a10"), strings.Contains(name, "a30"), strings.Contains(name, "a40"):
-		return "80"
-	case strings.Contains(name, "rtx 30"), strings.Contains(name, "rtx 40"), strings.Contains(name, "rtx 50"):
-		return "89"
-	case strings.Contains(name, "rtx 20"), strings.Contains(name, "titan rtx"), strings.Contains(name, "t4"), strings.Contains(name, "quadro rtx"):
-		return "75"
-	case strings.Contains(name, "gtx 16"), strings.Contains(name, "gtx 10"):
-		return "61"
-	case strings.Contains(name, "gtx 9"):
-		return "52"
-	default:
-		// Try to extract compute capability from nvidia-smi
-		capCmd := exec.Command("nvidia-smi", "--query-gpu=compute_cap", "--format=csv,noheader")
-		if capOut, capErr := capCmd.Output(); capErr == nil {
-			parts := strings.SplitN(strings.TrimSpace(string(capOut)), ".", 2)
-			if len(parts) > 0 && parts[0] != "" {
-				return parts[0]
+	capCmd := exec.Command("nvidia-smi", "--query-gpu=compute_cap", "--format=csv,noheader")
+	capOut, err := capCmd.Output()
+	if err == nil {
+		archs := []string{}
+		for _, line := range strings.Split(strings.TrimSpace(string(capOut)), "\n") {
+			arch := strings.ReplaceAll(strings.TrimSpace(line), ".", "")
+			if arch != "" {
+				archs = append(archs, arch)
 			}
 		}
-		return "all"
+		if len(archs) > 0 {
+			return strings.Join(archs, ";")
+		}
 	}
+	return "all"
 }
 
 func buildLlamaServerCUDA() error {
