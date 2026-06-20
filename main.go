@@ -25,7 +25,7 @@ import (
 
 // version is set at build time via -ldflags=-X main.version=v0.x.x
 // local builds fall back to this default
-var version = "0.2.33"
+var version = "0.2.34"
 
 func main() {
 	if len(os.Args) < 2 || os.Args[1] == "--version" || os.Args[1] == "-v" {
@@ -437,6 +437,40 @@ func runWizard() {
 		if err := model.PullModel(models[choice].Ref); err != nil {
 			fmt.Fprintf(os.Stderr, "Error pulling model: %v\n", err)
 			fmt.Println("You can retry later with: gollama pull <model>")
+		}
+	}
+
+	// Offer to install systemd service (Linux only)
+	if runtime.GOOS == "linux" {
+		fmt.Print("\nInstall as a systemd service (auto-start on boot)? [Y/n]: ")
+		var installSvc string
+		fmt.Scanf("%s", &installSvc)
+		if installSvc != "n" && installSvc != "N" {
+			bin, err := os.Executable()
+			if err == nil {
+				unit := fmt.Sprintf(`[Unit]
+Description=gollama — llama.cpp instance manager
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%s serve
+Restart=on-failure
+RestartSec=5
+Environment=HOME=/root
+
+[Install]
+WantedBy=multi-user.target
+`, bin)
+				path := "/etc/systemd/system/gollama.service"
+				if err := os.WriteFile(path, []byte(unit), 0644); err == nil {
+					exec.Command("systemctl", "daemon-reload").Run()
+					exec.Command("systemctl", "enable", "gollama").Run()
+					exec.Command("systemctl", "start", "gollama").Run()
+					fmt.Println("  ✓ gollama service installed and started")
+				}
+			}
 		}
 	}
 

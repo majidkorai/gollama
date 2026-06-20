@@ -104,3 +104,13 @@ fi
 
 echo "Installed $FINAL"
 echo "$CMD_HINT"
+
+# Offer to install as a systemd service on Linux
+if [ "$OS" = "linux" ] && [ "$(id -u)" -eq 0 ] && command -v systemctl >/dev/null 2>&1; then
+    echo
+    printf "Install as a systemd service (auto-start on boot)? [Y/n]: "
+    read -r INSTALL_SVC
+    if [ "$INSTALL_SVC" != "n" ] && [ "$INSTALL_SVC" != "N" ]; then
+        gollama install-service
+    fi
+fi
