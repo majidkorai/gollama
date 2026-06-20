@@ -955,7 +955,8 @@ async function startPull(ref, btn) {
             document.getElementById('pullPct').textContent = (d.pct || 0).toFixed(1) + '%';
             document.getElementById('pullBar').style.width = (d.pct || 0) + '%';
             document.getElementById('pullSpeed').textContent = d.speed || '';
-            document.getElementById('pullStatus').textContent = 'Downloading…';
+            var partLabel = (d.total_parts > 1) ? ' [' + d.part + '/' + d.total_parts + ']' : '';
+            document.getElementById('pullStatus').textContent = 'Downloading\u2026' + partLabel;
           } else if (d.status === 'done') {
             done = true;
             document.getElementById('pullBar').style.width = '100%';

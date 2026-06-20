@@ -213,13 +213,18 @@ func (s *Server) handleModelPullStream(w http.ResponseWriter, r *http.Request) {
 	// Send initial event so browser gets HTTP headers immediately
 	writeSSE("", map[string]string{"status": "connecting"})
 
-	err := model.PullModelWithCallback(modelRef, func(pct float64, done, total int64, speed string) {
-		writeSSE("progress", map[string]interface{}{
+	err := model.PullModelWithCallback(modelRef, func(pct float64, done, total int64, speed string, part, totalParts int) {
+		evt := map[string]interface{}{
 			"pct":   pct,
 			"done":  done,
 			"total": total,
 			"speed": speed,
-		})
+		}
+		if totalParts > 1 {
+			evt["part"] = part
+			evt["total_parts"] = totalParts
+		}
+		writeSSE("progress", evt)
 	})
 
 	if err != nil {

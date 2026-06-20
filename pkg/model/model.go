@@ -120,7 +120,7 @@ func DetectGPU() (available bool, layers int) {
 	return false, 0
 }
 
-type ProgressFn func(pct float64, done, total int64, speed string)
+type ProgressFn func(pct float64, done, total int64, speed string, part, totalParts int)
 
 type ProgressReader struct {
 	Reader     io.Reader
@@ -130,6 +130,8 @@ type ProgressReader struct {
 	Name       string
 	Output     io.Writer
 	ProgressFn ProgressFn
+	Part       int
+	TotalParts int
 }
 
 func (pr *ProgressReader) Read(p []byte) (int, error) {
@@ -141,12 +143,16 @@ func (pr *ProgressReader) Read(p []byte) (int, error) {
 		rate := float64(pr.Done) / (1024 * 1024) / elapsed
 		speed = fmt.Sprintf("%.1f MB/s", rate)
 	}
+	label := pr.Name
+	if pr.TotalParts > 1 {
+		label = fmt.Sprintf("%s [%d/%d]", pr.Name, pr.Part, pr.TotalParts)
+	}
 	if pr.ProgressFn != nil {
 		var pct float64
 		if pr.Total > 0 {
 			pct = float64(pr.Done) * 100 / float64(pr.Total)
 		}
-		pr.ProgressFn(pct, pr.Done, pr.Total, speed)
+		pr.ProgressFn(pct, pr.Done, pr.Total, speed, pr.Part, pr.TotalParts)
 	} else {
 		out := pr.Output
 		if out == nil {
@@ -155,10 +161,10 @@ func (pr *ProgressReader) Read(p []byte) (int, error) {
 		if pr.Total > 0 {
 			pct := float64(pr.Done) * 100 / float64(pr.Total)
 			fmt.Fprintf(out, "\r  %s  %.1f%%  (%s / %s)  %s    ",
-				pr.Name, pct, FormatSize(pr.Done), FormatSize(pr.Total), speed)
+				label, pct, FormatSize(pr.Done), FormatSize(pr.Total), speed)
 		} else {
 			fmt.Fprintf(out, "\r  %s  %s  %s       ",
-				pr.Name, FormatSize(pr.Done), speed)
+				label, FormatSize(pr.Done), speed)
 		}
 	}
 	if err == io.EOF && pr.ProgressFn == nil {
@@ -611,6 +617,8 @@ func pullModelInternal(ref string, fn ProgressFn, progress io.Writer) error {
 			Start:      time.Now(),
 			Output:     progress,
 			ProgressFn: fn,
+			Part:       i + 1,
+			TotalParts: len(targetFiles),
 		}
 		_, cpErr := io.Copy(out, pr)
 		out.Close()
