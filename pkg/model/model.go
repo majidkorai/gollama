@@ -399,19 +399,25 @@ func ListModels() ([]ModelInfo, error) {
 
 func ResolveModelBlob(model string) (string, error) {
 	idx := LoadIndex()
+	// Exact match first
 	if info, ok := idx[model]; ok {
 		if _, err := os.Stat(info.BlobPath); err == nil {
 			return info.BlobPath, nil
 		}
-		UpdateIndex(func(idx map[string]ModelInfo) error {
-			delete(idx, model)
-			return nil
-		})
 	}
+	// Fuzzy match — find by suffix/substring (e.g. "gemma-4-12b" matches "hf.co/.../gemma-4-12b-it-GGUF:Q4_K_M")
+	for name, info := range idx {
+		if strings.Contains(strings.ToLower(name), strings.ToLower(model)) {
+			if _, err := os.Stat(info.BlobPath); err == nil {
+				return info.BlobPath, nil
+			}
+		}
+	}
+	// Try as a direct file path
 	if _, err := os.Stat(model); err == nil {
 		return model, nil
 	}
-	return model, nil
+	return "", fmt.Errorf("model %q not found in index", model)
 }
 
 func PullModel(ref string) error {
