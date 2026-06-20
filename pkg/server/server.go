@@ -512,7 +512,7 @@ func (s *Server) handleChatByID(w http.ResponseWriter, r *http.Request) {
 func (s *Server) waitForInstanceReady(port int) {
 	healthClient := &http.Client{Timeout: 2 * time.Second}
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
-	deadline := time.Now().Add(120 * time.Second)
+	deadline := time.Now().Add(60 * time.Second)
 	for time.Now().Before(deadline) {
 		// Check cached readiness first
 		s.mgr.TouchActivity(port)
@@ -768,6 +768,11 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 			}
 			return
 		}
+		// Auto-started — respond with 503 so client retries after model loads
+		go s.waitForInstanceReady(inst.Port)
+		w.Header().Set("Retry-After", "5")
+		jsonError(w, fmt.Sprintf("model %q is starting, please retry", modelName), 503)
+		return
 	}
 	s.mgr.TouchActivity(inst.Port)
 	s.waitForInstanceReady(inst.Port)
