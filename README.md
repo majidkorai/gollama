@@ -77,6 +77,7 @@ The first-run wizard:
 | `gollama list` | List downloaded models with metadata |
 | `gollama ps` | List running instances |
 | `gollama stop <port>` | Stop an instance |
+| `gollama restart` | Restart gollama server (stops all instances, uses systemctl if installed as service) |
 | `gollama run <model> [flags]` | Run a model server directly (debug/advanced) |
 
 **Examples:**
@@ -246,7 +247,11 @@ gollama/
 
 ## Why gollama?
 
-Ollama hides llama.cpp flags and hardcodes defaults. gollama exposes every parameter while keeping convenience — model management, terminal chat, web UI, multi-instance, and full llama-server control. Perfect for multi-GPU setups, MTP testing, or when you need precise control over inference.
+Ollama hides llama.cpp flags and hardcodes defaults. gollama exposes every parameter while keeping convenience — model management, terminal chat, web UI, multi-instance, and full llama-server control.
+
+**Key advantage over Ollama:** Ollama cannot download sharded (multi-file) GGUF models from HuggingFace — it throws an error on any model split across multiple files (common for 100B+ parameter models). This effectively locks you out of the latest and largest open-weight models unless you use their cloud service. Gollama downloads all parts automatically with per-part progress. No gatekeeping — if it's on HuggingFace, you can run it.
+
+Perfect for multi-GPU setups, MTP testing, or when you need precise control over inference without vendor lock-in.
 
 ## User interface
 
