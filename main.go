@@ -25,7 +25,7 @@ import (
 
 // version is set at build time via -ldflags=-X main.version=v0.x.x
 // local builds fall back to this default
-var version = "0.2.32"
+var version = "0.2.33"
 
 func main() {
 	if len(os.Args) < 2 || os.Args[1] == "--version" || os.Args[1] == "-v" {
@@ -312,14 +312,25 @@ WantedBy=multi-user.target
 		fmt.Printf("Stopped instance on port %d\n", port)
 
 	case "restart":
-		resp, err := http.Post("http://127.0.0.1:9080/api/v1/restart", "application/json", nil)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v (is gollama serve running?)\n", err)
-			os.Exit(1)
+		// If installed as a systemd service, use systemctl for a clean restart
+		if _, err := os.Stat("/etc/systemd/system/gollama.service"); err == nil {
+			cmd := exec.Command("systemctl", "restart", "gollama")
+			cmd.Stdout = os.Stdout
+			cmd.Stderr = os.Stderr
+			if err := cmd.Run(); err != nil {
+				fmt.Fprintf(os.Stderr, "Error restarting service: %v\n", err)
+				os.Exit(1)
+			}
+		} else {
+			resp, err := http.Post("http://127.0.0.1:9080/api/v1/restart", "application/json", nil)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: %v (is gollama serve running?)\n", err)
+				os.Exit(1)
+			}
+			defer resp.Body.Close()
+			body, _ := io.ReadAll(resp.Body)
+			fmt.Println(string(body))
 		}
-		defer resp.Body.Close()
-		body, _ := io.ReadAll(resp.Body)
-		fmt.Println(string(body))
 
 	case "delete":
 		if len(os.Args) < 3 {

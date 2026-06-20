@@ -242,14 +242,16 @@ func populateModelInfo(info *ModelInfo) error {
 		}
 	}
 
-	if info.ShortName == "" {
-		// Derive from model name (format: "hf.co/user/repo:quant")
-		if strings.HasPrefix(info.Name, "hf.co/") {
-			parts := strings.SplitN(strings.TrimPrefix(info.Name, "hf.co/"), ":", 2)
-			info.ShortName = DeriveShortNameFromRepo(parts[0])
-		} else if info.BlobPath != "" {
-			info.ShortName = deriveShortName(info.BlobPath)
+	// Derive short name from HF repo path when available (always refreshes for consistency)
+	if strings.HasPrefix(info.Name, "hf.co/") {
+		parts := strings.SplitN(strings.TrimPrefix(info.Name, "hf.co/"), ":", 2)
+		derived := DeriveShortNameFromRepo(parts[0])
+		if derived != info.ShortName {
+			info.ShortName = derived
+			changed = true
 		}
+	} else if info.ShortName == "" && info.BlobPath != "" {
+		info.ShortName = deriveShortName(info.BlobPath)
 		changed = true
 	}
 

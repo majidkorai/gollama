@@ -327,6 +327,17 @@ func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 	if ok {
 		flusher.Flush()
 	}
+
+	// If running under systemd, use systemctl for a clean restart
+	if _, err := os.Stat("/etc/systemd/system/gollama.service"); err == nil {
+		go func() {
+			time.Sleep(500 * time.Millisecond)
+			exec.Command("systemctl", "restart", "gollama").Run()
+		}()
+		return
+	}
+
+	// Otherwise spawn a new process and exit
 	go func() {
 		time.Sleep(500 * time.Millisecond)
 		cmd := exec.Command(os.Args[0], os.Args[1:]...)
