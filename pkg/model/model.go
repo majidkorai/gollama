@@ -99,10 +99,9 @@ func EnsureDir(dir string) {
 }
 
 func DetectGPU() (available bool, layers int) {
-	// Returns whether a GPU is available and recommended --n-gpu-layers count.
 	switch runtime.GOOS {
 	case "linux":
-		if _, err := os.Stat("/proc/driver/nvidia/version"); err == nil {
+		if gpus, _ := filepath.Glob("/proc/driver/nvidia/gpus/*"); len(gpus) > 0 {
 			return true, 99
 		}
 		if _, err := os.Stat("/proc/driver/amdgpu/version"); err == nil {
