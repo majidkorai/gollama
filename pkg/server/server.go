@@ -340,6 +340,17 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+		if v, ok := incoming["proxy_defaults"]; ok {
+			if arr, ok := v.([]interface{}); ok {
+				flags := make([]string, 0, len(arr))
+				for _, item := range arr {
+					if s, ok := item.(string); ok {
+						flags = append(flags, s)
+					}
+				}
+				cfg.ProxyDefaults = flags
+			}
+		}
 		model.SaveConfig(cfg)
 		jsonResponse(w, map[string]string{"status": "saved"})
 	default:

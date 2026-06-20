@@ -552,12 +552,23 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
     </div>
   </div></div>
   <div class="card" style="margin-top:16px"><div class="card-body">
-    <div style="font-size:13px;font-weight:600;margin-bottom:8px">Default Launch Flags</div>
+    <div style="font-size:13px;font-weight:600;margin-bottom:8px">UI Default Flags</div>
+    <div style="font-size:11px;color:var(--text-dim);margin-bottom:8px">Pre-fills the Quick Launch form</div>
     <div id="settingsFlagsContainer"></div>
     <button class="ghost small" onclick="addSettingsFlag()" style="margin-top:4px">＋ Add Flag</button>
     <div style="margin-top:10px">
-      <button class="primary small" onclick="saveSettingsFlags()">Save Default Flags</button>
+      <button class="primary small" onclick="saveSettingsFlags()">Save UI Defaults</button>
       <span id="settingsFlagsStatus" style="font-size:12px;color:var(--text-muted);margin-left:8px"></span>
+    </div>
+  </div></div>
+  <div class="card" style="margin-top:16px"><div class="card-body">
+    <div style="font-size:13px;font-weight:600;margin-bottom:8px">Proxy Default Flags</div>
+    <div style="font-size:11px;color:var(--text-dim);margin-bottom:8px">Used when auto-launching via API (<code>/v1/chat/completions</code>)</div>
+    <div id="proxyFlagsContainer"></div>
+    <button class="ghost small" onclick="addProxyFlag()" style="margin-top:4px">＋ Add Flag</button>
+    <div style="margin-top:10px">
+      <button class="primary small" onclick="saveProxyFlags()">Save Proxy Defaults</button>
+      <span id="proxyFlagsStatus" style="font-size:12px;color:var(--text-muted);margin-left:8px"></span>
     </div>
   </div></div>
 </div>
@@ -1358,11 +1369,23 @@ async function loadSettings() {
         c.appendChild(makeFlagRow(name, value));
       }
     }
+    var pc = document.getElementById('proxyFlagsContainer'); pc.innerHTML = '';
+    if (cfg.proxy_defaults) {
+      for (var i = 0; i < cfg.proxy_defaults.length; i += 2) {
+        var name = cfg.proxy_defaults[i];
+        var value = (i + 1 < cfg.proxy_defaults.length && !cfg.proxy_defaults[i + 1].startsWith('--')) ? cfg.proxy_defaults[i + 1] : '';
+        pc.appendChild(makeFlagRow(name, value));
+      }
+    }
   } catch (e) {}
 }
 
 function addSettingsFlag() {
   document.getElementById('settingsFlagsContainer').appendChild(makeFlagRow('', ''));
+}
+
+function addProxyFlag() {
+  document.getElementById('proxyFlagsContainer').appendChild(makeFlagRow('', ''));
 }
 
 async function saveIdleTTL() {
@@ -1387,6 +1410,23 @@ async function saveSettingsFlags() {
   var st = document.getElementById('settingsFlagsStatus');
   try {
     var r = await fetch('/api/v1/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ default_flags: flags }) });
+    if (r.ok) { st.textContent = 'Saved'; setTimeout(function() { st.textContent = ''; }, 2000); }
+    else { st.textContent = 'Error saving'; }
+  } catch (e) { st.textContent = 'Error: ' + e.message; }
+}
+
+async function saveProxyFlags() {
+  var flags = [];
+  document.querySelectorAll('#proxyFlagsContainer .flag-row').forEach(function(row) {
+    var sel = row.querySelector('.flag-name'), valInput = row.querySelector('.flag-value'), customInput = row.querySelector('.flag-custom');
+    var name = sel.value || customInput.value.trim(), val = valInput.value.trim();
+    if (!name) return;
+    flags.push(name);
+    if (val) flags.push(val);
+  });
+  var st = document.getElementById('proxyFlagsStatus');
+  try {
+    var r = await fetch('/api/v1/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ proxy_defaults: flags }) });
     if (r.ok) { st.textContent = 'Saved'; setTimeout(function() { st.textContent = ''; }, 2000); }
     else { st.textContent = 'Error saving'; }
   } catch (e) { st.textContent = 'Error: ' + e.message; }
