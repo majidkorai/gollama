@@ -25,7 +25,7 @@ import (
 
 // version is set at build time via -ldflags=-X main.version=v0.x.x
 // local builds fall back to this default
-var version = "0.2.47"
+var version = "0.2.48"
 
 func main() {
 	if len(os.Args) < 2 || os.Args[1] == "--version" || os.Args[1] == "-v" {
@@ -294,9 +294,15 @@ WantedBy=multi-user.target
 			fmt.Println("No running instances")
 			return
 		}
-		fmt.Printf("%-5s %-20s %-5s %-8s\n", "Port", "Model", "PID", "Status")
+		fmt.Printf("%-5s %-20s %-5s %-8s %-6s %-6s %-6s\n", "Port", "Model", "PID", "Status", "CPU%", "MemMB", "GPU%")
 		for _, inst := range instances {
-			fmt.Printf("%-5d %-20s %-5d %-8s\n", inst.Port, truncate(inst.Model, 20), inst.PID, inst.Status)
+			cpu := fmt.Sprintf("%.0f", inst.CpuPercent)
+			mem := fmt.Sprintf("%.0f", inst.MemoryMB)
+			gpu := ""
+			if inst.GpuUtil > 0 {
+				gpu = fmt.Sprintf("%.0f", inst.GpuUtil)
+			}
+			fmt.Printf("%-5d %-20s %-5d %-8s %-6s %-6s %-6s\n", inst.Port, truncate(inst.Model, 20), inst.PID, inst.Status, cpu, mem, gpu)
 		}
 
 	case "stop":

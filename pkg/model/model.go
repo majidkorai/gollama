@@ -51,6 +51,24 @@ func DefaultConfig() *Config {
 	return &Config{DefaultFlags: flags, IdleTTL: 30}
 }
 
+func sanitizeFlags(flags []string) []string {
+	clean := make([]string, 0, len(flags))
+	for i, f := range flags {
+		if strings.HasPrefix(f, "--") {
+			clean = append(clean, f)
+		} else if len(clean) > 0 && !strings.HasPrefix(clean[len(clean)-1], "--") {
+			// Consecutive values without a preceding flag key — skip the orphaned value
+			continue
+		} else if i == 0 {
+			// Leading value without a flag key — skip
+			continue
+		} else {
+			clean = append(clean, f)
+		}
+	}
+	return clean
+}
+
 func LoadConfig() *Config {
 	EnsureDir(GollamaDir())
 	data, err := os.ReadFile(ConfigFile())
@@ -64,6 +82,8 @@ func LoadConfig() *Config {
 		cfg = *DefaultConfig()
 		SaveConfig(&cfg)
 	}
+	cfg.DefaultFlags = sanitizeFlags(cfg.DefaultFlags)
+	cfg.ProxyDefaults = sanitizeFlags(cfg.ProxyDefaults)
 	return &cfg
 }
 
@@ -75,6 +95,8 @@ func (c *Config) ProxyFlags() []string {
 }
 
 func SaveConfig(cfg *Config) {
+	cfg.DefaultFlags = sanitizeFlags(cfg.DefaultFlags)
+	cfg.ProxyDefaults = sanitizeFlags(cfg.ProxyDefaults)
 	data, _ := json.MarshalIndent(cfg, "", "  ")
 	os.WriteFile(ConfigFile(), data, 0644)
 }

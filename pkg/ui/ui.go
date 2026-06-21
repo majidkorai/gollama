@@ -721,11 +721,12 @@ async function loadInstances() {
       var uptime = i.started_at ? (function() { var s = Math.floor((Date.now() - new Date(i.started_at).getTime()) / 1000); return '<span title="Uptime">⏱ ' + (s > 86400 ? Math.floor(s/86400)+'d ' : '') + (s > 3600 ? Math.floor((s%86400)/3600)+'h ' : '') + Math.floor((s%3600)/60)+'m</span>'; })() : '';
       var idle = i.last_activity ? (function() { var s = Math.floor((Date.now() - new Date(i.last_activity).getTime()) / 1000); if (s < 60) return ''; return '<span title="Idle time">💤 ' + (s > 3600 ? Math.floor(s/3600)+'h ' : '') + Math.floor((s%3600)/60)+'m</span>'; })() : '';
       var tokens = i.total_tokens ? '<span title="Total tokens">🔤 ' + (i.total_tokens > 999 ? Math.round(i.total_tokens/1000) + 'K' : i.total_tokens) + '</span>' : '';
+      var metrics = '<span title="CPU / Memory / GPU">🖥 ' + (i.cpu_percent ? i.cpu_percent.toFixed(0) + '%' : '-') + ' 🧠 ' + (i.memory_mb ? i.memory_mb.toFixed(0) + 'M' : '-') + (i.gpu_util ? ' 🎮 ' + i.gpu_util.toFixed(0) + '%' : '') + '</span>';
       var flags = i.flags && i.flags.length ? formatFlags(i.flags) : '';
       var flagsHtml = flags ? '<div style="font-size: 11px; color: var(--text-dim); margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); word-break: break-all; font-family: var(--font-mono)">' + escHtml(flags) + '</div>' : '';
       var errDiv = i.status != 'running' ? '<div class="error-line" id="err-' + i.port + '"></div>' : '';
       return '<div class="inst-card' + cls + '"><div class="title">' + escHtml(mn.length > 40 ? mn.slice(0, 40) + '…' : mn) + '</div>' +
-        '<div class="meta"><span>Port ' + i.port + '</span>' + tps + uptime + idle + tokens + '<span class="badge ' + bc + '">' + statusLabel + '</span></div>' +
+        '<div class="meta"><span>Port ' + i.port + '</span>' + tps + uptime + idle + tokens + metrics + '<span class="badge ' + bc + '">' + statusLabel + '</span></div>' +
         errDiv + flagsHtml +
         '<div class="actions"><button class="small danger" onclick="stopInstance(' + i.port + ')" aria-label="Stop instance on port ' + i.port + '">⏹ Stop</button>' +
         '<button class="small secondary" onclick="restartInstance(' + i.port + ')" aria-label="Restart instance on port ' + i.port + '">🔄 Restart</button>' +
@@ -748,14 +749,7 @@ async function loadInstances() {
 }
 
 async function launchInstance() {
-  var btn = document.getElementById('launchBtn'), m = document.getElementById('modelSelect').value, p = parseInt(document.getElementById('portInput').value), f = [];
-  document.querySelectorAll('#flagsContainer .flag-row').forEach(function(row) {
-    var sel = row.querySelector('.flag-name'), valInput = row.querySelector('.flag-value'), customInput = row.querySelector('.flag-custom');
-    var name = sel.value || customInput.value.trim(), val = valInput.value.trim();
-    if (!name) return;
-    f.push(name);
-    if (val) f.push(val);
-  });
+  var btn = document.getElementById('launchBtn'), m = document.getElementById('modelSelect').value, p = parseInt(document.getElementById('portInput').value), f = collectFlags(document.getElementById('flagsContainer'));
   if (!m) { alert('Select a model'); return; }
   var orig = btn.textContent; btn.disabled = true; btn.textContent = 'Launching…';
   try {
@@ -786,14 +780,7 @@ async function restartInstance(port) {
 
   await fetch('/api/v1/instances/stop?port=' + port, { method: 'POST' });
 
-  var userFlags = [];
-  document.querySelectorAll('#flagsContainer .flag-row').forEach(function(row) {
-    var sel = row.querySelector('.flag-name'), valInput = row.querySelector('.flag-value'), customInput = row.querySelector('.flag-custom');
-    var name = sel.value || customInput.value.trim(), val = valInput.value.trim();
-    if (!name) return;
-    userFlags.push(name);
-    if (val) userFlags.push(val);
-  });
+  var userFlags = collectFlags(document.getElementById('flagsContainer'));
 
   try {
     var r = await fetch('/api/v1/instances', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: inst.model, port: inst.port, flags: userFlags, replace_flags: true }) });
@@ -1032,6 +1019,34 @@ function onFlagChange(sel) {
   valInput.placeholder = flagHints[sel.value] || 'Value';
 }
 
+// Parse a flat flag array into rows, respecting standalone booleans
+function renderFlags(container, flags) {
+  container.innerHTML = '';
+  if (!flags || !flags.length) return;
+  for (var i = 0; i < flags.length; i++) {
+    var name = flags[i];
+    if (!name.startsWith('--')) continue;
+    var value = '';
+    if (i + 1 < flags.length && !standaloneFlags[name] && !flags[i + 1].startsWith('--')) {
+      value = flags[i + 1];
+      i++;
+    }
+    container.appendChild(makeFlagRow(name, value));
+  }
+}
+// Serialize rows from a container into a flat flag array, skipping values for standalone booleans
+function collectFlags(container) {
+  var flags = [];
+  container.querySelectorAll('.flag-row').forEach(function(row) {
+    var sel = row.querySelector('.flag-name'), valInput = row.querySelector('.flag-value'), customInput = row.querySelector('.flag-custom');
+    var name = sel.value || customInput.value.trim(), val = valInput.value.trim();
+    if (!name) return;
+    flags.push(name);
+    if (val && !standaloneFlags[name]) flags.push(val);
+  });
+  return flags;
+}
+
 // ── Presets ────────────────────────────────────────────
 async function loadPresets() {
   try {
@@ -1050,11 +1065,7 @@ function applyPreset() {
   fetch('/api/v1/presets').then(function(r) { return r.json(); }).then(function(presets) {
     var flags = presets[name];
     if (!flags) return;
-    var c = document.getElementById('flagsContainer'); c.innerHTML = '';
-    for (var i = 0; i < flags.length; i += 2) {
-      var fname = flags[i], fval = (i + 1 < flags.length && !flags[i + 1].startsWith('--')) ? flags[i + 1] : '';
-      c.appendChild(makeFlagRow(fname, fval));
-    }
+    renderFlags(document.getElementById('flagsContainer'), flags);
     sel.value = '';
   });
 }
@@ -1062,14 +1073,7 @@ function applyPreset() {
 async function savePreset() {
   var name = prompt('Preset name:');
   if (!name) return;
-  var flags = [];
-  document.querySelectorAll('#flagsContainer .flag-row').forEach(function(row) {
-    var sel = row.querySelector('.flag-name'), valInput = row.querySelector('.flag-value'), customInput = row.querySelector('.flag-custom');
-    var fname = sel.value || customInput.value.trim(), fval = valInput.value.trim();
-    if (!fname) return;
-    flags.push(fname);
-    if (fval) flags.push(fval);
-  });
+  var flags = collectFlags(document.getElementById('flagsContainer'));
   if (!flags.length) { alert('No flags to save'); return; }
   try {
     await fetch('/api/v1/presets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, flags: flags }) });
@@ -1204,13 +1208,7 @@ function pullSuggestion(id, btn) {
 async function loadDefaultFlags() {
   try {
     var r = await fetch('/api/v1/config/default-flags'), flags = await r.json();
-    if (!flags || !flags.length) return;
-    var c = document.getElementById('flagsContainer'); c.innerHTML = '';
-    for (var i = 0; i < flags.length; i += 2) {
-      var name = flags[i];
-      var value = (i + 1 < flags.length && !flags[i + 1].startsWith('--')) ? flags[i + 1] : '';
-      c.appendChild(makeFlagRow(name, value));
-    }
+    renderFlags(document.getElementById('flagsContainer'), flags);
   } catch (e) {}
 }
 
@@ -1526,22 +1524,8 @@ async function loadSettings() {
   try {
     var r = await fetch('/api/v1/config'), cfg = await r.json();
     document.getElementById('idleTtlInput').value = cfg.idle_ttl || 0;
-    var c = document.getElementById('settingsFlagsContainer'); c.innerHTML = '';
-    if (cfg.default_flags) {
-      for (var i = 0; i < cfg.default_flags.length; i += 2) {
-        var name = cfg.default_flags[i];
-        var value = (i + 1 < cfg.default_flags.length && !cfg.default_flags[i + 1].startsWith('--')) ? cfg.default_flags[i + 1] : '';
-        c.appendChild(makeFlagRow(name, value));
-      }
-    }
-    var pc = document.getElementById('proxyFlagsContainer'); pc.innerHTML = '';
-    if (cfg.proxy_defaults) {
-      for (var i = 0; i < cfg.proxy_defaults.length; i += 2) {
-        var name = cfg.proxy_defaults[i];
-        var value = (i + 1 < cfg.proxy_defaults.length && !cfg.proxy_defaults[i + 1].startsWith('--')) ? cfg.proxy_defaults[i + 1] : '';
-        pc.appendChild(makeFlagRow(name, value));
-      }
-    }
+    renderFlags(document.getElementById('settingsFlagsContainer'), cfg.default_flags);
+    renderFlags(document.getElementById('proxyFlagsContainer'), cfg.proxy_defaults);
   } catch (e) {}
 }
 
@@ -1564,34 +1548,18 @@ async function saveIdleTTL() {
 }
 
 async function saveSettingsFlags() {
-  var flags = [];
-  document.querySelectorAll('#settingsFlagsContainer .flag-row').forEach(function(row) {
-    var sel = row.querySelector('.flag-name'), valInput = row.querySelector('.flag-value'), customInput = row.querySelector('.flag-custom');
-    var name = sel.value || customInput.value.trim(), val = valInput.value.trim();
-    if (!name) return;
-    flags.push(name);
-    if (val) flags.push(val);
-  });
   var st = document.getElementById('settingsFlagsStatus');
   try {
-    var r = await fetch('/api/v1/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ default_flags: flags }) });
+    var r = await fetch('/api/v1/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ default_flags: collectFlags(document.getElementById('settingsFlagsContainer')) }) });
     if (r.ok) { st.textContent = 'Saved'; setTimeout(function() { st.textContent = ''; }, 2000); }
     else { st.textContent = 'Error saving'; }
   } catch (e) { st.textContent = 'Error: ' + e.message; }
 }
 
 async function saveProxyFlags() {
-  var flags = [];
-  document.querySelectorAll('#proxyFlagsContainer .flag-row').forEach(function(row) {
-    var sel = row.querySelector('.flag-name'), valInput = row.querySelector('.flag-value'), customInput = row.querySelector('.flag-custom');
-    var name = sel.value || customInput.value.trim(), val = valInput.value.trim();
-    if (!name) return;
-    flags.push(name);
-    if (val) flags.push(val);
-  });
   var st = document.getElementById('proxyFlagsStatus');
   try {
-    var r = await fetch('/api/v1/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ proxy_defaults: flags }) });
+    var r = await fetch('/api/v1/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ proxy_defaults: collectFlags(document.getElementById('proxyFlagsContainer')) }) });
     if (r.ok) { st.textContent = 'Saved'; setTimeout(function() { st.textContent = ''; }, 2000); }
     else { st.textContent = 'Error saving'; }
   } catch (e) { st.textContent = 'Error: ' + e.message; }

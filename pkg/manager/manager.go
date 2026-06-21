@@ -31,6 +31,9 @@ type Instance struct {
 	StartedAt    time.Time  `json:"started_at"`
 	TotalTokens  int64      `json:"total_tokens"`
 	LastActivity time.Time  `json:"last_activity"`
+	GpuUtil      float64    `json:"gpu_util,omitempty"`
+	CpuPercent   float64    `json:"cpu_percent,omitempty"`
+	MemoryMB     float64    `json:"memory_mb,omitempty"`
 }
 
 type Manager struct {
@@ -326,6 +329,10 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 		cfg := model.LoadConfig()
 		for i := 0; i < len(cfg.DefaultFlags); i++ {
 			a := cfg.DefaultFlags[i]
+			if !strings.HasPrefix(a, "--") {
+				// Orphaned value without a flag key — skip
+				continue
+			}
 			if extraKeys[a] {
 				if i+1 < len(cfg.DefaultFlags) && !strings.HasPrefix(cfg.DefaultFlags[i+1], "--") {
 					i++
@@ -420,8 +427,15 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 				if resp.StatusCode == 200 {
 					m.mu.Lock()
 					inst.Ready = true
+					// One-shot process metrics snapshot (stable after startup)
+					cpu, mem := queryProcessStats(inst.PID)
+					inst.CpuPercent = cpu
+					inst.MemoryMB = mem
+					if gpu := queryGpuUtil(); gpu >= 0 {
+						inst.GpuUtil = gpu
+					}
 					m.mu.Unlock()
-					log.Printf("instance ready: port=%d", port)
+					log.Printf("instance ready: port=%d cpu=%.0f%% mem=%.0fMB gpu=%.0f%%", port, cpu, mem, inst.GpuUtil)
 					return
 				}
 			}
@@ -582,4 +596,50 @@ func (m *Manager) List() []*Instance {
 		result = append(result, inst)
 	}
 	return result
+}
+
+func queryProcessStats(pid int) (cpuPercent, memoryMB float64) {
+	cmd := exec.Command("ps", "-o", "%cpu=,%mem=,rss=", "-p", strconv.Itoa(pid))
+	out, err := cmd.Output()
+	if err != nil {
+		return 0, 0
+	}
+	line := strings.TrimSpace(string(out))
+	if line == "" {
+		return 0, 0
+	}
+	fields := strings.Fields(line)
+	if len(fields) >= 1 {
+		cpu, _ := strconv.ParseFloat(fields[0], 64)
+		cpuPercent = cpu
+	}
+	if len(fields) >= 3 {
+		if rssKB, err := strconv.ParseFloat(fields[2], 64); err == nil && rssKB > 0 {
+			memoryMB = rssKB / 1024
+		}
+	}
+	return
+}
+
+func queryGpuUtil() float64 {
+	if runtime.GOOS != "linux" {
+		return -1
+	}
+	cmd := exec.Command("nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits")
+	out, err := cmd.Output()
+	if err != nil {
+		return -1
+	}
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	if len(lines) == 0 {
+		return -1
+	}
+	var total float64
+	for _, line := range lines {
+		u, err := strconv.ParseFloat(strings.TrimSpace(line), 64)
+		if err == nil {
+			total += u
+		}
+	}
+	return total / float64(len(lines))
 }
