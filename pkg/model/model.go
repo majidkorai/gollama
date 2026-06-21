@@ -482,15 +482,16 @@ func pullModelInternal(ref string, fn ProgressFn, progress io.Writer) error {
 		Size     int64  `json:"size"`
 	}
 	var targetFiles []sibling
+	splitPartRe := regexp.MustCompile(`-\d{5}-of-\d{5}$`)
+	quantSuffix := "-" + quant
 	for _, s := range modelData.Siblings {
 		if strings.HasSuffix(s.Filename, ".gguf") {
-			base := strings.TrimSuffix(s.Filename, ".gguf")
-			segments := strings.Split(base, "-")
-			for _, seg := range segments {
-				if seg == quant {
-					targetFiles = append(targetFiles, s)
-					break
-				}
+			fname := filepath.Base(s.Filename)
+			stem := strings.TrimSuffix(fname, ".gguf")
+			// Remove multi-file split suffix (e.g. -00001-of-00003)
+			stem = splitPartRe.ReplaceAllString(stem, "")
+			if strings.HasSuffix(stem, quantSuffix) {
+				targetFiles = append(targetFiles, s)
 			}
 		}
 	}
