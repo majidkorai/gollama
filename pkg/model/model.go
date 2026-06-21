@@ -483,15 +483,21 @@ func pullModelInternal(ref string, fn ProgressFn, progress io.Writer) error {
 	}
 	var targetFiles []sibling
 	splitPartRe := regexp.MustCompile(`-\d{5}-of-\d{5}$`)
-	quantSuffix := "-" + quant
+	var minSegments int
 	for _, s := range modelData.Siblings {
 		if strings.HasSuffix(s.Filename, ".gguf") {
 			fname := filepath.Base(s.Filename)
 			stem := strings.TrimSuffix(fname, ".gguf")
-			// Remove multi-file split suffix (e.g. -00001-of-00003)
 			stem = splitPartRe.ReplaceAllString(stem, "")
-			if strings.HasSuffix(stem, quantSuffix) {
-				targetFiles = append(targetFiles, s)
+			segments := strings.Split(stem, "-")
+			if len(segments) > 0 && segments[len(segments)-1] == quant {
+				if len(segments) < minSegments || minSegments == 0 {
+					minSegments = len(segments)
+					targetFiles = nil
+				}
+				if len(segments) == minSegments {
+					targetFiles = append(targetFiles, s)
+				}
 			}
 		}
 	}
