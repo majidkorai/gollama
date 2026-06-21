@@ -483,8 +483,15 @@ func pullModelInternal(ref string, fn ProgressFn, progress io.Writer) error {
 	}
 	var targetFiles []sibling
 	for _, s := range modelData.Siblings {
-		if strings.HasSuffix(s.Filename, ".gguf") && strings.Contains(s.Filename, quant) {
-			targetFiles = append(targetFiles, s)
+		if strings.HasSuffix(s.Filename, ".gguf") {
+			base := strings.TrimSuffix(s.Filename, ".gguf")
+			segments := strings.Split(base, "-")
+			for _, seg := range segments {
+				if seg == quant {
+					targetFiles = append(targetFiles, s)
+					break
+				}
+			}
 		}
 	}
 	if len(targetFiles) == 0 {
