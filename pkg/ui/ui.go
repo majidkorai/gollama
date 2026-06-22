@@ -1089,13 +1089,9 @@ function flagOptions(selected) {
 }
 function filterFlags(input) {
   var q = input.value.toLowerCase().trim();
-  var parent = input.parentElement;
-  while (parent && !parent.querySelector('.flag-name')) {
-    parent = parent.parentElement;
-    if (parent === document.body || !parent) { parent = null; break; }
-  }
-  if (!parent) return;
-  parent.querySelectorAll('.flag-name').forEach(function(sel) {
+  var scope = input.closest('.advanced-flags') || input.closest('.card-body');
+  if (!scope) return;
+  scope.querySelectorAll('.flag-name').forEach(function(sel) {
     var cur = sel.value;
     var filtered = q ? commonFlags.filter(function(f) { return f.toLowerCase().includes(q); }) : commonFlags;
     sel.innerHTML = filtered.map(function(f) { return '<option value="' + escAttr(f) + '"' + (f === cur ? ' selected' : '') + '>' + escHtml(f) + '</option>'; }).join('') +
