@@ -1092,9 +1092,11 @@ function filterFlags(input) {
   var scope = input.closest('.advanced-flags') || input.closest('.card-body');
   if (!scope) return;
   scope.querySelectorAll('.flag-name').forEach(function(sel) {
-    var cur = sel.value;
+    if (q && !sel.dataset.sv) sel.dataset.sv = sel.value;
+    var cur = sel.dataset.sv || sel.value;
+    if (!q) delete sel.dataset.sv;
     while (sel.options.length > 0) sel.remove(0);
-    var matched = false;
+    var matched = false, count = 0;
     commonFlags.forEach(function(f) {
       if (!q || f.toLowerCase().includes(q)) {
         var opt = document.createElement('option');
@@ -1102,6 +1104,7 @@ function filterFlags(input) {
         opt.textContent = f;
         if (f === cur) { opt.selected = true; matched = true; }
         sel.add(opt);
+        count++;
       }
     });
     var custom = document.createElement('option');
@@ -1109,6 +1112,7 @@ function filterFlags(input) {
     custom.textContent = 'Custom\u2026';
     if (!matched) custom.selected = true;
     sel.add(custom);
+    sel.size = q ? Math.min(count + 1, 12) : 1;
   });
 }
 
@@ -1134,6 +1138,7 @@ function onFlagChange(sel) {
   var isStandalone = standaloneFlags[sel.value];
   valInput.style.display = isStandalone ? 'none' : '';
   valInput.placeholder = flagHints[sel.value] || 'Value';
+  sel.dataset.sv = sel.value;
 }
 
 // Parse a flat flag array into rows, respecting standalone booleans
