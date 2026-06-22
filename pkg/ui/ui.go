@@ -1093,10 +1093,22 @@ function filterFlags(input) {
   if (!scope) return;
   scope.querySelectorAll('.flag-name').forEach(function(sel) {
     var cur = sel.value;
-    var filtered = q ? commonFlags.filter(function(f) { return f.toLowerCase().includes(q); }) : commonFlags;
-    sel.innerHTML = filtered.map(function(f) { return '<option value="' + escAttr(f) + '"' + (f === cur ? ' selected' : '') + '>' + escHtml(f) + '</option>'; }).join('') +
-      '<option value=""' + (!cur || filtered.indexOf(cur) === -1 ? ' selected' : '') + '>Custom\u2026</option>';
-    if (sel.value !== cur) onFlagChange(sel);
+    while (sel.options.length > 0) sel.remove(0);
+    var matched = false;
+    commonFlags.forEach(function(f) {
+      if (!q || f.toLowerCase().includes(q)) {
+        var opt = document.createElement('option');
+        opt.value = f;
+        opt.textContent = f;
+        if (f === cur) { opt.selected = true; matched = true; }
+        sel.add(opt);
+      }
+    });
+    var custom = document.createElement('option');
+    custom.value = '';
+    custom.textContent = 'Custom\u2026';
+    if (!matched) custom.selected = true;
+    sel.add(custom);
   });
 }
 
