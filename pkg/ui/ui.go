@@ -398,10 +398,7 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
         <summary style="cursor:pointer;font-size:12px;color:var(--text-muted);font-weight:600;user-select:none">Advanced flags</summary>
         <div style="margin-top:8px">
           <div id="flagsContainer"></div>
-          <div style="display:flex;gap:4px;margin-top:4px">
-            <input type="text" class="flag-search" placeholder="Search flags…" oninput="filterFlags(this)" style="flex:1;min-width:0;font-size:11px;padding:3px 6px">
-            <button class="ghost small" onclick="addFlag()">＋ Add Flag</button>
-          </div>
+          <button class="ghost small" onclick="addFlag()" style="margin-top:4px">＋ Add Flag</button>
         </div>
       </details>
       <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
@@ -559,10 +556,7 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
     <div style="font-size:13px;font-weight:600;margin-bottom:8px">UI Default Flags</div>
     <div style="font-size:11px;color:var(--text-dim);margin-bottom:8px">Pre-fills the Quick Launch form</div>
     <div id="settingsFlagsContainer"></div>
-    <div style="display:flex;gap:4px;margin-top:4px">
-      <input type="text" class="flag-search" placeholder="Search flags…" oninput="filterFlags(this)" style="flex:1;min-width:0;font-size:11px;padding:3px 6px">
-      <button class="ghost small" onclick="addSettingsFlag()">＋ Add Flag</button>
-    </div>
+    <button class="ghost small" onclick="addSettingsFlag()" style="margin-top:4px">＋ Add Flag</button>
     <div style="margin-top:10px">
       <button class="primary small" onclick="saveSettingsFlags()">Save UI Defaults</button>
       <span id="settingsFlagsStatus" style="font-size:12px;color:var(--text-muted);margin-left:8px"></span>
@@ -572,10 +566,7 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
     <div style="font-size:13px;font-weight:600;margin-bottom:8px">Proxy Default Flags</div>
     <div style="font-size:11px;color:var(--text-dim);margin-bottom:8px">Used when auto-launching via API (<code>/v1/chat/completions</code>)</div>
     <div id="proxyFlagsContainer"></div>
-    <div style="display:flex;gap:4px;margin-top:4px">
-      <input type="text" class="flag-search" placeholder="Search flags…" oninput="filterFlags(this)" style="flex:1;min-width:0;font-size:11px;padding:3px 6px">
-      <button class="ghost small" onclick="addProxyFlag()">＋ Add Flag</button>
-    </div>
+    <button class="ghost small" onclick="addProxyFlag()" style="margin-top:4px">＋ Add Flag</button>
     <div style="margin-top:10px">
       <button class="primary small" onclick="saveProxyFlags()">Save Proxy Defaults</button>
       <span id="proxyFlagsStatus" style="font-size:12px;color:var(--text-muted);margin-left:8px"></span>
@@ -1087,34 +1078,6 @@ function flagOptions(selected) {
   return commonFlags.map(function(f) { return '<option value="' + escAttr(f) + '"' + (f === selected ? ' selected' : '') + '>' + escHtml(f) + '</option>'; }).join('') +
     '<option value=""' + (!selected || commonFlags.indexOf(selected) === -1 ? ' selected' : '') + '>Custom…</option>';
 }
-function filterFlags(input) {
-  var q = input.value.toLowerCase().trim();
-  var scope = input.closest('.advanced-flags') || input.closest('.card-body');
-  if (!scope) return;
-  scope.querySelectorAll('.flag-name').forEach(function(sel) {
-    if (q && !sel.dataset.sv) sel.dataset.sv = sel.value;
-    var cur = sel.dataset.sv || sel.value;
-    if (!q) delete sel.dataset.sv;
-    while (sel.options.length > 0) sel.remove(0);
-    var matched = false, count = 0;
-    commonFlags.forEach(function(f) {
-      if (!q || f.toLowerCase().includes(q)) {
-        var opt = document.createElement('option');
-        opt.value = f;
-        opt.textContent = f;
-        if (f === cur) { opt.selected = true; matched = true; }
-        sel.add(opt);
-        count++;
-      }
-    });
-    var custom = document.createElement('option');
-    custom.value = '';
-    custom.textContent = 'Custom\u2026';
-    if (!matched) custom.selected = true;
-    sel.add(custom);
-    sel.size = q ? Math.min(count + 1, 12) : 1;
-  });
-}
 
 function makeFlagRow(name, value) {
   var r = document.createElement('div'); r.className = 'flag-row';
@@ -1138,7 +1101,6 @@ function onFlagChange(sel) {
   var isStandalone = standaloneFlags[sel.value];
   valInput.style.display = isStandalone ? 'none' : '';
   valInput.placeholder = flagHints[sel.value] || 'Value';
-  sel.dataset.sv = sel.value;
 }
 
 // Parse a flat flag array into rows, respecting standalone booleans
@@ -1161,7 +1123,7 @@ function collectFlags(container) {
   var flags = [];
   container.querySelectorAll('.flag-row').forEach(function(row) {
     var sel = row.querySelector('.flag-name'), valInput = row.querySelector('.flag-value'), customInput = row.querySelector('.flag-custom');
-    var name = sel.value || sel.dataset.sv || customInput.value.trim(), val = valInput.value.trim();
+    var name = sel.value || customInput.value.trim(), val = valInput.value.trim();
     if (!name) return;
     flags.push(name);
     if (val && !standaloneFlags[name]) flags.push(val);
