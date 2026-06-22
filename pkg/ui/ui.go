@@ -1089,13 +1089,18 @@ function flagOptions(selected) {
 }
 function filterFlags(input) {
   var q = input.value.toLowerCase().trim();
-  document.querySelectorAll('.flag-name').forEach(function(sel) {
+  var parent = input.parentElement;
+  while (parent && !parent.querySelector('.flag-name')) {
+    parent = parent.parentElement;
+    if (parent === document.body || !parent) { parent = null; break; }
+  }
+  if (!parent) return;
+  parent.querySelectorAll('.flag-name').forEach(function(sel) {
     var cur = sel.value;
     var filtered = q ? commonFlags.filter(function(f) { return f.toLowerCase().includes(q); }) : commonFlags;
-    if (cur && filtered.indexOf(cur) === -1) { cur = ''; }
     sel.innerHTML = filtered.map(function(f) { return '<option value="' + escAttr(f) + '"' + (f === cur ? ' selected' : '') + '>' + escHtml(f) + '</option>'; }).join('') +
-      '<option value=""' + (!cur ? ' selected' : '') + '>Custom…</option>';
-    if (sel.value !== cur) { sel.value = cur; onFlagChange(sel); }
+      '<option value=""' + (!cur || filtered.indexOf(cur) === -1 ? ' selected' : '') + '>Custom\u2026</option>';
+    if (sel.value !== cur) onFlagChange(sel);
   });
 }
 
