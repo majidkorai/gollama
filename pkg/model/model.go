@@ -46,6 +46,31 @@ func ConfigFile() string {
 	return filepath.Join(GollamaDir(), "config.json")
 }
 
+func IsStandaloneFlag(name string) bool {
+	return standaloneFlags[name]
+}
+
+var standaloneFlags = map[string]bool{
+	"--agent": true,
+	"--backend-sampling": true,
+	"--cache-idle-slots": true, "--cache-prompt": true, "--cont-batching": true, "--context-shift": true, "--cpu-moe": true,
+	"--check-tensors": true,
+	"--direct-io": true,
+	"--embedding": true, "--escape": true,
+	"--ignore-eos": true,
+	"--jinja": true,
+	"--kv-unified": true,
+	"--list-devices": true, "--log-prefix": true, "--no-log-prefix": true, "--log-timestamps": true, "--no-log-timestamps": true, "--log-verbose": true,
+	"--metrics": true, "--mlock": true, "--mmproj-auto": true, "--no-mmproj-auto": true,
+	"--no-agent": true, "--no-cache-idle-slots": true, "--no-cache-prompt": true, "--no-cont-batching": true, "--no-context-shift": true, "--no-direct-io": true, "--no-escape": true, "--no-flash-attn": true, "--no-host": true, "--no-jinja": true, "--no-kv-offload": true, "--no-kv-unified": true, "--no-mmap": true, "--no-mmproj": true, "--no-mmproj-offload": true, "--no-op-offload": true, "--no-perf": true, "--no-prefill-assistant": true, "--no-repack": true, "--no-spec-draft-backend-sampling": true, "--no-ui": true, "--no-ui-mcp-proxy": true, "--no-warmup": true,
+	"--offline": true, "--op-offload": true,
+	"--perf": true, "--prefill-assistant": true, "--props": true,
+	"--repack": true, "--rerank": true, "--reuse-port": true,
+	"--spec-draft-backend-sampling": true, "--spec-draft-cpu-moe": true, "--special": true, "--spm-infill": true, "--swa-full": true,
+	"--ui": true, "--ui-mcp-proxy": true,
+	"--verbose": true,
+}
+
 func DefaultConfig() *Config {
 	flags := []string{"--host", "0.0.0.0", "--ctx-size", "2048", "--flash-attn", "on", "--temp", "0.7", "--repeat-penalty", "1.1"}
 	return &Config{DefaultFlags: flags, IdleTTL: 30}
@@ -53,17 +78,23 @@ func DefaultConfig() *Config {
 
 func sanitizeFlags(flags []string) []string {
 	clean := make([]string, 0, len(flags))
-	for i, f := range flags {
+	for _, f := range flags {
 		if strings.HasPrefix(f, "--") {
 			clean = append(clean, f)
-		} else if len(clean) > 0 && !strings.HasPrefix(clean[len(clean)-1], "--") {
-			// Consecutive values without a preceding flag key — skip the orphaned value
-			continue
-		} else if i == 0 {
+		} else if len(clean) > 0 {
+			last := clean[len(clean)-1]
+			if !strings.HasPrefix(last, "--") {
+				// Consecutive values without a preceding flag key — skip
+				continue
+			}
+			if standaloneFlags[last] {
+				// Standalone boolean flag — skip its orphaned value
+				continue
+			}
+			clean = append(clean, f)
+		} else {
 			// Leading value without a flag key — skip
 			continue
-		} else {
-			clean = append(clean, f)
 		}
 	}
 	return clean

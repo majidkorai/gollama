@@ -398,7 +398,10 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
         <summary style="cursor:pointer;font-size:12px;color:var(--text-muted);font-weight:600;user-select:none">Advanced flags</summary>
         <div style="margin-top:8px">
           <div id="flagsContainer"></div>
-          <button class="ghost small" onclick="addFlag()" style="margin-top:4px">＋ Add Flag</button>
+          <div style="display:flex;gap:4px;margin-top:4px">
+            <input type="text" class="flag-search" placeholder="Search flags…" oninput="filterFlags(this)" style="flex:1;min-width:0;font-size:11px;padding:3px 6px">
+            <button class="ghost small" onclick="addFlag()">＋ Add Flag</button>
+          </div>
         </div>
       </details>
       <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
@@ -556,7 +559,10 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
     <div style="font-size:13px;font-weight:600;margin-bottom:8px">UI Default Flags</div>
     <div style="font-size:11px;color:var(--text-dim);margin-bottom:8px">Pre-fills the Quick Launch form</div>
     <div id="settingsFlagsContainer"></div>
-    <button class="ghost small" onclick="addSettingsFlag()" style="margin-top:4px">＋ Add Flag</button>
+    <div style="display:flex;gap:4px;margin-top:4px">
+      <input type="text" class="flag-search" placeholder="Search flags…" oninput="filterFlags(this)" style="flex:1;min-width:0;font-size:11px;padding:3px 6px">
+      <button class="ghost small" onclick="addSettingsFlag()">＋ Add Flag</button>
+    </div>
     <div style="margin-top:10px">
       <button class="primary small" onclick="saveSettingsFlags()">Save UI Defaults</button>
       <span id="settingsFlagsStatus" style="font-size:12px;color:var(--text-muted);margin-left:8px"></span>
@@ -566,7 +572,10 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
     <div style="font-size:13px;font-weight:600;margin-bottom:8px">Proxy Default Flags</div>
     <div style="font-size:11px;color:var(--text-dim);margin-bottom:8px">Used when auto-launching via API (<code>/v1/chat/completions</code>)</div>
     <div id="proxyFlagsContainer"></div>
-    <button class="ghost small" onclick="addProxyFlag()" style="margin-top:4px">＋ Add Flag</button>
+    <div style="display:flex;gap:4px;margin-top:4px">
+      <input type="text" class="flag-search" placeholder="Search flags…" oninput="filterFlags(this)" style="flex:1;min-width:0;font-size:11px;padding:3px 6px">
+      <button class="ghost small" onclick="addProxyFlag()">＋ Add Flag</button>
+    </div>
     <div style="margin-top:10px">
       <button class="primary small" onclick="saveProxyFlags()">Save Proxy Defaults</button>
       <span id="proxyFlagsStatus" style="font-size:12px;color:var(--text-muted);margin-left:8px"></span>
@@ -804,45 +813,57 @@ async function fetchErrorLog(port) {
 
 // ── Flags ─────────────────────────────────────────────
 var commonFlags = [
+  '--adaptive-decay','--adaptive-target','--agent',
   '--alias','--api-key','--api-key-file','--api-prefix',
   '--backend-sampling','--batch-size',
-  '--cache-idle-slots','--cache-prompt','--cache-ram','--cache-reuse','--cache-type-k','--cache-type-v','--chat-template','--chat-template-file','--cont-batching','--context-shift','--control-vector','--control-vector-layer-range','--control-vector-scaled','--cpu-mask','--cpu-moe','--cpu-range','--ctx-size',
-  '--device','--direct-io','--dry-allowed-length','--dry-base','--dry-multiplier','--dry-penalty-last-n','--dry-sequence-breaker','--dynatemp-exp','--dynatemp-range',
+  '--cache-idle-slots','--cache-prompt','--cache-ram','--cache-reuse','--cache-type-k','--cache-type-v','--chat-template','--chat-template-file','--check-tensors','--checkpoint-min-step','--cont-batching','--context-shift','--control-vector','--control-vector-layer-range','--control-vector-scaled','--cpu-mask','--cpu-mask-batch','--cpu-moe','--cpu-range','--cpu-range-batch','--cpu-strict','--cpu-strict-batch','--ctx-checkpoints','--ctx-size',
+  '--device','--direct-io','--defrag-thold','--dry-allowed-length','--dry-base','--dry-multiplier','--dry-penalty-last-n','--dry-sequence-breaker','--dynatemp-exp','--dynatemp-range',
   '--embedding','--embd-normalize','--escape',
-  '--fit','--flash-attn','--frequency-penalty',
+  '--fit','--fit-ctx','--fit-target','--flash-attn','--frequency-penalty',
   '--grammar','--grammar-file',
+  '--hf-file','--hf-file-v','--hf-repo','--hf-repo-v','--hf-token',
   '--host',
   '--ignore-eos','--image-max-tokens','--image-min-tokens',
   '--jinja','--json-schema','--json-schema-file',
   '--keep','--kv-unified',
-  '--logit-bias','--lora','--lora-scaled',
-  '--main-gpu','--metrics','--min-p','--mirostat','--mirostat-ent','--mirostat-lr','--mlock','--mmproj','--mmproj-offload',
-  '--n-cpu-moe','--n-gpu-layers','--no-cache-idle-slots','--no-cache-prompt','--no-cont-batching','--no-context-shift','--no-escape','--no-flash-attn','--no-host','--no-jinja','--no-kv-offload','--no-kv-unified','--no-mmap','--no-mmproj','--no-mmproj-offload','--no-perf','--no-prefill-assistant','--no-repack','--no-warmup','--numa',
-  '--override-kv',
-  '--parallel','--path','--perf','--pooling','--port','--predict','--prefill-assistant','--presence-penalty','--prio','--props',
+  '--list-devices','--log-colors','--log-file','--log-prefix','--no-log-prefix','--log-timestamps','--no-log-timestamps','--log-verbose',
+  '--logit-bias','--lookup-cache-dynamic','--lookup-cache-static','--lora','--lora-scaled',
+  '--main-gpu','--metrics','--min-p','--mirostat','--mirostat-ent','--mirostat-lr','--mlock','--mmproj','--mmproj-auto','--no-mmproj-auto','--mmproj-offload','--mmproj-url','--model','--model-url','--mtmd-batch-max-tokens',
+  '--n-cpu-moe','--n-gpu-layers','--no-agent','--no-cache-idle-slots','--no-cache-prompt','--no-cont-batching','--no-context-shift','--no-direct-io','--no-escape','--no-flash-attn','--no-host','--no-jinja','--no-kv-offload','--no-kv-unified','--no-mmap','--no-mmproj','--no-mmproj-offload','--no-op-offload','--no-perf','--no-prefill-assistant','--no-repack','--no-spec-draft-backend-sampling','--no-ui','--no-ui-mcp-proxy','--no-warmup','--numa',
+  '--offline','--op-offload','--override-kv','--override-tensor',
+  '--parallel','--path','--perf','--poll','--poll-batch','--pooling','--port','--predict','--prefill-assistant','--presence-penalty','--prio','--prio-batch','--props',
   '--reasoning','--reasoning-budget','--reasoning-budget-message','--reasoning-format','--repeat-last-n','--repeat-penalty','--repack','--rerank','--reuse-port','--reverse-prompt','--rope-freq-base','--rope-freq-scale','--rope-scale','--rope-scaling',
-  '--samplers','--sampling-seq','--seed','--sleep-idle-seconds','--slot-prompt-similarity','--slot-save-path','--special','--spec-draft-model','--spec-draft-n-max','--spec-draft-n-min','--spec-draft-ngl','--spec-draft-p-split','--spec-draft-threads','--spec-type','--spm-infill','--split-mode','--sse-ping-interval','--ssl-cert-file','--ssl-key-file','--swa-full',
-  '--tags','--temp','--tensor-split','--threads','--threads-batch','--threads-http','--timeout','--top-k','--top-n-sigma','--top-p','--typical-p',
-  '--ubatch-size','--ui',
+  '--samplers','--sampling-seq','--seed','--sleep-idle-seconds','--slot-prompt-similarity','--slot-save-path','--special','--spec-draft-backend-sampling','--no-spec-draft-backend-sampling','--spec-draft-cpu-moe','--spec-draft-device','--spec-draft-hf','--spec-draft-model','--spec-draft-n-cpu-moe','--spec-draft-n-max','--spec-draft-n-min','--spec-draft-ngl','--spec-draft-p-min','--spec-draft-p-split','--spec-draft-threads','--spec-draft-type-k','--spec-draft-type-v','--spec-ngram-map-k-min-hits','--spec-ngram-map-k-size-m','--spec-ngram-map-k-size-n','--spec-ngram-map-k4v-min-hits','--spec-ngram-map-k4v-size-m','--spec-ngram-map-k4v-size-n','--spec-ngram-mod-n-match','--spec-ngram-mod-n-max','--spec-ngram-mod-n-min','--spec-ngram-simple-min-hits','--spec-ngram-simple-size-m','--spec-ngram-simple-size-n','--spec-type','--spm-infill','--split-mode','--sse-ping-interval','--ssl-cert-file','--ssl-key-file','--swa-full',
+  '--tags','--temp','--tensor-split','--threads','--threads-batch','--threads-http','--timeout','--tools','--top-k','--top-n-sigma','--top-p','--typical-p',
+  '--ubatch-size','--ui','--ui-config','--ui-config-file','--ui-mcp-proxy','--no-ui-mcp-proxy',
+  '--verbose','--verbosity',
   '--xtc-probability','--xtc-threshold',
   '--yarn-attn-factor','--yarn-beta-fast','--yarn-beta-slow','--yarn-ext-factor','--yarn-orig-ctx',
 ];
 var standaloneFlags = {
+  '--agent':1,
   '--backend-sampling':1,
   '--cache-idle-slots':1,'--cache-prompt':1,  '--cont-batching':1,'--context-shift':1,'--cpu-moe':1,
+  '--check-tensors':1,
   '--direct-io':1,
   '--embedding':1,'--escape':1,
   '--ignore-eos':1,
   '--jinja':1,
   '--kv-unified':1,
-  '--metrics':1,'--mlock':1,
-  '--no-cache-idle-slots':1,'--no-cache-prompt':1,'--no-cont-batching':1,'--no-context-shift':1,'--no-escape':1,'--no-flash-attn':1,'--no-host':1,'--no-jinja':1,'--no-kv-offload':1,'--no-kv-unified':1,'--no-mmap':1,'--no-mmproj':1,'--no-mmproj-offload':1,'--no-perf':1,'--no-prefill-assistant':1,'--no-repack':1,'--no-warmup':1,
+  '--list-devices':1,'--log-prefix':1,'--no-log-prefix':1,'--log-timestamps':1,'--no-log-timestamps':1,'--log-verbose':1,
+  '--metrics':1,'--mlock':1,'--mmproj-auto':1,'--no-mmproj-auto':1,
+  '--no-agent':1,'--no-cache-idle-slots':1,'--no-cache-prompt':1,'--no-cont-batching':1,'--no-context-shift':1,'--no-direct-io':1,'--no-escape':1,'--no-flash-attn':1,'--no-host':1,'--no-jinja':1,'--no-kv-offload':1,'--no-kv-unified':1,'--no-mmap':1,'--no-mmproj':1,'--no-mmproj-offload':1,'--no-op-offload':1,'--no-perf':1,'--no-prefill-assistant':1,'--no-repack':1,'--no-spec-draft-backend-sampling':1,'--no-ui':1,'--no-ui-mcp-proxy':1,'--no-warmup':1,
+  '--offline':1,'--op-offload':1,
   '--perf':1,'--prefill-assistant':1,'--props':1,
   '--repack':1,'--rerank':1,'--reuse-port':1,
-  '--special':1,'--spm-infill':1,'--swa-full':1,
-  '--ui':1,
+  '--spec-draft-backend-sampling':1,'--spec-draft-cpu-moe':1,'--special':1,'--spm-infill':1,'--swa-full':1,
+  '--ui':1,'--ui-mcp-proxy':1,
+  '--verbose':1,
 };
 var flagHints = {
+  '--adaptive-decay': 'adaptive-p decay rate (0.0-0.99, default 0.90)',
+  '--adaptive-target': 'adaptive-p target probability (-1 = disabled)',
+  '--agent': 'enable CORS proxy and all built-in tools',
   '--alias': 'model name alias for API',
   '--api-key': 'API key for authentication',
   '--api-key-file': 'path to API key file',
@@ -855,6 +876,8 @@ var flagHints = {
   '--cache-reuse': 'min chunk size to reuse from cache',
   '--cache-type-k': 'f32, f16, bf16, q8_0, q4_0, ...',
   '--cache-type-v': 'f32, f16, bf16, q8_0, q4_0, ...',
+  '--check-tensors': 'check model tensor data for invalid values',
+  '--checkpoint-min-step': 'minimum spacing between context checkpoints (default 256)',
   '--chat-template': 'jinja chat template name',
   '--chat-template-file': 'path to jinja chat template file',
   '--cont-batching': 'enable continuous batching',
@@ -863,9 +886,15 @@ var flagHints = {
   '--control-vector-layer-range': 'START END layer range for control vector',
   '--control-vector-scaled': 'FNAME:SCALE control vector with scaling',
   '--cpu-mask': 'CPU affinity mask (hex)',
+  '--cpu-mask-batch': 'CPU affinity mask for batch processing (hex)',
   '--cpu-moe': 'keep MoE weights in CPU',
   '--cpu-range': 'CPU range for affinity (lo-hi)',
+  '--cpu-range-batch': 'CPU range for batch affinity (lo-hi)',
+  '--cpu-strict': '<0|1> strict CPU placement',
+  '--cpu-strict-batch': '<0|1> strict CPU placement for batch',
+  '--ctx-checkpoints': 'max context checkpoints per slot (default 32)',
   '--ctx-size': 'context size in tokens',
+  '--defrag-thold': 'KV cache defragmentation threshold (deprecated)',
   '--device': 'comma-separated devices for offloading',
   '--direct-io': 'use DirectIO if available',
   '--dry-allowed-length': 'DRY allowed length (default 2)',
@@ -879,10 +908,17 @@ var flagHints = {
   '--embd-normalize': 'normalization: -1=none, 0=max, 1=taxicab, 2=euclidean',
   '--escape': 'process escape sequences in prompt',
   '--fit': 'on/off — auto-adjust args to fit device memory',
+  '--fit-ctx': 'minimum ctx size set by --fit (default 4096)',
+  '--fit-target': 'target margin per device for --fit (MiB)',
   '--flash-attn': 'on, off, or auto',
   '--frequency-penalty': '0.0–2.0',
   '--grammar': 'BNF-like grammar string',
   '--grammar-file': 'path to grammar file',
+  '--hf-file': 'Hugging Face model file name',
+  '--hf-file-v': 'Hugging Face vocoder model file',
+  '--hf-repo': '<user>/<model>[:quant] Hugging Face repo',
+  '--hf-repo-v': '<user>/<model>[:quant] vocoder HF repo',
+  '--hf-token': 'Hugging Face access token',
   '--host': 'IP address (default 0.0.0.0)',
   '--ignore-eos': 'ignore EOS token and continue generating',
   '--image-max-tokens': 'max tokens per image',
@@ -892,7 +928,17 @@ var flagHints = {
   '--json-schema-file': 'path to JSON schema file',
   '--keep': 'tokens to keep from prompt (-1 = all)',
   '--kv-unified': 'shared KV buffer across sequences',
+  '--list-devices': 'print list of available devices and exit',
+  '--log-colors': 'on/off/auto — colored logging',
+  '--log-file': 'path to log file',
+  '--log-prefix': 'enable prefix in log messages',
+  '--no-log-prefix': 'disable prefix in log messages',
+  '--log-timestamps': 'enable timestamps in log messages',
+  '--no-log-timestamps': 'disable timestamps in log messages',
+  '--log-verbose': 'set verbosity level to infinity',
   '--logit-bias': 'TOKEN_ID(+/-)BIAS',
+  '--lookup-cache-dynamic': 'path to dynamic lookup cache',
+  '--lookup-cache-static': 'path to static lookup cache',
   '--lora': 'path to LoRA adapter(s)',
   '--lora-scaled': 'FNAME:SCALE LoRA with scaling',
   '--main-gpu': 'GPU index for main GPU (default 0)',
@@ -903,13 +949,21 @@ var flagHints = {
   '--mirostat-lr': 'learning rate (default 0.1)',
   '--mlock': 'lock model in RAM',
   '--mmproj': 'path to multimodal projector file',
+  '--mmproj-auto': 'auto-download multimodal projector from HF',
+  '--no-mmproj-auto': 'disable auto mmproj download',
   '--mmproj-offload': 'offload multimodal projector to GPU',
+  '--mmproj-url': 'URL to multimodal projector file',
+  '--model': 'path to model file',
+  '--model-url': 'model download URL',
+  '--mtmd-batch-max-tokens': 'max image tokens per batch (default 1024)',
   '--n-cpu-moe': 'keep MoE of first N layers in CPU',
   '--n-gpu-layers': 'number or "all"',
+  '--no-agent': 'disable CORS proxy and built-in tools',
   '--no-cache-idle-slots': 'disable idle slot caching',
   '--no-cache-prompt': 'disable prompt caching',
   '--no-cont-batching': 'disable continuous batching',
   '--no-context-shift': 'disable context shift',
+  '--no-direct-io': 'disable DirectIO',
   '--no-escape': 'do not process escape sequences',
   '--no-flash-attn': 'disable flash attention',
   '--no-host': 'disable host buffer',
@@ -919,12 +973,19 @@ var flagHints = {
   '--no-mmap': 'disable memory-mapping',
   '--no-mmproj': 'disable multimodal projector',
   '--no-mmproj-offload': 'keep projector in CPU',
+  '--no-op-offload': 'disable host tensor op offloading',
   '--no-perf': 'disable performance timings',
   '--no-prefill-assistant': 'disable assistant prefill',
   '--no-repack': 'disable weight repacking',
+  '--no-spec-draft-backend-sampling': 'disable backend sampling for draft',
+  '--no-ui': 'disable web UI',
+  '--no-ui-mcp-proxy': 'disable MCP CORS proxy',
   '--no-warmup': 'skip warmup run',
   '--numa': 'NUMA optimization: distribute, isolate, numactl',
+  '--offline': 'offline mode — no network access',
+  '--op-offload': 'offload host tensor operations to device',
   '--override-kv': 'KEY=TYPE:VALUE — override model metadata',
+  '--override-tensor': '<tensor>=<type> override tensor buffer type',
   '--parallel': 'number of server slots',
   '--path': 'path to serve static files',
   '--perf': 'enable performance timings',
@@ -935,6 +996,9 @@ var flagHints = {
   '--presence-penalty': '0.0–2.0',
   '--prio': 'thread priority: 0=normal, 1=medium, 2=high, 3=realtime',
   '--props': 'enable changing properties via POST /props',
+  '--poll': '<0-100> polling level to wait for work (default 50)',
+  '--poll-batch': '<0|1> use polling for batch work',
+  '--prio-batch': 'batch thread priority: -1=low, 0=normal, 1=medium, 2=high, 3=realtime',
   '--reasoning': 'on, off, or auto',
   '--reasoning-budget': 'token budget for thinking (-1 = unlimited)',
   '--reasoning-budget-message': 'message when budget exhausted',
@@ -956,12 +1020,33 @@ var flagHints = {
   '--slot-prompt-similarity': 'prompt match threshold (default 0.1)',
   '--slot-save-path': 'path to save slot KV cache',
   '--special': 'enable special tokens output',
+  '--spec-draft-backend-sampling': 'offload draft sampling to backend',
+  '--no-spec-draft-backend-sampling': 'disable backend sampling for draft',
+  '--spec-draft-cpu-moe': 'keep MoE weights for draft in CPU',
+  '--spec-draft-device': 'devices for draft model offloading',
+  '--spec-draft-hf': '<user>/<model>[:quant] HF repo for draft',
   '--spec-draft-model': 'path to draft model',
+  '--spec-draft-n-cpu-moe': 'keep first N MoE layers in CPU for draft',
   '--spec-draft-n-max': 'draft tokens max (default 3)',
   '--spec-draft-n-min': 'draft tokens min (default 0)',
   '--spec-draft-ngl': 'GPU layers for draft model',
+  '--spec-draft-p-min': 'minimum speculative decoding probability (default 0.00)',
   '--spec-draft-p-split': 'speculative split probability (default 0.1)',
   '--spec-draft-threads': 'CPU threads for draft model',
+  '--spec-draft-type-k': 'KV cache data type K for draft (f16, q8_0, ...)',
+  '--spec-draft-type-v': 'KV cache data type V for draft (f16, q8_0, ...)',
+  '--spec-ngram-map-k-min-hits': 'min hits for ngram-map-k (default 1)',
+  '--spec-ngram-map-k-size-m': 'draft m-gram size for ngram-map-k (default 48)',
+  '--spec-ngram-map-k-size-n': 'lookup n-gram size for ngram-map-k (default 12)',
+  '--spec-ngram-map-k4v-min-hits': 'min hits for ngram-map-k4v (default 1)',
+  '--spec-ngram-map-k4v-size-m': 'draft m-gram size for ngram-map-k4v (default 48)',
+  '--spec-ngram-map-k4v-size-n': 'lookup n-gram size for ngram-map-k4v (default 12)',
+  '--spec-ngram-mod-n-match': 'ngram-mod lookup length (default 24)',
+  '--spec-ngram-mod-n-max': 'max ngram tokens for ngram-mod (default 64)',
+  '--spec-ngram-mod-n-min': 'min ngram tokens for ngram-mod (default 48)',
+  '--spec-ngram-simple-min-hits': 'min hits for ngram-simple (default 1)',
+  '--spec-ngram-simple-size-m': 'draft m-gram size for ngram-simple (default 48)',
+  '--spec-ngram-simple-size-n': 'lookup n-gram size for ngram-simple (default 12)',
   '--spec-type': 'none, draft-simple, draft-mtp, ngram-cache, ...',
   '--spm-infill': 'Suffix/Prefix/Middle infill pattern',
   '--split-mode': 'none, layer, row, tensor',
@@ -976,11 +1061,19 @@ var flagHints = {
   '--threads-batch': 'batch/prompt processing threads',
   '--threads-http': 'HTTP request threads',
   '--timeout': 'server read/write timeout in seconds (default 3600)',
+  '--tools': 'comma-separated built-in tools (or "all")',
   '--top-k': 'e.g. 40 (0 = off)',
   '--top-n-sigma': 'top-n-sigma sampling (-1 = disabled)',
   '--top-p': '0.0–1.0 (default 0.95)',
   '--typical-p': 'locally typical sampling (1.0 = disabled)',
   '--ubatch-size': 'physical max batch size (default 512)',
+  '--ui': 'enable/disable the web UI',
+  '--ui-config': 'JSON string for default UI settings',
+  '--ui-config-file': 'path to JSON file for default UI settings',
+  '--ui-mcp-proxy': 'enable MCP CORS proxy (experimental)',
+  '--no-ui-mcp-proxy': 'disable MCP CORS proxy',
+  '--verbose': 'set verbosity level to infinity',
+  '--verbosity': 'set verbosity threshold (0-5, default 3)',
   '--xtc-probability': 'XTC probability (0.0 = disabled)',
   '--xtc-threshold': 'XTC threshold (default 0.1)',
   '--yarn-attn-factor': 'YaRN attention magnitude scale',
@@ -993,6 +1086,17 @@ var flagHints = {
 function flagOptions(selected) {
   return commonFlags.map(function(f) { return '<option value="' + escAttr(f) + '"' + (f === selected ? ' selected' : '') + '>' + escHtml(f) + '</option>'; }).join('') +
     '<option value=""' + (!selected || commonFlags.indexOf(selected) === -1 ? ' selected' : '') + '>Custom…</option>';
+}
+function filterFlags(input) {
+  var q = input.value.toLowerCase().trim();
+  document.querySelectorAll('.flag-name').forEach(function(sel) {
+    var cur = sel.value;
+    var filtered = q ? commonFlags.filter(function(f) { return f.toLowerCase().includes(q); }) : commonFlags;
+    if (cur && filtered.indexOf(cur) === -1) { cur = ''; }
+    sel.innerHTML = filtered.map(function(f) { return '<option value="' + escAttr(f) + '"' + (f === cur ? ' selected' : '') + '>' + escHtml(f) + '</option>'; }).join('') +
+      '<option value=""' + (!cur ? ' selected' : '') + '>Custom…</option>';
+    if (sel.value !== cur) { sel.value = cur; onFlagChange(sel); }
+  });
 }
 
 function makeFlagRow(name, value) {

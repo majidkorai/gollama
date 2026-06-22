@@ -333,13 +333,18 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 				// Orphaned value without a flag key — skip
 				continue
 			}
+			isStandalone := model.IsStandaloneFlag(a)
 			if extraKeys[a] {
-				if i+1 < len(cfg.DefaultFlags) && !strings.HasPrefix(cfg.DefaultFlags[i+1], "--") {
+				if i+1 < len(cfg.DefaultFlags) && !strings.HasPrefix(cfg.DefaultFlags[i+1], "--") && !isStandalone {
 					i++
 				}
 				continue
 			}
 			args = append(args, a)
+			if i+1 < len(cfg.DefaultFlags) && !strings.HasPrefix(cfg.DefaultFlags[i+1], "--") && !isStandalone {
+				args = append(args, cfg.DefaultFlags[i+1])
+				i++
+			}
 		}
 		args = append(args, extraArgs...)
 
@@ -388,7 +393,7 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 	if existing := os.Getenv(libVar); existing != "" {
 		libPath = binDir + ":" + existing
 	}
-	cmd.Env = append(os.Environ(), libVar+"="+libPath)
+	cmd.Env = append(os.Environ(), libVar+"="+libPath, "LC_ALL=C")
 	if logF != nil {
 		cmd.Stdout = logF
 		cmd.Stderr = logF
