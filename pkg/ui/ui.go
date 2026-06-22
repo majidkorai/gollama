@@ -1561,7 +1561,17 @@ function closeLogs() { document.getElementById('logModal').style.display = 'none
 function copyLogs() {
   var el = document.getElementById('logContent');
   if (!el || !el.textContent) return;
-  navigator.clipboard.writeText(el.textContent);
+  if (navigator.clipboard) {
+    navigator.clipboard.writeText(el.textContent);
+  } else {
+    var ta = document.createElement('textarea');
+    ta.value = el.textContent;
+    ta.style.position = 'fixed'; ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+  }
 }
 document.getElementById('logModal').addEventListener('click', closeLogs);
 
