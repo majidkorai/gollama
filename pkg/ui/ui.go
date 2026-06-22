@@ -583,7 +583,10 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
   <div class="modal-content" onclick="event.stopPropagation()">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px">
       <h2>📋 Logs</h2>
-      <button class="small danger" onclick="closeLogs()" aria-label="Close logs">Close</button>
+      <div style="display:flex;gap:4px">
+        <button class="small" onclick="copyLogs()" aria-label="Copy logs">📋 Copy</button>
+        <button class="small danger" onclick="closeLogs()" aria-label="Close logs">Close</button>
+      </div>
     </div>
     <pre id="logContent" aria-live="polite"></pre>
   </div>
@@ -1555,6 +1558,11 @@ async function viewLogs(port) {
   logPollInterval = setInterval(refresh, 3000);
 }
 function closeLogs() { document.getElementById('logModal').style.display = 'none'; if (logPollInterval) { clearInterval(logPollInterval); logPollInterval = null; } }
+function copyLogs() {
+  var el = document.getElementById('logContent');
+  if (!el || !el.textContent) return;
+  navigator.clipboard.writeText(el.textContent);
+}
 document.getElementById('logModal').addEventListener('click', closeLogs);
 
 // ── Helpers ───────────────────────────────────────────
