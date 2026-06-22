@@ -1161,7 +1161,7 @@ function collectFlags(container) {
   var flags = [];
   container.querySelectorAll('.flag-row').forEach(function(row) {
     var sel = row.querySelector('.flag-name'), valInput = row.querySelector('.flag-value'), customInput = row.querySelector('.flag-custom');
-    var name = sel.value || customInput.value.trim(), val = valInput.value.trim();
+    var name = sel.value || sel.dataset.sv || customInput.value.trim(), val = valInput.value.trim();
     if (!name) return;
     flags.push(name);
     if (val && !standaloneFlags[name]) flags.push(val);
