@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net"
 	"net/http"
 	"os"
@@ -31,9 +32,10 @@ type Instance struct {
 	StartedAt    time.Time  `json:"started_at"`
 	TotalTokens  int64      `json:"total_tokens"`
 	LastActivity time.Time  `json:"last_activity"`
-	GpuUtil      float64    `json:"gpu_util,omitempty"`
-	CpuPercent   float64    `json:"cpu_percent,omitempty"`
-	MemoryMB     float64    `json:"memory_mb,omitempty"`
+	GpuUtil      float64    `json:"gpu_util"`
+	CpuPercent   float64    `json:"cpu_percent"`
+	MemoryMB     float64    `json:"memory_mb"`
+	DeviceSplit  string     `json:"device_split,omitempty"` // e.g. "65% GPU / 35% CPU"
 }
 
 type Manager struct {
@@ -59,6 +61,25 @@ func NewManager() *Manager {
 				continue
 			}
 			m.StopIdle(time.Duration(cfg.IdleTTL) * time.Minute)
+		}
+	}()
+
+	// Periodically refresh process metrics
+	go func() {
+		for {
+			time.Sleep(15 * time.Second)
+			m.mu.Lock()
+			for _, inst := range m.instances {
+				if inst.Status == "running" && inst.PID > 0 {
+					cpu, mem := queryProcessStats(inst.PID)
+					inst.CpuPercent = cpu
+					inst.MemoryMB = mem
+					if gpu := queryGpuUtil(); gpu >= 0 {
+						inst.GpuUtil = gpu
+					}
+				}
+			}
+			m.mu.Unlock()
 		}
 	}()
 
@@ -395,11 +416,11 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 	}
 	cmd.Env = append(os.Environ(), libVar+"="+libPath, "LC_ALL=C")
 	if logF != nil {
-		cmd.Stdout = logF
-		cmd.Stderr = logF
+		cmd.Stdout = io.MultiWriter(logF, os.Stderr)
+		cmd.Stderr = io.MultiWriter(logF, os.Stderr)
 	} else {
-		cmd.Stdout = io.Discard
-		cmd.Stderr = io.Discard
+		cmd.Stdout = os.Stderr
+		cmd.Stderr = os.Stderr
 	}
 
 	if err := cmd.Start(); err != nil {
@@ -415,6 +436,42 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 		Flags:        args,
 		StartedAt:    time.Now(),
 		LastActivity: time.Now(),
+	}
+
+	// Calculate device split from launch flags and model metadata
+	var ngl, ncpuMoe float64
+	for i, a := range args {
+		if (a == "--n-gpu-layers" || a == "--gpu-layers") && i+1 < len(args) {
+			if args[i+1] == "all" || args[i+1] == "999" {
+				ngl = 999
+			} else if v, err := strconv.ParseFloat(args[i+1], 64); err == nil {
+				ngl = v
+			}
+		}
+		if a == "--n-cpu-moe" && i+1 < len(args) {
+			if v, err := strconv.ParseFloat(args[i+1], 64); err == nil {
+				ncpuMoe = v
+			}
+		}
+	}
+	totalBlocks := float64(model.ReadBlockCount(blob))
+	if ngl > 0 {
+		if totalBlocks == 0 {
+			// No block count from GGUF — show raw flag values
+			inst.DeviceSplit = fmt.Sprintf("GPU=%d layers", int(ngl))
+			if ncpuMoe > 0 {
+				inst.DeviceSplit += fmt.Sprintf(", CPU MoE=%d layers", int(ncpuMoe))
+			}
+		} else {
+			gpuPct := math.Min(ngl/totalBlocks, 1.0) * 100
+			cpuPct := 100.0 - gpuPct
+			if ncpuMoe > 0 {
+				moePct := math.Min(ncpuMoe/totalBlocks, 1.0) * 100
+				inst.DeviceSplit = fmt.Sprintf("%.0f%% GPU / %.0f%% CPU (MoE: %.0f%%)", gpuPct-moePct, cpuPct+moePct, moePct)
+			} else {
+				inst.DeviceSplit = fmt.Sprintf("%.0f%% GPU / %.0f%% CPU", gpuPct, cpuPct)
+			}
+		}
 	}
 	m.instances[port] = inst
 

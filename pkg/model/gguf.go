@@ -1,6 +1,8 @@
 package model
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -45,6 +47,7 @@ type ggufMetadata struct {
 	Quantization   string
 	ContextLength  uint64
 	FileType       uint32
+	BlockCount     uint32
 }
 
 func readGGUFMetadata(path string) (*ggufMetadata, error) {
@@ -53,49 +56,61 @@ func readGGUFMetadata(path string) (*ggufMetadata, error) {
 		return nil, fmt.Errorf("opening file: %w", err)
 	}
 	defer f.Close()
+	r := bufio.NewReader(f)
 
 	var magic [4]byte
-	if _, err := io.ReadFull(f, magic[:]); err != nil {
+	if _, err := io.ReadFull(r, magic[:]); err != nil {
 		return nil, fmt.Errorf("reading magic: %w", err)
 	}
 	if string(magic[:]) != ggufMagic {
-		// Not a GGUF file — not an error, just no metadata
 		return nil, nil
 	}
 
 	var version uint32
-	if err := binary.Read(f, binary.LittleEndian, &version); err != nil {
+	if err := binary.Read(r, binary.LittleEndian, &version); err != nil {
 		return nil, fmt.Errorf("reading version: %w", err)
 	}
 
 	var tensorCount uint64
-	if err := binary.Read(f, binary.LittleEndian, &tensorCount); err != nil {
+	if err := binary.Read(r, binary.LittleEndian, &tensorCount); err != nil {
 		return nil, fmt.Errorf("reading tensor count: %w", err)
 	}
 	_ = tensorCount
 
 	var metadataCount uint64
-	if err := binary.Read(f, binary.LittleEndian, &metadataCount); err != nil {
+	if err := binary.Read(r, binary.LittleEndian, &metadataCount); err != nil {
 		return nil, fmt.Errorf("reading metadata count: %w", err)
 	}
 
 	meta := &ggufMetadata{}
 
 	for i := uint64(0); i < metadataCount; i++ {
-		key, err := readGGUFString(f)
+		// Some GGUF writers add null-byte padding between metadata entries.
+		// Skip leading null bytes before reading the key.
+		for {
+			b, err := r.ReadByte()
+			if err != nil {
+				return nil, fmt.Errorf("reading metadata key: %w", err)
+			}
+			if b != 0 {
+				r.UnreadByte()
+				break
+			}
+		}
+		key, err := readGGUFString(r)
 		if err != nil {
 			return nil, fmt.Errorf("reading metadata key: %w", err)
 		}
 
 		var valueType uint32
-		if err := binary.Read(f, binary.LittleEndian, &valueType); err != nil {
+		if err := binary.Read(r, binary.LittleEndian, &valueType); err != nil {
 			return nil, fmt.Errorf("reading value type for %q: %w", key, err)
 		}
 
 		switch key {
 		case "general.architecture":
 			if valueType == 8 {
-				val, err := readGGUFString(f)
+				val, err := readGGUFString(r)
 				if err != nil {
 					return nil, fmt.Errorf("reading architecture: %w", err)
 				}
@@ -105,7 +120,7 @@ func readGGUFMetadata(path string) (*ggufMetadata, error) {
 		case "general.file_type":
 			if valueType == 5 {
 				var val int32
-				if err := binary.Read(f, binary.LittleEndian, &val); err != nil {
+				if err := binary.Read(r, binary.LittleEndian, &val); err != nil {
 					return nil, fmt.Errorf("reading file_type: %w", err)
 				}
 				meta.FileType = uint32(val)
@@ -117,6 +132,14 @@ func readGGUFMetadata(path string) (*ggufMetadata, error) {
 				continue
 			}
 		default:
+			if meta.Architecture != "" && key == meta.Architecture+".block_count" && valueType == 5 {
+				var val int32
+				if err := binary.Read(r, binary.LittleEndian, &val); err != nil {
+					return nil, fmt.Errorf("reading block_count: %w", err)
+				}
+				meta.BlockCount = uint32(val)
+				continue
+			}
 			if (key == "llama.context_length" || key == "gemma.context_length" ||
 				key == "qwen2.context_length" || key == "starcoder2.context_length" ||
 				key == "command-r.context_length" || key == "bert.context_length" ||
@@ -126,7 +149,7 @@ func readGGUFMetadata(path string) (*ggufMetadata, error) {
 				key == "phi3.context_length" || key == "stablelm.context_length" ||
 				strings.HasSuffix(key, ".context_length")) && valueType == 10 {
 				var val uint64
-				if err := binary.Read(f, binary.LittleEndian, &val); err != nil {
+				if err := binary.Read(r, binary.LittleEndian, &val); err != nil {
 					return nil, fmt.Errorf("reading context_length for %q: %w", key, err)
 				}
 				meta.ContextLength = val
@@ -134,7 +157,7 @@ func readGGUFMetadata(path string) (*ggufMetadata, error) {
 			}
 		}
 
-		if err := skipGGUFValue(f, valueType); err != nil {
+		if err := skipGGUFValue(r, valueType); err != nil {
 			return nil, fmt.Errorf("skipping value for %q: %w", key, err)
 		}
 	}
@@ -154,27 +177,31 @@ func readGGUFString(r io.Reader) (string, error) {
 	if _, err := io.ReadFull(r, buf); err != nil {
 		return "", err
 	}
-	return string(buf), nil
+	// Some GGUF writers include null terminators inside length-prefixed strings
+	s := string(buf)
+	s = strings.TrimLeft(s, "\x00")
+	s = strings.TrimRight(s, "\x00")
+	return s, nil
 }
 
 func skipGGUFValue(r io.Reader, valueType uint32) error {
 	switch valueType {
-	case 0, 1, 7:
+	case 0, 1, 7: // UINT8, INT8, BOOL
 		_, err := io.CopyN(io.Discard, r, 1)
 		return err
-	case 2, 3:
+	case 2, 3, 12, 13: // UINT16, INT16, FLOAT16, BF16
 		_, err := io.CopyN(io.Discard, r, 2)
 		return err
-	case 4, 5, 6:
+	case 4, 5: // FLOAT32, INT32
 		_, err := io.CopyN(io.Discard, r, 4)
 		return err
-	case 10, 11, 12:
+	case 6, 10, 11: // FLOAT64, UINT64, INT64
 		_, err := io.CopyN(io.Discard, r, 8)
 		return err
-	case 8:
+	case 8: // STRING
 		_, err := readGGUFString(r)
 		return err
-	case 9:
+	case 9: // ARRAY
 		var elemType uint32
 		if err := binary.Read(r, binary.LittleEndian, &elemType); err != nil {
 			return err
@@ -209,6 +236,68 @@ func deriveShortName(path string) string {
 	return strings.ToLower(base)
 }
 
+// ReadBlockCount reads the block count from a GGUF model file.
+func ReadBlockCount(path string) uint32 {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+
+	// Only read the first 10 MB — metadata is always near the start
+	const maxHead = 10 * 1024 * 1024
+	fi, err := f.Stat()
+	if err != nil {
+		return 0
+	}
+	headSize := fi.Size()
+	if headSize > maxHead {
+		headSize = maxHead
+	}
+	data := make([]byte, headSize)
+	if _, err := io.ReadFull(f, data); err != nil && err != io.ErrUnexpectedEOF {
+		return 0
+	}
+
+	// Scan for "general.architecture" in file bytes to find the arch name
+	pat := []byte("general.architecture")
+	idx := bytes.Index(data, pat)
+	if idx < 0 {
+		return 0
+	}
+
+	pos := idx + len(pat)
+	if pos+12 > len(data) {
+		return 0
+	}
+	valType := binary.LittleEndian.Uint32(data[pos : pos+4])
+	pos += 4
+	if valType != 8 {
+		return 0
+	}
+	strLen := binary.LittleEndian.Uint64(data[pos : pos+8])
+	pos += 8
+	if strLen == 0 || pos+int(strLen) > len(data) {
+		return 0
+	}
+	arch := string(data[pos : pos+int(strLen)])
+
+	blockKey := []byte(arch + ".block_count")
+	bkIdx := bytes.Index(data, blockKey)
+	if bkIdx < 0 {
+		return 0
+	}
+
+	bkValType := binary.LittleEndian.Uint32(data[bkIdx+len(blockKey) : bkIdx+len(blockKey)+4])
+	switch bkValType {
+	case 5, 4: // INT32 or FLOAT32 (some writers store ints as float type)
+		return binary.LittleEndian.Uint32(data[bkIdx+len(blockKey)+4 : bkIdx+len(blockKey)+8])
+	case 0:
+		return uint32(data[bkIdx+len(blockKey)+4])
+	}
+	return 0
+}
+
 // DeriveShortNameFromRepo creates a clean API name from a HuggingFace model ID.
 // e.g. "unsloth/gemma-4-12b-it-GGUF" → "gemma-4-12b-it"
 func DeriveShortNameFromRepo(modelID string) string {
@@ -238,6 +327,10 @@ func populateModelInfo(info *ModelInfo) error {
 		}
 		if meta.ContextLength > 0 && info.ContextLength == 0 {
 			info.ContextLength = meta.ContextLength
+			changed = true
+		}
+		if meta.BlockCount > 0 && info.BlockCount == 0 {
+			info.BlockCount = meta.BlockCount
 			changed = true
 		}
 	}

@@ -26,6 +26,7 @@ type ModelInfo struct {
 	Architecture  string `json:"architecture,omitempty"`
 	Quantization  string `json:"quantization,omitempty"`
 	ContextLength uint64 `json:"context_length,omitempty"`
+	BlockCount    uint32 `json:"block_count,omitempty"`
 	Source        string `json:"source,omitempty"`
 }
 
@@ -72,7 +73,7 @@ var standaloneFlags = map[string]bool{
 }
 
 func DefaultConfig() *Config {
-	flags := []string{"--host", "0.0.0.0", "--ctx-size", "2048", "--flash-attn", "on", "--temp", "0.7", "--repeat-penalty", "1.1"}
+	flags := []string{"--host", "0.0.0.0", "--ctx-size", "2048", "--flash-attn", "on", "--temp", "0.7"}
 	return &Config{DefaultFlags: flags, IdleTTL: 30}
 }
 
