@@ -379,19 +379,24 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 		if !hasHost { args = append(args, "--host", "0.0.0.0") }
 		if !hasPort { args = append(args, "--port", strconv.Itoa(port)) }
 
-		// Auto-detect GPU if not specified
+		// Auto-detect GPU if not specified (skip if user set --tensor-split for multi-GPU)
 		hasGpuLayers := false
+		hasTensorSplit := false
 		for _, a := range args {
 			if a == "--n-gpu-layers" || strings.HasPrefix(a, "--n-gpu-layers=") {
 				hasGpuLayers = true
-				break
+			}
+			if a == "--tensor-split" {
+				hasTensorSplit = true
 			}
 		}
-		if !hasGpuLayers {
+		if !hasGpuLayers && !hasTensorSplit {
 			if gpuAvailable, gpuLayers := model.DetectGPU(); gpuAvailable {
 				args = append([]string{"--n-gpu-layers", strconv.Itoa(gpuLayers)}, args...)
 				log.Printf("GPU detected, adding --n-gpu-layers %d", gpuLayers)
 			}
+		} else if hasTensorSplit {
+			log.Printf("tensor-split detected, skipping auto --n-gpu-layers (let auto-fit decide)")
 		}
 	}
 
