@@ -17,7 +17,7 @@ jobs:
         include:
           - os: linux
             arch: amd64
-            runner: ubuntu-24.04
+            runner: [self-hosted, gollama]
             ext: ""
           - os: linux
             arch: arm64
