@@ -572,6 +572,16 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
       <span id="proxyFlagsStatus" style="font-size:12px;color:var(--text-muted);margin-left:8px"></span>
     </div>
   </div></div>
+  <div class="card" style="margin-top:16px"><div class="card-body">
+    <div style="font-size:13px;font-weight:600;margin-bottom:8px">Profiles</div>
+    <div style="font-size:11px;color:var(--text-dim);margin-bottom:8px">Named flag sets. When a profile's model matches the request, its flags override proxy defaults.</div>
+    <div id="profilesContainer"></div>
+    <button class="ghost small" onclick="addProfile()" style="margin-top:4px">＋ Add Profile</button>
+    <div style="margin-top:10px">
+      <button class="primary small" onclick="saveProfiles()">Save Profiles</button>
+      <span id="profilesStatus" style="font-size:12px;color:var(--text-muted);margin-left:8px"></span>
+    </div>
+  </div></div>
   <div class="card" style="margin-top:16px"><div class="card-body" style="text-align:center">
     <button class="danger" onclick="restartGollama()">🔄 Restart gollama</button>
     <div style="font-size:11px;color:var(--text-dim);margin-top:6px">Applies config changes and picks up new version</div>
@@ -1666,6 +1676,17 @@ async function loadSettings() {
     document.getElementById('idleTtlInput').value = cfg.idle_ttl || 0;
     renderFlags(document.getElementById('settingsFlagsContainer'), cfg.default_flags);
     renderFlags(document.getElementById('proxyFlagsContainer'), cfg.proxy_defaults);
+    // Load profiles into settings
+    var pc = document.getElementById('profilesContainer');
+    pc.innerHTML = '';
+    if (cfg.profiles) {
+      var i = 0;
+      for (var name in cfg.profiles) {
+        var p = cfg.profiles[name];
+        renderProfile({ name: name, model: p.model || '', desc: p.description || '', flags: p.flags }, i);
+        i++;
+      }
+    }
   } catch (e) {}
 }
 
@@ -1700,6 +1721,78 @@ async function saveProxyFlags() {
   var st = document.getElementById('proxyFlagsStatus');
   try {
     var r = await fetch('/api/v1/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ proxy_defaults: collectFlags(document.getElementById('proxyFlagsContainer')) }) });
+    if (r.ok) { st.textContent = 'Saved'; setTimeout(function() { st.textContent = ''; }, 2000); }
+    else { st.textContent = 'Error saving'; }
+  } catch (e) { st.textContent = 'Error: ' + e.message; }
+}
+
+// ── Profiles ────────────────────────────────────────
+function addProfile() {
+  var c = document.getElementById('profilesContainer');
+  var i = c.children.length;
+  var d = document.createElement('div');
+  d.className = 'flag-row';
+  d.style = 'flex-wrap:wrap;gap:6px';
+  d.innerHTML = '<input type="text" class="flag-custom" placeholder="Profile name" style="flex:1;min-width:120px" id="pn-' + i + '">' +
+    '<input type="text" class="flag-custom" placeholder="Model name (optional)" style="flex:1;min-width:120px" id="pm-' + i + '">' +
+    '<input type="text" class="flag-custom" placeholder="Description" style="flex:2;min-width:160px" id="pd-' + i + '">' +
+    '<div style="width:100%;display:flex;gap:4px;flex-wrap:wrap" id="pf-' + i + '"></div>' +
+    '<button class="ghost small" onclick="addProfileFlag(' + i + ')" style="font-size:11px">＋ Add Flag</button>' +
+    '<button class="small danger" onclick="this.parentElement.remove()" style="margin-left:auto" title="Remove profile">\u2715</button>';
+  c.appendChild(d);
+}
+
+function addProfileFlag(idx) {
+  var c = document.getElementById('pf-' + idx);
+  c.appendChild(makeFlagRow('', ''));
+}
+
+function renderProfile(p, i) {
+  var c = document.getElementById('profilesContainer');
+  var d = document.createElement('div');
+  d.className = 'flag-row';
+  d.style = 'flex-wrap:wrap;gap:6px';
+  d.innerHTML = '<input type="text" class="flag-custom" placeholder="Profile name" style="flex:1;min-width:120px" id="pn-' + i + '" value="' + escAttr(p.name) + '">' +
+    '<input type="text" class="flag-custom" placeholder="Model name (optional)" style="flex:1;min-width:120px" id="pm-' + i + '" value="' + escAttr(p.model || '') + '">' +
+    '<input type="text" class="flag-custom" placeholder="Description" style="flex:2;min-width:160px" id="pd-' + i + '" value="' + escAttr(p.desc || '') + '">' +
+    '<div style="width:100%;display:flex;gap:4px;flex-wrap:wrap" id="pf-' + i + '"></div>' +
+    '<button class="ghost small" onclick="addProfileFlag(' + i + ')" style="font-size:11px">＋ Add Flag</button>' +
+    '<button class="small danger" onclick="this.parentElement.remove()" style="margin-left:auto" title="Remove profile">\u2715</button>';
+  c.appendChild(d);
+  var fc = document.getElementById('pf-' + i);
+  if (p.flags) {
+    p.flags.forEach(function(f, fi) {
+      if (fi % 2 == 0) fc.appendChild(makeFlagRow(f, p.flags[fi+1] || ''));
+    });
+  }
+}
+
+async function saveProfiles() {
+  var st = document.getElementById('profilesStatus');
+  var c = document.getElementById('profilesContainer');
+  var profiles = {};
+  for (var i = 0; i < c.children.length; i++) {
+    var name = document.getElementById('pn-' + i);
+    var model = document.getElementById('pm-' + i);
+    var desc = document.getElementById('pd-' + i);
+    if (!name || !name.value) continue;
+    var flags = [];
+    var fc = document.getElementById('pf-' + i);
+    if (fc) {
+      for (var j = 0; j < fc.children.length; j++) {
+        var sel = fc.children[j].querySelector('.flag-name');
+        var custom = fc.children[j].querySelector('.flag-custom');
+        var valInput = fc.children[j].querySelector('.flag-value');
+        var fn = sel ? sel.value : '';
+        var fv = valInput ? valInput.value : '';
+        if (!fn && custom) fn = custom.value;
+        if (fn) { flags.push(fn); if (!standaloneFlags[fn] && fv) flags.push(fv); }
+      }
+    }
+    profiles[name.value] = { model: model ? model.value : '', description: desc ? desc.value : '', flags: flags };
+  }
+  try {
+    var r = await fetch('/api/v1/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profiles: profiles }) });
     if (r.ok) { st.textContent = 'Saved'; setTimeout(function() { st.textContent = ''; }, 2000); }
     else { st.textContent = 'Error saving'; }
   } catch (e) { st.textContent = 'Error: ' + e.message; }

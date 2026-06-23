@@ -393,6 +393,33 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 				cfg.ProxyDefaults = flags
 			}
 		}
+		if v, ok := incoming["profiles"]; ok {
+			if m, ok := v.(map[string]interface{}); ok {
+				profiles := make(map[string]model.Profile, len(m))
+				for name, val := range m {
+					if pMap, ok := val.(map[string]interface{}); ok {
+						p := model.Profile{}
+						if modelStr, ok := pMap["model"].(string); ok {
+							p.Model = modelStr
+						}
+						if desc, ok := pMap["description"].(string); ok {
+							p.Description = desc
+						}
+						if flagsArr, ok := pMap["flags"].([]interface{}); ok {
+							for _, item := range flagsArr {
+								if s, ok := item.(string); ok {
+									p.Flags = append(p.Flags, s)
+								}
+							}
+						}
+						profiles[name] = p
+					}
+				}
+				if len(profiles) > 0 {
+					cfg.Profiles = profiles
+				}
+			}
+		}
 		model.SaveConfig(cfg)
 		jsonResponse(w, map[string]string{"status": "saved"})
 	default:
