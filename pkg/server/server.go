@@ -746,8 +746,17 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 
 	profileName, _ := reqMap["profile"].(string)
 
-	// Resolve flags: either profile-specific or proxy defaults
+	// Resolve flags: explicit profile, auto-detect from model name, or proxy defaults
 	cfg := model.LoadConfig()
+	if profileName == "" {
+		// Auto-detect profile by model name
+		for name, p := range cfg.Profiles {
+			if p.Model != "" && strings.EqualFold(modelName, p.Model) {
+				profileName = name
+				break
+			}
+		}
+	}
 	var launchFlags []string
 	if profileName != "" {
 		launchFlags = cfg.ProfileFlags(profileName)
