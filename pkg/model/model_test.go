@@ -41,7 +41,7 @@ func TestDefaultConfig(t *testing.T) {
 	if len(cfg.DefaultFlags) == 0 {
 		t.Fatal("DefaultFlags is empty")
 	}
-	expected := []string{"--host", "0.0.0.0", "--ctx-size", "2048", "--flash-attn", "on", "--temp", "0.7", "--repeat-penalty", "1.1"}
+	expected := []string{"--host", "0.0.0.0", "--ctx-size", "2048", "--flash-attn", "on", "--temp", "0.7"}
 	for i, f := range expected {
 		if i >= len(cfg.DefaultFlags) || cfg.DefaultFlags[i] != f {
 			t.Errorf("DefaultFlags[%d] = %q, want %q", i, cfg.DefaultFlags[i], f)
