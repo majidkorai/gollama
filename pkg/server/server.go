@@ -744,18 +744,42 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 		return
 	}
 
+	profileName, _ := reqMap["profile"].(string)
+
+	// Resolve flags: either profile-specific or proxy defaults
+	cfg := model.LoadConfig()
+	var launchFlags []string
+	if profileName != "" {
+		launchFlags = cfg.ProfileFlags(profileName)
+		log.Printf("using profile %q for model %q", profileName, modelName)
+	} else {
+		launchFlags = cfg.ProxyFlags()
+	}
+
+	// Check if a different instance is already running — stop it (single-instance mode)
+	if running := s.mgr.List(); len(running) > 0 {
+		for _, inst := range running {
+			if inst.Status == "running" && inst.Model != modelName {
+				log.Printf("stopping existing instance %q (port %d) for new model %q", inst.Model, inst.Port, modelName)
+				s.mgr.Stop(inst.Port)
+			}
+		}
+	}
+
 	inst := s.mgr.FindInstanceByModel(modelName)
 	if inst == nil {
 		blob, err := model.ResolveModelBlob(modelName)
 		if err == nil && blob != "" {
-			cfg := model.LoadConfig()
-			inst, err = s.mgr.Start(modelName, 0, cfg.ProxyFlags(), false)
+			inst, err = s.mgr.Start(modelName, 0, launchFlags, false)
 			if err != nil {
 				jsonError(w, fmt.Sprintf("starting model %q: %v", modelName, err), 500)
 				return
 			}
 			log.Printf("auto-started model %q on port %d", modelName, inst.Port)
-			// Model just started — wait for readiness so next request succeeds
+			// Record which profile launched this instance
+			if profileName != "" {
+				s.mgr.SetProfile(inst.Port, profileName)
+			}
 			go s.waitForInstanceReady(inst.Port)
 			w.Header().Set("Retry-After", "5")
 			jsonError(w, fmt.Sprintf("model %q is starting, retry in a few seconds", modelName), 503)
@@ -823,7 +847,6 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 			n, err := resp.Body.Read(buf)
 			if n > 0 {
 				s.mgr.TouchActivity(inst.Port)
-				// Strip reasoning_content from streaming chunks
 				cleaned := stripReasoningContent(buf[:n])
 				w.Write(cleaned)
 				flusher.Flush()
@@ -861,7 +884,6 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 		}
 	}
 
-	// Strip reasoning_content from non-streaming response
 	respBody = stripReasoningContent(respBody)
 
 	w.Header().Set("Content-Type", "application/json")

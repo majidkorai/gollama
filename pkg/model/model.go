@@ -37,10 +37,17 @@ type Preset struct {
 	Flags []string `json:"flags"`
 }
 
+type Profile struct {
+	Model       string   `json:"model,omitempty"`
+	Flags       []string `json:"flags"`
+	Description string   `json:"description,omitempty"`
+}
+
 type Config struct {
-	DefaultFlags  []string `json:"default_flags"`
-	ProxyDefaults []string `json:"proxy_defaults"` // flags for auto-launched instances; falls back to default_flags
-	IdleTTL       int      `json:"idle_ttl"`       // minutes; 0 = disabled
+	DefaultFlags  []string          `json:"default_flags"`
+	ProxyDefaults []string          `json:"proxy_defaults"` // flags for auto-launched instances; falls back to default_flags
+	Profiles      map[string]Profile `json:"profiles,omitempty"`
+	IdleTTL       int               `json:"idle_ttl"` // minutes; 0 = disabled
 }
 
 func ConfigFile() string {
@@ -116,6 +123,10 @@ func LoadConfig() *Config {
 	}
 	cfg.DefaultFlags = sanitizeFlags(cfg.DefaultFlags)
 	cfg.ProxyDefaults = sanitizeFlags(cfg.ProxyDefaults)
+	for name, p := range cfg.Profiles {
+		p.Flags = sanitizeFlags(p.Flags)
+		cfg.Profiles[name] = p
+	}
 	return &cfg
 }
 
@@ -126,9 +137,47 @@ func (c *Config) ProxyFlags() []string {
 	return c.DefaultFlags
 }
 
+// ProfileFlags returns the merged flags: proxy_defaults base overridden by profile flags.
+func (c *Config) ProfileFlags(name string) []string {
+	p, ok := c.Profiles[name]
+	if !ok {
+		return c.ProxyFlags()
+	}
+	base := c.ProxyFlags()
+	// Build a map of profile flag keys
+	profileKeys := make(map[string]int)
+	for i := 0; i < len(p.Flags); i++ {
+		if strings.HasPrefix(p.Flags[i], "--") {
+			profileKeys[p.Flags[i]] = i
+		}
+	}
+	// Start with base flags, skipping keys that profile overrides
+	var merged []string
+	for i := 0; i < len(base); i++ {
+		f := base[i]
+		if strings.HasPrefix(f, "--") {
+			if _, ok := profileKeys[f]; ok {
+				// Skip this flag and its value from base — profile has its own
+				if !standaloneFlags[f] {
+					i++ // skip value
+				}
+				continue
+			}
+		}
+		merged = append(merged, f)
+	}
+	// Append profile flags
+	merged = append(merged, p.Flags...)
+	return sanitizeFlags(merged)
+}
+
 func SaveConfig(cfg *Config) {
 	cfg.DefaultFlags = sanitizeFlags(cfg.DefaultFlags)
 	cfg.ProxyDefaults = sanitizeFlags(cfg.ProxyDefaults)
+	for name, p := range cfg.Profiles {
+		p.Flags = sanitizeFlags(p.Flags)
+		cfg.Profiles[name] = p
+	}
 	data, _ := json.MarshalIndent(cfg, "", "  ")
 	os.WriteFile(ConfigFile(), data, 0644)
 }
@@ -452,6 +501,45 @@ func ScanModels() {
 			}
 			path := filepath.Join(ModelsDir(), entry.Name())
 			if _, err := os.Stat(path); err != nil {
+				continue
+			}
+			// Handle split files (e.g. -00002-of-00004.gguf)
+			splitRe := regexp.MustCompile(`-(\d{5})-of-(\d{5})\.gguf$`)
+			if m := splitRe.FindStringSubmatch(entry.Name()); m != nil {
+				// Only index the first part of a split
+				if m[1] != "00001" {
+					continue
+				}
+				// Key is the name without dir name artifacts
+				base := entry.Name()
+				base = splitRe.ReplaceAllString(base, "")
+				// Strip quantization suffix for cleaner name
+				quantRe := regexp.MustCompile(`(?i)-[IQBF][QKBF][0-9]_[SLMX](_[SLMX])?$|-[BQKF][0-9]_[A-Z_]+$`)
+				base = quantRe.ReplaceAllString(base, "")
+				base = strings.ToLower(base)
+				base = strings.ReplaceAll(base, "_", "-")
+				base = strings.TrimSuffix(base, ".gguf")
+				fi, _ := os.Stat(path)
+				info := ModelInfo{
+					Name:     base,
+					BlobPath: path,
+					Source:   "local",
+				}
+				if fi != nil {
+					info.Size = fi.Size()
+				}
+				if meta, err := readGGUFMetadata(path); err == nil && meta != nil {
+					info.Architecture = meta.Architecture
+					info.Quantization = meta.Quantization
+					info.ContextLength = meta.ContextLength
+					info.BlockCount = meta.BlockCount
+				}
+				short := strings.ToLower(base)
+				info.ShortName = short
+				if _, exists := idx[base]; !exists {
+					idx[base] = info
+					log.Printf("scanned split model: %s (%s, %s)", base, info.Architecture, info.Quantization)
+				}
 				continue
 			}
 			// Check if already indexed

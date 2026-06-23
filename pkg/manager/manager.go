@@ -35,7 +35,8 @@ type Instance struct {
 	GpuUtil      float64    `json:"gpu_util"`
 	CpuPercent   float64    `json:"cpu_percent"`
 	MemoryMB     float64    `json:"memory_mb"`
-	DeviceSplit  string     `json:"device_split,omitempty"` // e.g. "65% GPU / 35% CPU"
+	DeviceSplit  string     `json:"device_split,omitempty"`
+	Profile      string     `json:"profile,omitempty"`
 }
 
 type Manager struct {
@@ -568,6 +569,14 @@ func (m *Manager) AddCompletionTokens(port int, n int64) {
 	defer m.mu.Unlock()
 	if inst, ok := m.instances[port]; ok {
 		inst.TotalTokens += n
+	}
+}
+
+func (m *Manager) SetProfile(port int, profile string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if inst, ok := m.instances[port]; ok {
+		inst.Profile = profile
 	}
 }
 
