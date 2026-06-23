@@ -480,12 +480,21 @@ func ScanModels() {
 				info.ContextLength = meta.ContextLength
 				info.BlockCount = meta.BlockCount
 			}
-			name := entry.Name()
-			if strings.HasSuffix(name, ".gguf") {
-				name = name[:len(name)-5]
+			base := entry.Name()
+			if strings.HasSuffix(base, ".gguf") {
+				base = base[:len(base)-5]
 			}
-			idx[name] = info
-			log.Printf("scanned new model: %s (%s, %s)", name, info.Architecture, info.Quantization)
+			info.Name = base
+			// Generate a clean short name: lowercase, underscores→hyphens, strip quants
+			short := strings.ToLower(base)
+			short = strings.ReplaceAll(short, "_", "-")
+			short = strings.ReplaceAll(short, " ", "-")
+			// Strip trailing quant pattern like -iq4_xs, -q4_k_m etc.
+			quantRe := regexp.MustCompile(`(?i)-[iqbf][qkbf][0-9]_[slmx](_[slmx])?$`)
+			short = quantRe.ReplaceAllString(short, "")
+			info.ShortName = short
+			idx[base] = info
+			log.Printf("scanned new model: %s (short=%s, arch=%s, quant=%s)", base, short, info.Architecture, info.Quantization)
 		}
 		return nil
 	})
