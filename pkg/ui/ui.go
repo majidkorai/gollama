@@ -554,8 +554,8 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
     </div>
   </div></div>
   <div class="card" style="margin-top:16px"><div class="card-body">
-    <div style="font-size:13px;font-weight:600;margin-bottom:8px">UI Default Flags</div>
-    <div style="font-size:11px;color:var(--text-dim);margin-bottom:8px">Pre-fills the Quick Launch form</div>
+    <div style="font-size:13px;font-weight:600;margin-bottom:8px">Quick Launch Defaults</div>
+    <div style="font-size:11px;color:var(--text-dim);margin-bottom:8px">Pre-fills the Quick Launch form for manual launches</div>
     <div id="settingsFlagsContainer"></div>
     <button class="ghost small" onclick="addSettingsFlag()" style="margin-top:4px">＋ Add Flag</button>
     <div style="margin-top:10px">
@@ -564,8 +564,8 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
     </div>
   </div></div>
   <div class="card" style="margin-top:16px"><div class="card-body">
-    <div style="font-size:13px;font-weight:600;margin-bottom:8px">Proxy Default Flags</div>
-    <div style="font-size:11px;color:var(--text-dim);margin-bottom:8px">Used when auto-launching via API (<code>/v1/chat/completions</code>)</div>
+    <div style="font-size:13px;font-weight:600;margin-bottom:8px">API Launch Defaults</div>
+    <div style="font-size:11px;color:var(--text-dim);margin-bottom:8px">Used when auto-launching via API — acts as fallback when no profile matches</div>
     <div id="proxyFlagsContainer"></div>
     <button class="ghost small" onclick="addProxyFlag()" style="margin-top:4px">＋ Add Flag</button>
     <div style="margin-top:10px">
