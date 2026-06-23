@@ -239,6 +239,7 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
 .badge-red { background: var(--red-bg); color: var(--red); }
 .badge-amber { background: var(--amber-bg); color: var(--amber); }
 .badge-blue { background: var(--blue-bg); color: var(--blue); }
+.badge-profile { background: #a855f733; color: #c084fc; }
 
 /* ── Advanced flags toggle ────────────────────────────── */
 .advanced-flags summary { cursor: pointer; font-size: 12px; color: var(--text-muted); font-weight: 600; user-select: none; padding: 4px 0; }
@@ -734,7 +735,7 @@ async function loadInstances() {
       var uptime = i.started_at ? (function() { var s = Math.floor((Date.now() - new Date(i.started_at).getTime()) / 1000); return '<span title="Uptime">⏱ ' + (s > 86400 ? Math.floor(s/86400)+'d ' : '') + (s > 3600 ? Math.floor((s%86400)/3600)+'h ' : '') + Math.floor((s%3600)/60)+'m</span>'; })() : '';
       var idle = i.last_activity ? (function() { var s = Math.floor((Date.now() - new Date(i.last_activity).getTime()) / 1000); if (s < 60) return ''; return '<span title="Idle time">💤 ' + (s > 3600 ? Math.floor(s/3600)+'h ' : '') + Math.floor((s%3600)/60)+'m</span>'; })() : '';
       var tokens = i.total_tokens ? '<span title="Total tokens">🔤 ' + (i.total_tokens > 999 ? Math.round(i.total_tokens/1000) + 'K' : i.total_tokens) + '</span>' : '';
-      var metrics = (i.device_split ? '<span title="Model split">📊 ' + i.device_split + '</span>' : '') + (i.profile ? ' <span class="badge badge-blue" title="Active profile">📋 ' + escHtml(i.profile) + '</span>' : '');
+      var metrics = (i.device_split ? '<span title="Model split">📊 ' + i.device_split + '</span>' : '') + (i.profile ? ' <span class="badge badge-profile" title="Active profile">📋 ' + escHtml(i.profile) + '</span>' : '');
       var flags = i.flags && i.flags.length ? formatFlags(i.flags) : '';
       var flagsHtml = flags ? '<div style="font-size: 11px; color: var(--text-dim); margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); word-break: break-all; font-family: var(--font-mono)">' + escHtml(flags) + '</div>' : '';
       var errDiv = i.status != 'running' ? '<div class="error-line" id="err-' + i.port + '"></div>' : '';
@@ -1731,14 +1732,21 @@ function addProfile() {
   var c = document.getElementById('profilesContainer');
   var i = c.children.length;
   var d = document.createElement('div');
-  d.className = 'flag-row';
-  d.style = 'flex-wrap:wrap;gap:6px';
-  d.innerHTML = '<input type="text" class="flag-custom" placeholder="Profile name" style="flex:1;min-width:120px" id="pn-' + i + '">' +
-    '<input type="text" class="flag-custom" placeholder="Model name (optional)" style="flex:1;min-width:120px" id="pm-' + i + '">' +
-    '<input type="text" class="flag-custom" placeholder="Description" style="flex:2;min-width:160px" id="pd-' + i + '">' +
-    '<div style="width:100%;display:flex;gap:4px;flex-wrap:wrap" id="pf-' + i + '"></div>' +
-    '<button class="ghost small" onclick="addProfileFlag(' + i + ')" style="font-size:11px">＋ Add Flag</button>' +
-    '<button class="small danger" onclick="this.parentElement.remove()" style="margin-left:auto" title="Remove profile">\u2715</button>';
+  d.style = 'background:var(--surface-2);border-radius:8px;padding:14px;margin-bottom:12px;border:1px solid var(--border)';
+  d.innerHTML =
+    '<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">' +
+      '<span style="font-size:15px">📋</span>' +
+      '<input type="text" class="flag-custom" placeholder="Profile name" style="flex:1;font-weight:600;font-size:14px;min-width:100px;border:0;background:transparent;color:var(--text)" id="pn-' + i + '">' +
+      '<button class="small danger" onclick="document.getElementById(\'pc-' + i + '\').remove()" title="Remove profile">\u2715</button>' +
+    '</div>' +
+    '<div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">' +
+      '<div style="flex:1;min-width:140px"><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Model (optional)</label><input type="text" class="flag-custom" placeholder="e.g. qwen3-coder-next" style="width:100%" id="pm-' + i + '"></div>' +
+      '<div style="flex:2;min-width:180px"><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Description</label><input type="text" class="flag-custom" placeholder="What is this profile for?" style="width:100%" id="pd-' + i + '"></div>' +
+    '</div>' +
+    '<div style="font-size:11px;color:var(--text-dim);margin-bottom:6px">Flags</div>' +
+    '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px" id="pf-' + i + '"></div>' +
+    '<button class="ghost small" onclick="addProfileFlag(' + i + ')" style="font-size:11px">＋ Add Flag</button>';
+  d.id = 'pc-' + i;
   c.appendChild(d);
 }
 
@@ -1750,14 +1758,21 @@ function addProfileFlag(idx) {
 function renderProfile(p, i) {
   var c = document.getElementById('profilesContainer');
   var d = document.createElement('div');
-  d.className = 'flag-row';
-  d.style = 'flex-wrap:wrap;gap:6px';
-  d.innerHTML = '<input type="text" class="flag-custom" placeholder="Profile name" style="flex:1;min-width:120px" id="pn-' + i + '" value="' + escAttr(p.name) + '">' +
-    '<input type="text" class="flag-custom" placeholder="Model name (optional)" style="flex:1;min-width:120px" id="pm-' + i + '" value="' + escAttr(p.model || '') + '">' +
-    '<input type="text" class="flag-custom" placeholder="Description" style="flex:2;min-width:160px" id="pd-' + i + '" value="' + escAttr(p.desc || '') + '">' +
-    '<div style="width:100%;display:flex;gap:4px;flex-wrap:wrap" id="pf-' + i + '"></div>' +
-    '<button class="ghost small" onclick="addProfileFlag(' + i + ')" style="font-size:11px">＋ Add Flag</button>' +
-    '<button class="small danger" onclick="this.parentElement.remove()" style="margin-left:auto" title="Remove profile">\u2715</button>';
+  d.id = 'pc-' + i;
+  d.style = 'background:var(--surface-2);border-radius:8px;padding:14px;margin-bottom:12px;border:1px solid var(--border)';
+  d.innerHTML =
+    '<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">' +
+      '<span style="font-size:15px">📋</span>' +
+      '<input type="text" class="flag-custom" placeholder="Profile name" style="flex:1;font-weight:600;font-size:14px;min-width:100px;border:0;background:transparent;color:var(--text)" id="pn-' + i + '" value="' + escAttr(p.name) + '">' +
+      '<button class="small danger" onclick="document.getElementById(\'pc-' + i + '\').remove()" title="Remove profile">\u2715</button>' +
+    '</div>' +
+    '<div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">' +
+      '<div style="flex:1;min-width:140px"><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Model (optional)</label><input type="text" class="flag-custom" placeholder="e.g. qwen3-coder-next" style="width:100%" id="pm-' + i + '" value="' + escAttr(p.model || '') + '"></div>' +
+      '<div style="flex:2;min-width:180px"><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Description</label><input type="text" class="flag-custom" placeholder="What is this profile for?" style="width:100%" id="pd-' + i + '" value="' + escAttr(p.desc || '') + '"></div>' +
+    '</div>' +
+    '<div style="font-size:11px;color:var(--text-dim);margin-bottom:6px">Flags</div>' +
+    '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px" id="pf-' + i + '"></div>' +
+    '<button class="ghost small" onclick="addProfileFlag(' + i + ')" style="font-size:11px">＋ Add Flag</button>';
   c.appendChild(d);
   var fc = document.getElementById('pf-' + i);
   if (p.flags) {
