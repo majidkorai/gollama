@@ -534,11 +534,27 @@ func ScanModels() {
 					info.ContextLength = meta.ContextLength
 					info.BlockCount = meta.BlockCount
 				}
+				// Sum sizes across all split parts
+				if totalStr := m[2]; totalStr != "" {
+					if totalParts, err := strconv.Atoi(totalStr); err == nil && totalParts > 1 {
+						var totalSize int64
+						for part := 1; part <= totalParts; part++ {
+							pName := splitRe.ReplaceAllString(entry.Name(), fmt.Sprintf("-%05d-of-%05d.gguf", part, totalParts))
+							pPath := filepath.Join(ModelsDir(), pName)
+							if pfi, pErr := os.Stat(pPath); pErr == nil {
+								totalSize += pfi.Size()
+							}
+						}
+						if totalSize > 0 {
+							info.Size = totalSize
+						}
+					}
+				}
 				short := strings.ToLower(base)
 				info.ShortName = short
 				if _, exists := idx[base]; !exists {
 					idx[base] = info
-					log.Printf("scanned split model: %s (%s, %s)", base, info.Architecture, info.Quantization)
+					log.Printf("scanned split model: %s (%s, %s, %s)", base, info.Architecture, info.Quantization, FormatSize(info.Size))
 				}
 				continue
 			}
