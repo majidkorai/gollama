@@ -439,7 +439,62 @@ func SearchModels(query string) ([]SearchResult, error) {
 	return results, nil
 }
 
+// ScanModels scans the models directory for .gguf files not in the index and adds them.
+func ScanModels() {
+	entries, err := os.ReadDir(ModelsDir())
+	if err != nil {
+		return
+	}
+	UpdateIndex(func(idx map[string]ModelInfo) error {
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".gguf") {
+				continue
+			}
+			path := filepath.Join(ModelsDir(), entry.Name())
+			if _, err := os.Stat(path); err != nil {
+				continue
+			}
+			// Check if already indexed
+			already := false
+			for _, info := range idx {
+				if info.BlobPath == path {
+					already = true
+					break
+				}
+			}
+			if already {
+				continue
+			}
+			fi, _ := os.Stat(path)
+			info := ModelInfo{
+				Name:     entry.Name(),
+				BlobPath: path,
+				Source:   "local",
+			}
+			if fi != nil {
+				info.Size = fi.Size()
+			}
+			if meta, err := readGGUFMetadata(path); err == nil && meta != nil {
+				info.Architecture = meta.Architecture
+				info.Quantization = meta.Quantization
+				info.ContextLength = meta.ContextLength
+				info.BlockCount = meta.BlockCount
+			}
+			name := entry.Name()
+			if strings.HasSuffix(name, ".gguf") {
+				name = name[:len(name)-5]
+			}
+			idx[name] = info
+			log.Printf("scanned new model: %s (%s, %s)", name, info.Architecture, info.Quantization)
+		}
+		return nil
+	})
+}
+
 func ListModels() ([]ModelInfo, error) {
+	// Auto-discover new GGUF files
+	ScanModels()
+
 	// Copy data under read lock, then release before calling
 	// populateModelInfo (which acquires a write lock).
 	indexMu.RLock()
