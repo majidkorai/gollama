@@ -484,9 +484,10 @@ func ScanModels() {
 			if strings.HasSuffix(base, ".gguf") {
 				base = base[:len(base)-5]
 			}
-			info.Name = base
+			// Normalize: underscores → hyphens for consistency
+			info.Name = strings.ReplaceAll(base, "_", "-")
 			// Generate a clean short name: lowercase, underscores→hyphens, strip quants
-			short := strings.ToLower(base)
+			short := strings.ToLower(info.Name)
 			short = strings.ReplaceAll(short, "_", "-")
 			short = strings.ReplaceAll(short, " ", "-")
 			// Strip trailing quant pattern like -iq4_xs, -q4_k_m etc.
