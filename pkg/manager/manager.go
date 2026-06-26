@@ -269,7 +269,7 @@ func portAvailable(port int) bool {
 	return true
 }
 
-func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceFlags bool) (*Instance, error) {
+func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceFlags bool, profileEnv map[string]string) (*Instance, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -421,6 +421,9 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 		libPath = binDir + ":" + existing
 	}
 	cmd.Env = append(os.Environ(), libVar+"="+libPath, "LC_ALL=C")
+	for k, v := range profileEnv {
+		cmd.Env = append(cmd.Env, k+"="+v)
+	}
 	if logF != nil {
 		cmd.Stdout = io.MultiWriter(logF, os.Stderr)
 		cmd.Stderr = io.MultiWriter(logF, os.Stderr)

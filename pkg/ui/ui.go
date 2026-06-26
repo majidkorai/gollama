@@ -1684,7 +1684,7 @@ async function loadSettings() {
       var i = 0;
       for (var name in cfg.profiles) {
         var p = cfg.profiles[name];
-        renderProfile({ name: name, model: p.model || '', desc: p.description || '', flags: p.flags }, i);
+        renderProfile({ name: name, model: p.model || '', desc: p.description || '', flags: p.flags, strip_reasoning: p.strip_reasoning, env: p.env }, i);
         i++;
       }
     }
@@ -1751,8 +1751,24 @@ function addProfile() {
 }
 
 function addProfileFlag(idx) {
-  var c = document.getElementById('pf-' + idx);
-  c.appendChild(makeFlagRow('', ''));
+  var fc = document.getElementById('pf-' + idx);
+  fc.appendChild(makeFlagRow('', ''));
+}
+
+function addProfileEnv(idx) {
+  addProfileEnvRow(idx, '', '');
+}
+
+function addProfileEnvRow(idx, key, val) {
+  var ec = document.getElementById('pe-' + idx);
+  var row = document.createElement('div');
+  row.style = 'display:flex;gap:4px;align-items:center';
+  row.innerHTML =
+    '<input type="text" class="flag-custom" placeholder="KEY" style="width:160px;font-family:monospace;font-size:12px" value="' + escAttr(key) + '">' +
+    '<span style="color:var(--text-dim)">=</span>' +
+    '<input type="text" class="flag-custom" placeholder="value" style="flex:1;font-family:monospace;font-size:12px" value="' + escAttr(val) + '">' +
+    '<button class="small ghost" onclick="this.parentElement.remove()" title="Remove" style="font-size:10px;padding:2px 6px">\u2715</button>';
+  ec.appendChild(row);
 }
 
 function renderProfile(p, i) {
@@ -1769,16 +1785,26 @@ function renderProfile(p, i) {
     '<div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">' +
       '<div style="flex:1;min-width:140px"><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Model (optional)</label><input type="text" class="flag-custom" placeholder="e.g. qwen3-coder-next" style="width:100%" id="pm-' + i + '" value="' + escAttr(p.model || '') + '"></div>' +
       '<div style="flex:2;min-width:180px"><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Description</label><input type="text" class="flag-custom" placeholder="What is this profile for?" style="width:100%" id="pd-' + i + '" value="' + escAttr(p.desc || '') + '"></div>' +
+      '<div style="flex:0 0 auto;display:flex;align-items:end;padding-bottom:2px"><label style="font-size:11px;color:var(--text-dim);display:flex;align-items:center;gap:4px;white-space:nowrap;cursor:pointer"><input type="checkbox" id="ps-' + i + '" ' + (p.strip_reasoning ? 'checked' : '') + ' style="accent-color:var(--accent)"> Strip reasoning</label></div>' +
     '</div>' +
     '<div style="font-size:11px;color:var(--text-dim);margin-bottom:6px">Flags</div>' +
     '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px" id="pf-' + i + '"></div>' +
-    '<button class="ghost small" onclick="addProfileFlag(' + i + ')" style="font-size:11px">＋ Add Flag</button>';
+    '<button class="ghost small" onclick="addProfileFlag(' + i + ')" style="font-size:11px">＋ Add Flag</button>' +
+    '<div style="font-size:11px;color:var(--text-dim);margin-top:8px;margin-bottom:6px">Environment Variables</div>' +
+    '<div style="display:flex;flex-direction:column;gap:4px;margin-bottom:4px" id="pe-' + i + '"></div>' +
+    '<button class="ghost small" onclick="addProfileEnv(' + i + ')" style="font-size:11px">＋ Add Env Var</button>';
   c.appendChild(d);
   var fc = document.getElementById('pf-' + i);
   if (p.flags) {
     p.flags.forEach(function(f, fi) {
       if (fi % 2 == 0) fc.appendChild(makeFlagRow(f, p.flags[fi+1] || ''));
     });
+  }
+  var ec = document.getElementById('pe-' + i);
+  if (p.env) {
+    for (var ek in p.env) {
+      addProfileEnvRow(i, ek, p.env[ek]);
+    }
   }
 }
 
@@ -1790,6 +1816,7 @@ async function saveProfiles() {
     var name = document.getElementById('pn-' + i);
     var model = document.getElementById('pm-' + i);
     var desc = document.getElementById('pd-' + i);
+    var stripEl = document.getElementById('ps-' + i);
     if (!name || !name.value) continue;
     var flags = [];
     var fc = document.getElementById('pf-' + i);
@@ -1804,7 +1831,20 @@ async function saveProfiles() {
         if (fn) { flags.push(fn); if (!standaloneFlags[fn] && fv) flags.push(fv); }
       }
     }
-    profiles[name.value] = { model: model ? model.value : '', description: desc ? desc.value : '', flags: flags };
+    var profileObj = { model: model ? model.value : '', description: desc ? desc.value : '', flags: flags };
+    if (stripEl && stripEl.checked) profileObj.strip_reasoning = true;
+    var envObj = {};
+    var ec = document.getElementById('pe-' + i);
+    if (ec) {
+      for (var j = 0; j < ec.children.length; j++) {
+        var inputs = ec.children[j].querySelectorAll('input');
+        if (inputs.length >= 2 && inputs[0].value) {
+          envObj[inputs[0].value] = inputs[1].value;
+        }
+      }
+    }
+    if (Object.keys(envObj).length > 0) profileObj.env = envObj;
+    profiles[name.value] = profileObj;
   }
   try {
     var r = await fetch('/api/v1/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profiles: profiles }) });

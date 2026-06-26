@@ -38,9 +38,11 @@ type Preset struct {
 }
 
 type Profile struct {
-	Model       string   `json:"model,omitempty"`
-	Flags       []string `json:"flags"`
-	Description string   `json:"description,omitempty"`
+	Model          string            `json:"model,omitempty"`
+	Flags          []string          `json:"flags"`
+	Description    string            `json:"description,omitempty"`
+	StripReasoning *bool             `json:"strip_reasoning,omitempty"`
+	Env            map[string]string `json:"env,omitempty"`
 }
 
 type Config struct {
@@ -712,8 +714,9 @@ func pullModelInternal(ref string, fn ProgressFn, progress io.Writer) error {
 			fname := filepath.Base(s.Filename)
 			stem := strings.TrimSuffix(fname, ".gguf")
 			stem = splitPartRe.ReplaceAllString(stem, "")
-			segments := strings.Split(stem, "-")
-			if len(segments) > 0 && segments[len(segments)-1] == quant {
+			// Match quant as a suffix of the remaining stem (handles UD-Q3_K_S, IQ1_M, etc.)
+			if strings.HasSuffix(stem, quant) || strings.HasSuffix(stem, "-"+quant) {
+				segments := strings.Split(stem, "-")
 				if len(segments) < minSegments || minSegments == 0 {
 					minSegments = len(segments)
 					targetFiles = nil

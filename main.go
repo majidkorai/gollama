@@ -25,7 +25,7 @@ import (
 
 // version is set at build time via -ldflags=-X main.version=v0.x.x
 // local builds fall back to this default
-var version = "0.2.51"
+var version = "0.2.54"
 
 func main() {
 	if len(os.Args) < 2 || os.Args[1] == "--version" || os.Args[1] == "-v" {
@@ -170,7 +170,7 @@ func main() {
 		modelName := os.Args[2]
 		extraArgs := os.Args[3:]
 
-		inst, err := mgr.Start(modelName, 0, extraArgs, false)
+		inst, err := mgr.Start(modelName, 0, extraArgs, false, nil)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
@@ -211,7 +211,7 @@ func main() {
 		extraArgs := os.Args[3:]
 
 		if len(mgr.List()) == 0 {
-			inst, err := mgr.Start(modelName, 8081, extraArgs, false)
+			inst, err := mgr.Start(modelName, 8081, extraArgs, false, nil)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 				os.Exit(1)

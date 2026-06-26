@@ -265,7 +265,7 @@ func (s *Server) handleInstances(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, err.Error(), 400)
 			return
 		}
-		inst, err := s.mgr.Start(req.Model, req.Port, req.Flags, req.ReplaceFlags)
+		inst, err := s.mgr.Start(req.Model, req.Port, req.Flags, req.ReplaceFlags, nil)
 		if err != nil {
 			jsonError(w, err.Error(), 500)
 			return
@@ -404,6 +404,20 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 						}
 						if desc, ok := pMap["description"].(string); ok {
 							p.Description = desc
+						}
+						if sr, ok := pMap["strip_reasoning"]; ok {
+							if b, ok := sr.(bool); ok && b {
+								p.StripReasoning = &b
+							}
+						}
+						if envRaw, ok := pMap["env"].(map[string]interface{}); ok {
+							env := make(map[string]string, len(envRaw))
+							for ek, ev := range envRaw {
+								if s, ok := ev.(string); ok {
+									env[ek] = s
+								}
+							}
+							p.Env = env
 						}
 						if flagsArr, ok := pMap["flags"].([]interface{}); ok {
 							for _, item := range flagsArr {
@@ -806,7 +820,13 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 	if inst == nil {
 		blob, err := model.ResolveModelBlob(modelName)
 		if err == nil && blob != "" {
-			inst, err = s.mgr.Start(modelName, 0, launchFlags, false)
+			var profileEnv map[string]string
+			if profileName != "" {
+				if p, ok := cfg.Profiles[profileName]; ok {
+					profileEnv = p.Env
+				}
+			}
+			inst, err = s.mgr.Start(modelName, 0, launchFlags, false, profileEnv)
 			if err != nil {
 				jsonError(w, fmt.Sprintf("starting model %q: %v", modelName, err), 500)
 				return
@@ -878,13 +898,17 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 			jsonError(w, "streaming not supported", 500)
 			return
 		}
+		shouldStrip := shouldStripReasoning(cfg, profileName)
 		buf := make([]byte, 256)
 		for {
 			n, err := resp.Body.Read(buf)
 			if n > 0 {
 				s.mgr.TouchActivity(inst.Port)
-				cleaned := stripReasoningContent(buf[:n])
-				w.Write(cleaned)
+				data := buf[:n]
+				if shouldStrip {
+					data = stripReasoningContent(data)
+				}
+				w.Write(data)
 				flusher.Flush()
 				var usage struct {
 					Usage *struct {
@@ -920,10 +944,25 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 		}
 	}
 
-	respBody = stripReasoningContent(respBody)
+	if shouldStripReasoning(cfg, profileName) {
+		respBody = stripReasoningContent(respBody)
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(respBody)
+}
+
+// shouldStripReasoning checks whether reasoning_content should be stripped
+// for the given profile. Default is false (show reasoning).
+func shouldStripReasoning(cfg *model.Config, profileName string) bool {
+	if profileName == "" || cfg == nil {
+		return false
+	}
+	p, ok := cfg.Profiles[profileName]
+	if !ok {
+		return false
+	}
+	return p.StripReasoning != nil && *p.StripReasoning
 }
 
 // stripReasoningContent removes "reasoning_content" fields from JSON responses.

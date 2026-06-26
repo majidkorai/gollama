@@ -285,6 +285,7 @@ func SelfUpdate(version string) error {
 	}
 
 	fmt.Printf("Updated gollama to %s (%d bytes)\n", verStr, written)
+	fmt.Println("Restart gollama to apply the update (gollama restart)")
 	return nil
 }
 
