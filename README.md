@@ -53,7 +53,7 @@ The first-run wizard:
 - **OpenAI-compatible API** — `/v1/chat/completions`, `/v1/completions`, `/v1/models`. Works with any OpenAI SDK or tool (Flowise, Cursor, continue.dev). Auto-routes by model name. **Auto-launches** the model if not running — like Ollama but with multi-instance.
 - **Real-time streaming chat** — tokens arrive as they're generated. Reasoning models show thinking process live.
 - **Web UI** — dashboard, model management, chat, log viewer, settings. Built-in, no extra setup.
-- **Structured flag editing** — dropdown of 30+ common llama-server flags with value hints. Pre-filled with sensible defaults.
+- **Profile presets** — named profiles with model, flags, env vars, and reasoning strip toggle. Auto-selected by model name in API requests.
 - **Model search-as-you-type** — search HuggingFace directly from the pull input. Shows model sizes, likes, and downloads. Click any result to pull.
 - **Multi-file GGUF split download** — automatically detects and downloads all parts of split models (e.g. `model-00001-of-00005.gguf` through `model-00005-of-00005.gguf`) with per-part progress.
 - **Per-part progress** — terminal and web UI show which part is downloading (`[2/6] Downloading…`).
@@ -115,7 +115,7 @@ Open **http://<your-ip>:9080** in your browser.
 - **Dashboard** — metrics overview (models, instances, tokens/sec), quick launch with flag editor and presets
 - **Models** — list all downloaded models with metadata (arch, quant, context length, file path), search-as-you-type pull input
 - **Chat** — full chat workspace with any running instance (proxied, no CORS), chat history, copy button
-- **Settings** — gollama version, default launch flags editor, auto-stop idle TTL configuration
+- **Settings** — gollama version, default launch flags editor, auto-stop idle TTL, profile management with per-profile env vars and strip reasoning toggle
 - **Left sidebar** — navigation between views, theme toggle, collapse
 - **Instance cards** — port, model, status, tokens/sec, uptime, idle time, total tokens, flags, actions (stop, restart, chat, open, logs)
 
@@ -171,8 +171,41 @@ gollama update
 |-------|------|---------|-------------|
 | `default_flags` | string[] | — | Default flags for launched instances |
 | `idle_ttl` | int | 30 | Auto-stop idle instances after N minutes (0 = disable) |
+| `profiles` | object | — | Named profiles (see [Profiles](#profiles) below) |
 
 Edit via the **Settings** page in the web UI or directly in the file. If a GPU is detected, `--n-gpu-layers` is added to the pre-filled form.
+
+### Profiles
+
+Profiles are named presets that bundle model selection, launch flags, environment variables, and reasoning behavior. When the API proxy receives a request for a model matching a profile's model name, it automatically applies the profile's settings.
+
+```json
+{
+  "profiles": {
+    "coding": {
+      "model": "qwen3-coder-next",
+      "flags": ["--ctx-size", "81920", "--temp", "1.0"],
+      "strip_reasoning": true,
+      "env": {
+        "CUDA_VISIBLE_DEVICES": "0"
+      },
+      "description": "Qwen coder, GPU 0 only"
+    }
+  }
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `model` | string | Model name to auto-select this profile (fuzzy match) |
+| `flags` | string[] | Launch flags for this profile |
+| `strip_reasoning` | bool | Strip `reasoning_content` from API responses |
+| `env` | object | Environment variables applied to the llama-server process |
+| `description` | string | Human-readable description (displayed in UI) |
+
+- **Env vars** (`env`) let you control GPU selection (`CUDA_VISIBLE_DEVICES`), thread counts, or any process-level variable — applied per instance.
+- **Strip reasoning** (`strip_reasoning`) strips `reasoning_content` fields from streaming and non-streaming API responses. Useful for tools like OpenClaw that don't support reasoning tokens.
+- **Auto-selection**: When the API proxy auto-launches a model, it checks if any profile's `model` matches the request and applies that profile's flags, env, and strip setting.
 
 ## Custom Flags
 
