@@ -430,6 +430,11 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 						profiles[name] = p
 					}
 				}
+				for name := range cfg.Profiles {
+					if _, ok := profiles[name]; !ok {
+						delete(cfg.Profiles, name)
+					}
+				}
 				for name, p := range profiles {
 					cfg.Profiles[name] = p
 				}
