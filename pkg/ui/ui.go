@@ -1680,6 +1680,7 @@ async function loadSettings() {
     // Load profiles into settings
     var pc = document.getElementById('profilesContainer');
     pc.innerHTML = '';
+    var nextPid = 0;
     if (cfg.profiles) {
       var i = 0;
       for (var name in cfg.profiles) {
@@ -1687,7 +1688,9 @@ async function loadSettings() {
         renderProfile({ name: name, model: p.model || '', desc: p.description || '', flags: p.flags, strip_reasoning: p.strip_reasoning, env: p.env }, i);
         i++;
       }
+      nextPid = i;
     }
+    _pid = nextPid;
   } catch (e) {}
 }
 
@@ -1728,9 +1731,10 @@ async function saveProxyFlags() {
 }
 
 // ── Profiles ────────────────────────────────────────
+var _pid = 0;
 function addProfile() {
   var c = document.getElementById('profilesContainer');
-  var i = c.children.length;
+  var i = _pid++;
   var d = document.createElement('div');
   d.style = 'background:var(--surface-2);border-radius:8px;padding:14px;margin-bottom:12px;border:1px solid var(--border)';
   d.innerHTML =
