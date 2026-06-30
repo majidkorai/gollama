@@ -1812,14 +1812,17 @@ async function saveProfiles() {
   var st = document.getElementById('profilesStatus');
   var c = document.getElementById('profilesContainer');
   var profiles = {};
-  for (var i = 0; i < c.children.length; i++) {
-    var name = document.getElementById('pn-' + i);
-    var model = document.getElementById('pm-' + i);
-    var desc = document.getElementById('pd-' + i);
-    var stripEl = document.getElementById('ps-' + i);
+  for (var ci = 0; ci < c.children.length; ci++) {
+    var card = c.children[ci];
+    if (!card.id) continue;
+    var idx = card.id.replace('pc-', '');
+    var name = document.getElementById('pn-' + idx);
+    var model = document.getElementById('pm-' + idx);
+    var desc = document.getElementById('pd-' + idx);
+    var stripEl = document.getElementById('ps-' + idx);
     if (!name || !name.value) continue;
     var flags = [];
-    var fc = document.getElementById('pf-' + i);
+    var fc = document.getElementById('pf-' + idx);
     if (fc) {
       for (var j = 0; j < fc.children.length; j++) {
         var sel = fc.children[j].querySelector('.flag-name');
@@ -1834,7 +1837,7 @@ async function saveProfiles() {
     var profileObj = { model: model ? model.value : '', description: desc ? desc.value : '', flags: flags };
     if (stripEl && stripEl.checked) profileObj.strip_reasoning = true;
     var envObj = {};
-    var ec = document.getElementById('pe-' + i);
+    var ec = document.getElementById('pe-' + idx);
     if (ec) {
       for (var j = 0; j < ec.children.length; j++) {
         var inputs = ec.children[j].querySelectorAll('input');

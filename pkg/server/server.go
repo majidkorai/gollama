@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -429,8 +430,8 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 						profiles[name] = p
 					}
 				}
-				if len(profiles) > 0 {
-					cfg.Profiles = profiles
+				for name, p := range profiles {
+					cfg.Profiles[name] = p
 				}
 			}
 		}
@@ -624,24 +625,32 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, "streaming not supported", 500)
 			return
 		}
-		buf := make([]byte, 256)
+		reader := bufio.NewReader(resp.Body)
 		for {
-			n, err := resp.Body.Read(buf)
-			if n > 0 {
-				s.mgr.TouchActivity(port)
-				w.Write(buf[:n])
-				flusher.Flush()
-				// Parse SSE for usage data (final data event before [DONE])
-				var usage struct {
+			line, err := reader.ReadString('\n')
+			if err != nil && err != io.EOF {
+				break
+			}
+			s.mgr.TouchActivity(port)
+			w.Write([]byte(line))
+			flusher.Flush()
+			// Parse complete SSE data line for usage tracking
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "data: ") {
+				data := strings.TrimPrefix(trimmed, "data: ")
+				if data == "[DONE]" {
+					break
+				}
+				var payload struct {
 					Usage *struct {
 						CompletionTokens int64 `json:"completion_tokens"`
 					} `json:"usage"`
 				}
-				if json.Unmarshal(buf[:n], &usage) == nil && usage.Usage != nil {
-					s.mgr.AddCompletionTokens(port, usage.Usage.CompletionTokens)
+				if json.Unmarshal([]byte(data), &payload) == nil && payload.Usage != nil {
+					s.mgr.AddCompletionTokens(port, payload.Usage.CompletionTokens)
 				}
 			}
-			if err != nil {
+			if err == io.EOF {
 				break
 			}
 		}
