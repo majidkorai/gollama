@@ -48,6 +48,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/v1/models/search", s.handleModelSearch)
 	s.mux.HandleFunc("/api/v1/models/delete", s.handleModelDelete)
 	s.mux.HandleFunc("/api/v1/models/pull", s.handleModelPull)
+	s.mux.HandleFunc("/api/v1/models/repo-files", s.handleRepoFiles)
 	s.mux.HandleFunc("/api/v1/models/pull/stream", s.handleModelPullStream)
 	s.mux.HandleFunc("/api/v1/instances", s.handleInstances)
 	s.mux.HandleFunc("/api/v1/instances/stop", s.handleInstanceStop)
@@ -111,6 +112,27 @@ func (s *Server) handleModelSearch(w http.ResponseWriter, r *http.Request) {
 		results = []model.SearchResult{}
 	}
 	jsonResponse(w, results)
+}
+
+func (s *Server) handleRepoFiles(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	repo := r.URL.Query().Get("repo")
+	if repo == "" {
+		jsonError(w, "repo query parameter is required", 400)
+		return
+	}
+	files, err := model.ListRepoGGUFFiles(repo)
+	if err != nil {
+		jsonError(w, err.Error(), 502)
+		return
+	}
+	if files == nil {
+		files = []model.RepoGGUFFile{}
+	}
+	jsonResponse(w, files)
 }
 
 func (s *Server) handleModelDelete(w http.ResponseWriter, r *http.Request) {

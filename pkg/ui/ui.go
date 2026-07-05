@@ -513,7 +513,7 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
     <div class="section-header"><h2>Pull Model</h2></div>
     <div class="card"><div class="card-body">
       <div class="pull-row" style="position:relative">
-        <input type="text" id="pullInput" placeholder="Search or enter hf.co/user/repo:Q4_K_M…" autocomplete="off" oninput="onPullInputChange(this.value)">
+        <input type="text" id="pullInput" placeholder="Search HuggingFace for a model…" autocomplete="off" oninput="onPullInputChange(this.value)">
         <button class="primary" onclick="pullModel()" id="pullBtn">Pull</button>
       </div>
       <div id="pullSuggestions" style="display:none;margin-top:4px;border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden"></div>
@@ -1560,15 +1560,43 @@ async function doSearch(q) {
       var downloads = m.downloads > 0 ? (m.downloads > 999 ? (m.downloads/1000).toFixed(0) + 'K' : m.downloads) + ' dl' : '';
       var tag = m.pipeline_tag ? '<span class="badge badge-amber">' + escHtml(m.pipeline_tag) + '</span>' : '';
       var meta = [tag, size, likes, downloads].filter(Boolean).join(' · ');
-      return '<div class="suggestion"><div><div class="name">' + escHtml(label) + '</div>' + (meta ? '<div class="meta">' + meta + '</div>' : '') + '</div><button class="small primary pull-btn" onclick="pullSuggestion(\'' + escAttr(id) + '\', this)">Pull</button></div>';
+      return '<div class="suggestion" onclick="showRepoFiles(\'' + escAttr(id) + '\')"><div><div class="name">' + escHtml(label) + '</div>' + (meta ? '<div class="meta">' + meta + '</div>' : '') + '</div><span class="badge badge-green" style="cursor:pointer">View quants →</span></div>';
     }).join('');
     sg.style.display = 'block';
   } catch (e) { sg.style.display = 'none'; }
 }
 
-function pullSuggestion(id, btn) {
+var _cachedRepoFiles = {};
+async function showRepoFiles(repo) {
+  var sg = document.getElementById('pullSuggestions');
+  sg.innerHTML = '<div style="padding:12px;text-align:center"><span class="spinner"></span> Loading quants…</div>';
+  sg.style.display = 'block';
+  try {
+    var r = await fetch('/api/v1/models/repo-files?repo=' + encodeURIComponent(repo));
+    if (!r.ok) { sg.innerHTML = '<div class="suggestion" style="cursor:pointer" onclick="doSearch(\'' + escAttr(document.getElementById('pullInput').value) + '\')">← Back to search. Error loading quants.</div>'; return; }
+    var files = await r.json();
+    _cachedRepoFiles[repo] = files;
+    if (!files || !files.length) {
+      sg.innerHTML = '<div class="suggestion" style="cursor:pointer" onclick="doSearch(\'' + escAttr(document.getElementById('pullInput').value) + '\')">← Back. No GGUF files found in this repo.</div>';
+      return;
+    }
+    var html = '<div class="suggestion" style="font-weight:600;border-bottom:1px solid var(--border);cursor:pointer" onclick="doSearch(\'' + escAttr(document.getElementById('pullInput').value) + '\')">← ' + escHtml(repo) + '</div>';
+    files.forEach(function(f) {
+      var quant = f.quant ? '<span class="badge badge-blue">' + escHtml(f.quant) + '</span>' : '<span class="badge" style="background:var(--surface-2);color:var(--text-dim)">raw</span>';
+      var size = f.size ? fmtSize(f.size) : '?';
+      var parts = f.file_count > 1 ? ' · <span style="color:var(--text-dim)">' + f.file_count + ' files</span>' : '';
+      html += '<div class="suggestion"><div><div class="name">' + quant + ' <span style="font-weight:400;font-size:12px;color:var(--text-dim)">' + size + '</span>' + parts + '</div></div><button class="small primary pull-btn" onclick="pullQuant(\'' + escAttr(repo) + '\', \'' + escAttr(f.quant) + '\', this)">Pull</button></div>';
+    });
+    sg.innerHTML = html;
+  } catch (e) {
+    sg.innerHTML = '<div class="suggestion" style="cursor:pointer" onclick="doSearch(\'' + escAttr(document.getElementById('pullInput').value) + '\')">← Back. Error: ' + escHtml(e.message) + '</div>';
+  }
+}
+
+function pullQuant(repo, quant, btn) {
+  var ref = quant ? 'hf.co/' + repo + ':' + quant : 'hf.co/' + repo;
   document.getElementById('pullSuggestions').style.display = 'none';
-  startPull(id, document.getElementById('pullBtn'));
+  startPull(ref, document.getElementById('pullBtn'));
 }
 
 // ── Default Flags ─────────────────────────────────────

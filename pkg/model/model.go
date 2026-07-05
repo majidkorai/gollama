@@ -490,6 +490,145 @@ func SearchModels(query string) ([]SearchResult, error) {
 	return results, nil
 }
 
+// RepoGGUFFile describes a single GGUF file (or grouped multi-part set) in a HF repo.
+type RepoGGUFFile struct {
+	Quant     string   `json:"quant"`
+	Filename  string   `json:"filename"`
+	Size      int64    `json:"size"`
+	FileCount int      `json:"file_count"`
+	Siblings  []string `json:"siblings"` // all filenames if multi-part
+}
+
+// knownQuantSuffixes lists quantization strings we recognize in filenames.
+// Ordered by specificity (longer matches first) to avoid partial matches.
+var knownQuantSuffixes = []string{
+	"UD-Q3_K_S", "UD-Q3_K_M", "UD-Q3_K_L", "UD-Q4_K_M", "UD-Q4_K_S", "UD-Q5_K_M", "UD-Q5_K_S", "UD-Q6_K", "UD-Q8_0",
+	"ARM-Q4_K_M", "ARM-Q4_K_S", "ARM-Q5_K_M", "ARM-Q5_K_S", "ARM-Q8_0",
+	"IQ1_S", "IQ1_M", "IQ2_XXS", "IQ2_XS", "IQ2_S", "IQ2_M", "IQ3_XXS", "IQ3_S", "IQ4_NL", "IQ4_XS",
+	"Q2_K", "Q3_K_S", "Q3_K_M", "Q3_K_L", "Q4_0", "Q4_1", "Q4_K_S", "Q4_K_M", "Q5_0", "Q5_1", "Q5_K_S", "Q5_K_M", "Q6_K", "Q8_0", "Q8_1", "Q8_K",
+	"BF16", "F32", "F16",
+}
+
+// ListRepoGGUFFiles fetches the HF API for a repo and returns all GGUF files
+// with parsed quantization, sizes, and multi-part grouping.
+func ListRepoGGUFFiles(repo string) ([]RepoGGUFFile, error) {
+	apiURL := fmt.Sprintf("https://huggingface.co/api/models/%s", repo)
+	resp, err := HTTPClient.Get(apiURL)
+	if err != nil {
+		return nil, fmt.Errorf("fetching repo %s: %w", repo, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("repo %s not found (HTTP %d)", repo, resp.StatusCode)
+	}
+
+	var data struct {
+		Siblings []struct {
+			Filename string `json:"rfilename"`
+			Size     int64  `json:"size"`
+		} `json:"siblings"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, fmt.Errorf("parsing repo %s: %w", repo, err)
+	}
+
+	splitRe := regexp.MustCompile(`-(\d{5})-of-(\d{5})\.gguf$`)
+	type candidate struct {
+		filename string
+		size     int64
+		stem     string
+		part     int
+		total    int
+		isSplit  bool
+	}
+
+	var files []candidate
+	for _, s := range data.Siblings {
+		if !strings.HasSuffix(s.Filename, ".gguf") {
+			continue
+		}
+		fname := filepath.Base(s.Filename)
+		if m := splitRe.FindStringSubmatch(fname); m != nil {
+			part, _ := strconv.Atoi(m[1])
+			total, _ := strconv.Atoi(m[2])
+			files = append(files, candidate{
+				filename: s.Filename,
+				size:     s.Size,
+				stem:     fname[:len(fname)-len(m[0])],
+				part:     part,
+				total:    total,
+				isSplit:  true,
+			})
+		} else {
+			files = append(files, candidate{
+				filename: s.Filename,
+				size:     s.Size,
+				stem:     strings.TrimSuffix(fname, ".gguf"),
+				isSplit:  false,
+			})
+		}
+	}
+
+	// Group multi-part files by their prefix stem
+	type groupKey struct {
+		stem  string
+		total int
+	}
+	splitGroups := make(map[groupKey][]candidate)
+	var singles []candidate
+
+	for _, f := range files {
+		if f.isSplit {
+			key := groupKey{f.stem, f.total}
+			splitGroups[key] = append(splitGroups[key], f)
+		} else {
+			singles = append(singles, f)
+		}
+	}
+
+	// Parse quantization from a stem string.
+	parseQuant := func(stem string) string {
+		for _, q := range knownQuantSuffixes {
+			if strings.HasSuffix(stem, q) || strings.HasSuffix(stem, "-"+q) {
+				return q
+			}
+		}
+		return ""
+	}
+
+	result := make([]RepoGGUFFile, 0, len(singles)+len(splitGroups))
+
+	for _, f := range singles {
+		quant := parseQuant(f.stem)
+		result = append(result, RepoGGUFFile{
+			Quant:     quant,
+			Filename:  filepath.Base(f.filename),
+			Size:      f.size,
+			FileCount: 1,
+			Siblings:  []string{f.filename},
+		})
+	}
+
+	for key, parts := range splitGroups {
+		var totalSize int64
+		names := make([]string, len(parts))
+		for _, p := range parts {
+			totalSize += p.size
+			names[p.part-1] = p.filename
+		}
+		quant := parseQuant(key.stem)
+		result = append(result, RepoGGUFFile{
+			Quant:     quant,
+			Filename:  filepath.Base(parts[0].filename),
+			Size:      totalSize,
+			FileCount: key.total,
+			Siblings:  names,
+		})
+	}
+
+	return result, nil
+}
+
 // ScanModels scans the models directory for .gguf files not in the index and adds them.
 func ScanModels() {
 	entries, err := os.ReadDir(ModelsDir())
