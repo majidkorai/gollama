@@ -210,6 +210,22 @@ func BackendFile() string {
 	return filepath.Join(GollamaDir(), "llama-server-backend.txt")
 }
 
+func LlamaServerVersion() string {
+	data, err := os.ReadFile(VersionFile())
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
+func LlamaServerBackend() string {
+	data, err := os.ReadFile(BackendFile())
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
+}
+
 func EnsureDir(dir string) {
 	os.MkdirAll(dir, 0755)
 }

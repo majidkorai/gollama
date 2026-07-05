@@ -334,7 +334,11 @@ func (s *Server) handleInstanceLogs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
-	jsonResponse(w, map[string]string{"version": s.version})
+	jsonResponse(w, map[string]string{
+		"version":      s.version,
+		"llama_server": model.LlamaServerVersion(),
+		"backend":      model.LlamaServerBackend(),
+	})
 }
 
 func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {

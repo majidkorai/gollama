@@ -518,6 +518,7 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
       </div>
       <div id="pullSuggestions" style="display:none;margin-top:4px;border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden"></div>
       <div id="pullProgress" style="display:none;margin-top:10px">
+        <div id="pullModelName" style="font-size:12px;font-weight:600;font-family:var(--font-mono);color:var(--text);margin-bottom:6px;word-break:break-all"></div>
         <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted);margin-bottom:4px">
           <span id="pullPct">0%</span>
           <span id="pullSpeed"></span>
@@ -1482,14 +1483,15 @@ function cancelPull() {
     document.getElementById('pullProgress').style.display = 'none';
     document.getElementById('pullBtn').disabled = false;
     document.getElementById('pullBtn').textContent = 'Pull';
-  }, 1500);
-  loadModels();
+    loadModels();
+  }, 500);
 }
 
 async function startPull(ref, btn) {
   document.getElementById('pullSuggestions').style.display = 'none';
   btn.disabled = true;
   document.getElementById('pullProgress').style.display = 'block';
+  document.getElementById('pullModelName').textContent = ref;
   document.getElementById('pullBar').style.width = '0%';
   document.getElementById('pullPct').textContent = '0%';
   document.getElementById('pullSpeed').textContent = '';
@@ -2020,6 +2022,8 @@ async function loadSettings() {
   try {
     var vr = await fetch('/api/v1/version'), vd = await vr.json();
     if (vd.version) document.getElementById('s-version').textContent = vd.version;
+    if (vd.llama_server) document.getElementById('s-llama-version').textContent = vd.llama_server;
+    if (vd.backend) document.getElementById('s-backend').textContent = vd.backend;
   } catch (e) {}
   try {
     var r = await fetch('/api/v1/config'), cfg = await r.json();
