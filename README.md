@@ -20,7 +20,7 @@ The script detects your platform, downloads a pre-built binary (linux/darwin/win
 
 **Install a specific version** (e.g. release):
 ```bash
-VERSION=v0.2.10 curl -fsSL https://raw.githubusercontent.com/majidkorai/gollama/main/install.sh | sh
+VERSION=v3.0.0 curl -fsSL https://raw.githubusercontent.com/majidkorai/gollama/main/install.sh | sh
 ```
 
 **Manual build:**
@@ -52,8 +52,10 @@ The first-run wizard:
 
 - **OpenAI-compatible API** — `/v1/chat/completions`, `/v1/completions`, `/v1/models`. Works with any OpenAI SDK or tool (Flowise, Cursor, continue.dev). Auto-routes by model name. **Auto-launches** the model if not running — like Ollama but with multi-instance.
 - **Real-time streaming chat** — tokens arrive as they're generated. Reasoning models show thinking process live.
-- **Web UI** — dashboard, model management, chat, log viewer, settings. Built-in, no extra setup.
-- **Profile presets** — named profiles with model, flags, env vars, and reasoning strip toggle. Auto-selected by model name in API requests.
+- **Web UI** — modern dark-themed interface with dashboard, model management, chat, log viewer, settings. Built-in, no extra setup.
+- **Searchable flag dropdown** — type to filter 150+ llama-server flags with real-time suggestions, arrow key navigation, and value hints. No more scrolling through a giant list.
+- **Settings protected mode** — configuration sections are read-only by default with an Edit button to reveal forms. Prevents accidental changes.
+- **Model Profile presets** — named profiles bundling model, flags, env vars, and reasoning strip toggle. Auto-selected by model name in API requests.
 - **Model search-as-you-type** — search HuggingFace directly from the pull input. Shows model sizes, likes, and downloads. Click any result to pull.
 - **Multi-file GGUF split download** — automatically detects and downloads all parts of split models (e.g. `model-00001-of-00005.gguf` through `model-00005-of-00005.gguf`) with per-part progress.
 - **Per-part progress** — terminal and web UI show which part is downloading (`[2/6] Downloading…`).
@@ -112,12 +114,12 @@ The capital of France is Paris.
 
 Open **http://<your-ip>:9080** in your browser.
 
-- **Dashboard** — metrics overview (models, instances, tokens/sec), quick launch with flag editor and presets
-- **Models** — list all downloaded models with metadata (arch, quant, context length, file path), search-as-you-type pull input
-- **Chat** — full chat workspace with any running instance (proxied, no CORS), chat history, copy button
-- **Settings** — gollama version, default launch flags editor, auto-stop idle TTL, profile management with per-profile env vars and strip reasoning toggle
-- **Left sidebar** — navigation between views, theme toggle, collapse
-- **Instance cards** — port, model, status, tokens/sec, uptime, idle time, total tokens, flags, actions (stop, restart, chat, open, logs)
+- **Dashboard** — metrics overview (models, instances, tokens/sec), quick launch with searchable flag editor and presets, running instances grid with live status badges
+- **Models** — list all downloaded models with metadata badges (arch, quant, context length, file path), search-as-you-type pull input, refresh button
+- **Chat** — full chat workspace with any running instance (proxied, no CORS), chat history with save/load/rename/delete, copy button, context meter
+- **Settings** — version info, idle TTL, default launch flags and API launch defaults (read-only with Edit button), Model Profiles management with per-profile env vars and strip reasoning toggle
+- **Left sidebar** — gradient-accented navigation, theme toggle, collapsible
+- **Instance cards** — glass-styled cards with gradient accent bar, port, model, tokens/sec, uptime, idle time, total tokens, flags, model profile badge, actions (stop, restart, chat, open, logs)
 
 ## OpenAI-Compatible API
 
@@ -162,22 +164,25 @@ gollama update
 
 ```json
 {
-  "default_flags": ["--host", "0.0.0.0", "--ctx-size", "2048", "--flash-attn", "on", "--temp", "0.7", "--repeat-penalty", "1.1"],
+  "default_flags": ["--host", "0.0.0.0", "--ctx-size", "2048", "--flash-attn", "on", "--temp", "0.7"],
+  "proxy_defaults": [],
+  "profiles": {},
   "idle_ttl": 30
 }
 ```
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `default_flags` | string[] | — | Default flags for launched instances |
+| `default_flags` | string[] | — | Default flags for manual launches (Quick Launch UI / CLI) |
+| `proxy_defaults` | string[] | — | Default flags for API auto-launched instances (falls back to `default_flags` if empty) |
 | `idle_ttl` | int | 30 | Auto-stop idle instances after N minutes (0 = disable) |
-| `profiles` | object | — | Named profiles (see [Profiles](#profiles) below) |
+| `profiles` | object | — | Named Model Profiles (see [Model Profiles](#model-profiles) below) |
 
 Edit via the **Settings** page in the web UI or directly in the file. If a GPU is detected, `--n-gpu-layers` is added to the pre-filled form.
 
-### Profiles
+### Model Profiles
 
-Profiles are named presets that bundle model selection, launch flags, environment variables, and reasoning behavior. When the API proxy receives a request for a model matching a profile's model name, it automatically applies the profile's settings.
+Model Profiles are named presets that bundle model selection, launch flags, environment variables, and reasoning behavior. When the API proxy receives a request for a model matching a profile's model name, it automatically applies the profile's settings. Manage them from the **Settings** page in the web UI.
 
 ```json
 {
@@ -209,13 +214,13 @@ Profiles are named presets that bundle model selection, launch flags, environmen
 
 ## Custom Flags
 
-Any llama-server flag works. In the web UI, flags are pre-filled from the config file and editable via a structured form with dropdowns and value hints. In the CLI, pass them after the model name:
+Any llama-server flag works. In the web UI, flags are pre-filled from the config file and editable via a searchable dropdown with real-time filtering, value hints, and standalone flag detection. In the CLI, pass them after the model name:
 
 ```bash
 gollama chat model.gguf --flash-attn on --ctx-size 8192 --cont-batching
 ```
 
-Common flags (selectable from the UI dropdown):
+Common flags (searchable from the UI flag editor):
 
 | Flag | Description |
 |------|-------------|
