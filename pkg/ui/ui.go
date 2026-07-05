@@ -525,7 +525,10 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
         <div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden">
           <div id="pullBar" style="height:100%;width:0%;background:var(--accent);border-radius:3px;transition:width 200ms ease"></div>
         </div>
-        <div id="pullStatus" style="font-size: 11px; color: var(--text-muted); margin-top: 4px;"></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:4px">
+          <span id="pullStatus" style="font-size:11px;color:var(--text-muted)"></span>
+          <button class="small danger" id="pullCancelBtn" onclick="cancelPull()" style="font-size:10px;padding:3px 10px">Cancel</button>
+        </div>
       </div>
     </div></div>
   </div>
@@ -1466,6 +1469,23 @@ function pullModel() {
   startPull(ref, document.getElementById('pullBtn'));
 }
 
+var _pullAbort = null;
+
+function cancelPull() {
+  if (_pullAbort) { _pullAbort.abort(); _pullAbort = null; }
+  document.getElementById('pullStatus').textContent = 'Cancelled';
+  document.getElementById('pullCancelBtn').style.display = 'none';
+  document.getElementById('pullBar').style.width = '0%';
+  document.getElementById('pullPct').textContent = '';
+  document.getElementById('pullSpeed').textContent = '';
+  setTimeout(function() {
+    document.getElementById('pullProgress').style.display = 'none';
+    document.getElementById('pullBtn').disabled = false;
+    document.getElementById('pullBtn').textContent = 'Pull';
+  }, 1500);
+  loadModels();
+}
+
 async function startPull(ref, btn) {
   document.getElementById('pullSuggestions').style.display = 'none';
   btn.disabled = true;
@@ -1474,10 +1494,13 @@ async function startPull(ref, btn) {
   document.getElementById('pullPct').textContent = '0%';
   document.getElementById('pullSpeed').textContent = '';
   document.getElementById('pullStatus').textContent = 'Connecting…';
+  document.getElementById('pullCancelBtn').style.display = '';
+  _pullAbort = new AbortController();
 
   try {
-    var r = await fetch('/api/v1/models/pull/stream?model=' + encodeURIComponent(ref));
+    var r = await fetch('/api/v1/models/pull/stream?model=' + encodeURIComponent(ref), { signal: _pullAbort.signal });
     if (!r.ok) {
+      if (_pullAbort) _pullAbort = null;
       document.getElementById('pullStatus').textContent = 'HTTP ' + r.status;
       btn.disabled = false; btn.textContent = 'Pull';
       return;
@@ -1509,6 +1532,7 @@ async function startPull(ref, btn) {
             document.getElementById('pullBar').style.width = '100%';
             document.getElementById('pullPct').textContent = '100%';
             document.getElementById('pullStatus').textContent = '\u2713 Done';
+            document.getElementById('pullCancelBtn').style.display = 'none';
             loadModels();
             setTimeout(function() {
               document.getElementById('pullProgress').style.display = 'none';
@@ -1517,6 +1541,7 @@ async function startPull(ref, btn) {
           } else if (d.status === 'exists') {
             done = true;
             document.getElementById('pullStatus').textContent = 'Already exists';
+            document.getElementById('pullCancelBtn').style.display = 'none';
             loadModels();
             setTimeout(function() {
               document.getElementById('pullProgress').style.display = 'none';
@@ -1525,14 +1550,21 @@ async function startPull(ref, btn) {
           } else if (d.status === 'error') {
             done = true;
             document.getElementById('pullStatus').textContent = 'Error: ' + d.error;
+            document.getElementById('pullCancelBtn').style.display = 'none';
             btn.disabled = false; btn.textContent = 'Pull';
           }
         } catch (e) {}
       }
     }
+    _pullAbort = null;
   } catch (e) {
-    document.getElementById('pullStatus').textContent = 'Error: ' + e.message;
-    btn.disabled = false; btn.textContent = 'Retry';
+    if (e.name === 'AbortError') {
+      // Cancel handled by cancelPull() — do nothing
+    } else {
+      document.getElementById('pullStatus').textContent = 'Error: ' + e.message;
+      btn.disabled = false; btn.textContent = 'Retry';
+    }
+    _pullAbort = null;
   }
 }
 

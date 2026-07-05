@@ -1,6 +1,7 @@
 package model
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -799,18 +800,26 @@ func ResolveModelBlob(model string) (string, error) {
 }
 
 func PullModel(ref string) error {
-	return PullModelWithProgress(ref, nil)
+	return PullModelWithContext(context.Background(), ref)
+}
+
+func PullModelWithContext(ctx context.Context, ref string) error {
+	return pullModelInternal(ctx, ref, nil, nil)
 }
 
 func PullModelWithProgress(ref string, progress io.Writer) error {
-	return pullModelInternal(ref, nil, progress)
+	return pullModelInternal(context.Background(), ref, nil, progress)
 }
 
 func PullModelWithCallback(ref string, fn ProgressFn) error {
-	return pullModelInternal(ref, fn, nil)
+	return pullModelInternal(context.Background(), ref, fn, nil)
 }
 
-func pullModelInternal(ref string, fn ProgressFn, progress io.Writer) error {
+func PullModelWithCallbackContext(ctx context.Context, ref string, fn ProgressFn) error {
+	return pullModelInternal(ctx, ref, fn, nil)
+}
+
+func pullModelInternal(ctx context.Context, ref string, fn ProgressFn, progress io.Writer) error {
 	if !strings.HasPrefix(ref, "hf.co/") {
 		ref = "hf.co/" + ref
 	}
@@ -976,19 +985,33 @@ func pullModelInternal(ref string, fn ProgressFn, progress io.Writer) error {
 		return nil
 	})
 
+	// Track files we've started downloading so we can clean up on cancel
+	var downloadedFiles []string
+	defer func() {
+		if ctx.Err() != nil {
+			for _, path := range downloadedFiles {
+				os.Remove(path)
+			}
+		}
+	}()
+
 	for i, f := range targetFiles {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
 		dest := filepath.Join(ModelsDir(), filepath.Base(f.Filename))
 		downloadURL := fmt.Sprintf("https://huggingface.co/%s/resolve/main/%s", modelID, f.Filename)
 
 		remoteSize := f.Size
 		if remoteSize <= 0 {
-			if headResp, headErr := HTTPClient.Head(downloadURL); headErr == nil {
+			headReq, _ := http.NewRequestWithContext(ctx, "HEAD", downloadURL, nil)
+			if headResp, headErr := HTTPClient.Do(headReq); headErr == nil {
 				remoteSize = headResp.ContentLength
 				headResp.Body.Close()
 			}
 		}
 		if remoteSize <= 0 {
-			rangeReq, _ := http.NewRequest("GET", downloadURL, nil)
+			rangeReq, _ := http.NewRequestWithContext(ctx, "GET", downloadURL, nil)
 			rangeReq.Header.Set("Range", "bytes=0-0")
 			if rangeResp, rangeErr := HTTPClient.Do(rangeReq); rangeErr == nil {
 				cr := rangeResp.Header.Get("Content-Range")
@@ -1011,6 +1034,10 @@ func pullModelInternal(ref string, fn ProgressFn, progress io.Writer) error {
 			}
 		}
 
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
 		if remoteSize > 0 {
 			fmt.Printf("[%d/%d] Downloading %s (%s)\n", i+1, len(targetFiles), f.Filename, FormatSize(remoteSize))
 		} else {
@@ -1022,7 +1049,8 @@ func pullModelInternal(ref string, fn ProgressFn, progress io.Writer) error {
 			return fmt.Errorf("creating file %s: %w", f.Filename, err)
 		}
 
-		dlResp, err := HTTPClient.Get(downloadURL)
+		dlReq, _ := http.NewRequestWithContext(ctx, "GET", downloadURL, nil)
+		dlResp, err := HTTPClient.Do(dlReq)
 		if err != nil {
 			out.Close()
 			os.Remove(dest)
@@ -1055,9 +1083,14 @@ func pullModelInternal(ref string, fn ProgressFn, progress io.Writer) error {
 		out.Close()
 		dlResp.Body.Close()
 		if cpErr != nil {
+			if ctx.Err() != nil {
+				os.Remove(dest)
+				return ctx.Err()
+			}
 			os.Remove(dest)
 			return fmt.Errorf("downloading %s: %w", f.Filename, cpErr)
 		}
+		downloadedFiles = append(downloadedFiles, dest)
 	}
 
 	// Index using the first split file (llama-server discovers the rest by naming convention)

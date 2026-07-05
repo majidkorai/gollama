@@ -231,14 +231,15 @@ func (s *Server) handleModelPullStream(w http.ResponseWriter, r *http.Request) {
 		buf.WriteString("data: ")
 		json.NewEncoder(&buf).Encode(data)
 		buf.WriteString("\n\n")
-		w.Write([]byte(buf.String()))
+		// Ignore write errors — client may disconnect
+		_, _ = w.Write([]byte(buf.String()))
 		flusher.Flush()
 	}
 
 	// Send initial event so browser gets HTTP headers immediately
 	writeSSE("", map[string]string{"status": "connecting"})
 
-	err := model.PullModelWithCallback(modelRef, func(pct float64, done, total int64, speed string, part, totalParts int) {
+	err := model.PullModelWithCallbackContext(r.Context(), modelRef, func(pct float64, done, total int64, speed string, part, totalParts int) {
 		evt := map[string]interface{}{
 			"pct":   pct,
 			"done":  done,
