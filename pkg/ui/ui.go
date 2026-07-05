@@ -18,48 +18,58 @@ const Page = `<!DOCTYPE html>
 <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
 :root {
-  --bg: #0c0c12;
-  --surface: #14141e;
-  --surface-2: #1c1c2a;
-  --border: #26263a;
-  --border-hover: #363654;
-  --text: #e8e8f0;
-  --text-muted: #8888a8;
-  --text-dim: #5c5c7a;
-  --accent: #00d4aa;
-  --accent-hover: #00f0c0;
-  --accent-bg: rgba(0, 212, 170, 0.08);
-  --accent-glow: rgba(0, 212, 170, 0.2);
-  --green: #00d4aa;
-  --green-bg: rgba(0, 212, 170, 0.1);
+  --bg: #08080f;
+  --surface: #0f0f1a;
+  --surface-2: #181828;
+  --surface-3: #20203a;
+  --border: #282845;
+  --border-hover: #3a3a5c;
+  --text: #e8e8f4;
+  --text-muted: #8888b0;
+  --text-dim: #5c5c88;
+  --accent: #00e5bf;
+  --accent-hover: #00ffd0;
+  --accent-bg: rgba(0, 229, 191, 0.08);
+  --accent-glow: rgba(0, 229, 191, 0.25);
+  --accent-gradient: linear-gradient(135deg, #00e5bf, #00b8ff);
+  --purple: #a855f7;
+  --purple-bg: rgba(168, 85, 247, 0.1);
+  --purple-glow: rgba(168, 85, 247, 0.2);
+  --green: #00e5bf;
+  --green-bg: rgba(0, 229, 191, 0.1);
   --red: #ff4060;
   --red-bg: rgba(255, 64, 96, 0.1);
-  --amber: #ffaa40;
-  --amber-bg: rgba(255, 170, 64, 0.1);
-  --blue: #5090ff;
-  --blue-bg: rgba(80, 144, 255, 0.1);
+  --amber: #f59e0b;
+  --amber-bg: rgba(245, 158, 11, 0.1);
+  --blue: #60a0ff;
+  --blue-bg: rgba(96, 160, 255, 0.1);
   --sidebar-w: 220px;
-  --radius: 10px;
-  --radius-sm: 6px;
+  --radius: 12px;
+  --radius-sm: 8px;
   --font: 'Plus Jakarta Sans', system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'SF Mono', monospace;
-  --shadow: 0 1px 3px rgba(0,0,0,.3), 0 1px 2px rgba(0,0,0,.2);
-  --shadow-lg: 0 4px 12px rgba(0,0,0,.4), 0 2px 4px rgba(0,0,0,.2);
-  --transition: 180ms cubic-bezier(0.4, 0, 0.2, 1);
+  --shadow: 0 2px 8px rgba(0,0,0,.4), 0 1px 3px rgba(0,0,0,.3);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,.5), 0 2px 8px rgba(0,0,0,.3);
+  --shadow-glow: 0 0 20px rgba(0, 229, 191, 0.08);
+  --transition: 200ms cubic-bezier(0.4, 0, 0.2, 1);
 }
 .light {
-  --bg: #f4f4f8;
+  --bg: #f0f0f6;
   --surface: #ffffff;
-  --surface-2: #fafafe;
-  --border: #d8d8e4;
-  --border-hover: #b8b8cc;
-  --text: #14141e;
-  --text-muted: #686880;
-  --text-dim: #9898b0;
+  --surface-2: #f6f6fc;
+  --surface-3: #eeeef6;
+  --border: #d8d8e8;
+  --border-hover: #b8b8d0;
+  --text: #141420;
+  --text-muted: #686888;
+  --text-dim: #9898b8;
   --accent: #009977;
   --accent-hover: #00b388;
   --accent-bg: rgba(0, 153, 119, 0.06);
   --accent-glow: rgba(0, 153, 119, 0.12);
+  --accent-gradient: linear-gradient(135deg, #009977, #0077b3);
+  --purple: #7c3aed;
+  --purple-bg: rgba(124, 58, 237, 0.06);
   --green: #009977;
   --green-bg: rgba(0, 153, 119, 0.08);
   --red: #cc3344;
@@ -68,13 +78,18 @@ const Page = `<!DOCTYPE html>
   --amber-bg: rgba(184, 119, 34, 0.08);
   --blue: #3366cc;
   --blue-bg: rgba(51, 102, 204, 0.06);
-  --shadow: 0 1px 3px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
-  --shadow-lg: 0 4px 12px rgba(0,0,0,.08), 0 2px 4px rgba(0,0,0,.04);
+  --shadow: 0 1px 4px rgba(0,0,0,.06), 0 1px 2px rgba(0,0,0,.04);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,.08), 0 2px 4px rgba(0,0,0,.04);
+  --shadow-glow: 0 0 12px rgba(0, 153, 119, 0.06);
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
-:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: var(--radius-sm); }
 html { color-scheme: dark; height: 100%; }
 .light { color-scheme: light; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--border-hover); }
 body {
   font-family: var(--font); background: var(--bg); color: var(--text);
   display: flex; font-size: 14px; line-height: 1.6; height: 100%;
@@ -93,26 +108,37 @@ body {
 .sidebar .logo {
   padding: 24px 20px 16px; border-bottom: 1px solid var(--border);
   display: flex; flex-direction: column; align-items: center;
-  gap: 4px; color: var(--text); overflow: hidden;
+  gap: 4px; color: var(--text); overflow: hidden; position: relative;
 }
-.sidebar .logo img { width: 100%; max-width: 80px; height: auto; flex-shrink: 0; filter: brightness(0) invert(1); clip-path: inset(2px);}
+.sidebar .logo::after {
+  content: ''; position: absolute; bottom: -1px; left: 20%; right: 20%;
+  height: 1px; background: var(--accent-gradient); opacity: .4;
+}
+.sidebar .logo img { width: 100%; max-width: 72px; height: auto; flex-shrink: 0; filter: brightness(0) invert(1); clip-path: inset(2px); }
 .light .sidebar .logo img { filter: none; }
-.sidebar.collapsed .logo img { max-width: 28px; }
+.sidebar.collapsed .logo img { max-width: 26px; }
 .sidebar nav { flex: 1; padding: 10px 6px; display: flex; flex-direction: column; gap: 2px; }
 .sidebar .nav-item {
-  display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+  display: flex; align-items: center; justify-content: flex-start; gap: 10px; padding: 10px 12px;
   border-radius: var(--radius-sm); color: var(--text-muted);
   text-decoration: none; font-size: 13px; font-weight: 600; cursor: pointer;
   transition: all var(--transition); white-space: nowrap; overflow: hidden;
   border: none; background: none; width: 100%; text-align: left;
-  font-family: var(--font);
+  font-family: var(--font); position: relative;
 }
 .sidebar .nav-item:hover { background: var(--surface-2); color: var(--text); }
-.sidebar .nav-item.active { background: var(--accent-bg); color: var(--accent); }
+.sidebar .nav-item.active {
+  background: var(--accent-bg); color: var(--accent);
+  box-shadow: inset 3px 0 0 var(--accent);
+}
 .sidebar .nav-item .icon { font-size: 16px; width: 22px; text-align: center; flex-shrink: 0; }
 .sidebar .nav-item .label { transition: opacity var(--transition); white-space: nowrap; }
 .sidebar.collapsed .nav-item .label { opacity: 0; width: 0; overflow: hidden; }
-.sidebar .bottom { padding: 6px; border-top: 1px solid var(--border); width: 100%; display: flex; }
+.sidebar .bottom { padding: 6px; border-top: 1px solid var(--border); width: 100%; display: flex; position: relative; }
+.sidebar .bottom::before {
+  content: ''; position: absolute; top: -1px; left: 20%; right: 20%;
+  height: 1px; background: var(--accent-gradient); opacity: .2;
+}
 .sidebar .bottom .nav-item { width: 100%; justify-content: flex-start; }
 .sidebar.collapsed .bottom { justify-content: center; }
 .sidebar.collapsed .bottom .nav-item { justify-content: center; padding: 8px; }
@@ -125,16 +151,23 @@ body {
   background-image:
     radial-gradient(circle at 1px 1px, var(--border) 1px, transparent 0);
   background-size: 32px 32px;
-  pointer-events: none; z-index: 0; opacity: 0.5;
+  pointer-events: none; z-index: 0; opacity: 0.35;
+}
+.main::after {
+  content: ''; position: fixed; top: -50%; left: -50%; width: 200%; height: 200%;
+  background: radial-gradient(ellipse at 30% 20%, rgba(0, 229, 191, 0.03) 0%, transparent 50%),
+              radial-gradient(ellipse at 70% 80%, rgba(168, 85, 247, 0.02) 0%, transparent 50%);
+  pointer-events: none; z-index: 0;
 }
 .main > * { position: relative; z-index: 1; }
-.view { display: none; animation: fadeIn 250ms ease; }
+.view { display: none; animation: fadeIn 300ms cubic-bezier(0.16, 1, 0.3, 1); }
 .view.active { display: block; }
 
-@keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes slideUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
 @keyframes spin { to{transform:rotate(360deg)} }
+@keyframes shimmer { 0%{background-position:-200% 0} 100%{background-position:200% 0} }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
@@ -143,21 +176,28 @@ body {
 
 /* ── Page Header ─────────────────────────────────────── */
 .page-header { margin-bottom: 28px; }
-.page-header h1 { font-size: 22px; font-weight: 800; letter-spacing: -.5px; text-wrap: balance; }
+.page-header h1 {
+  font-size: 26px; font-weight: 800; letter-spacing: -.8px; text-wrap: balance;
+  background: var(--accent-gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+}
 .page-header p { color: var(--text-muted); font-size: 13px; margin-top: 4px; }
 
 /* ── Metrics ──────────────────────────────────────────── */
-.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-bottom: 32px; }
+.metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; margin-bottom: 32px; }
 .metric-card {
   background: var(--surface); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 18px 20px;
-  transition: border-color var(--transition), box-shadow var(--transition);
+  transition: all var(--transition); position: relative; overflow: hidden;
   box-shadow: var(--shadow);
 }
-.metric-card:hover { border-color: var(--border-hover); box-shadow: var(--shadow-lg); }
+.metric-card::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 2px;
+  background: var(--accent-gradient); opacity: 0; transition: opacity var(--transition);
+}
+.metric-card:hover { border-color: var(--border-hover); box-shadow: var(--shadow-lg), var(--shadow-glow); transform: translateY(-1px); }
+.metric-card:hover::before { opacity: 1; }
 .metric-card .label { font-size: 11px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: .6px; margin-bottom: 6px; }
-.metric-card .value { font-size: 24px; font-weight: 800; letter-spacing: -.5px; font-variant-numeric: tabular-nums; }
-.metric-card .value .accent { color: var(--accent); }
+.metric-card .value { font-size: 28px; font-weight: 800; letter-spacing: -1px; font-variant-numeric: tabular-nums; background: var(--accent-gradient); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
 .metric-card .sub { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
 
 /* ── Section ──────────────────────────────────────────── */
@@ -171,25 +211,30 @@ body {
 }
 
 /* ── Cards ────────────────────────────────────────────── */
-.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); transition: border-color var(--transition); }
-.card:hover { border-color: var(--border-hover); }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); transition: all var(--transition); }
+.card:hover { border-color: var(--border-hover); box-shadow: var(--shadow-lg); }
 .card-body { padding: 18px; }
 
 /* ── Instance Card ────────────────────────────────────── */
 .instance-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(380px, 1fr)); gap: 14px; }
 .inst-card {
-  background: var(--surface); border: 1px solid var(--border);
+  background: linear-gradient(135deg, var(--surface), var(--surface-2)); border: 1px solid var(--border);
   border-radius: var(--radius); padding: 18px;
-  transition: border-color var(--transition), box-shadow var(--transition);
+  transition: all var(--transition); position: relative; overflow: hidden;
   box-shadow: var(--shadow);
-  position: relative; overflow: hidden;
 }
 .inst-card::before {
   content: ''; position: absolute; top: 0; left: 0; width: 3px; height: 100%;
-  background: var(--green); border-radius: 0 2px 2px 0;
-  transition: background var(--transition);
+  background: var(--accent-gradient); border-radius: 0 2px 2px 0;
+  transition: all var(--transition);
 }
-.inst-card:hover { border-color: var(--border-hover); box-shadow: var(--shadow-lg); }
+.inst-card::after {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 1px;
+  background: linear-gradient(90deg, var(--accent), transparent 60%);
+  opacity: 0; transition: opacity var(--transition);
+}
+.inst-card:hover { border-color: var(--border-hover); box-shadow: var(--shadow-lg), var(--shadow-glow); transform: translateY(-2px); }
+.inst-card:hover::after { opacity: .4; }
 .inst-card.stopped::before { background: var(--text-dim); }
 .inst-card.stopped { opacity: .55; }
 .inst-card.error::before { background: var(--red); }
@@ -204,42 +249,45 @@ body {
 
 /* ── Forms ─────────────────────────────────────────────── */
 select, input[type=text], input[type=number] {
-  width: 100%; padding: 9px 12px; background: var(--bg);
+  width: 100%; padding: 10px 14px; background: var(--bg);
   border: 1px solid var(--border); border-radius: var(--radius-sm);
   color: var(--text); font-size: 13px; outline: none;
-  transition: border-color var(--transition);
-  font-family: var(--font);
+  transition: all var(--transition); font-family: var(--font);
 }
-select:focus, input:focus { border-color: var(--accent); }
-select { cursor: pointer; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%238888a8'%3E%3Cpath d='M2 4l4 4 4-4'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 10px center; padding-right: 30px; }
+select:focus, input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
+select { cursor: pointer; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%238888b0'%3E%3Cpath d='M2 4l4 4 4-4'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 34px; }
 
 /* ── Buttons ───────────────────────────────────────────── */
 button {
-  padding: 9px 18px; border-radius: var(--radius-sm); border: none;
+  padding: 10px 20px; border-radius: var(--radius-sm); border: none;
   font-size: 13px; font-weight: 600; cursor: pointer;
   transition: all var(--transition); font-family: var(--font);
-  display: inline-flex; align-items: center; gap: 6px;
-  white-space: nowrap;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  white-space: nowrap; position: relative;
 }
-button.primary { background: var(--accent); color: #0c0c12; }
-button.primary:hover { background: var(--accent-hover); transform: translateY(-1px); }
+button.primary {
+  background: var(--accent-gradient); color: #08080f; position: relative; overflow: hidden;
+}
+button.primary:hover { transform: translateY(-1px); box-shadow: 0 4px 16px var(--accent-glow); }
 button.primary:active { transform: translateY(0); }
-button.secondary { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); }
-button.secondary:hover { background: var(--border-hover); border-color: var(--border-hover); }
+button.secondary {
+  background: var(--surface-2); color: var(--text); border: 1px solid var(--border);
+}
+button.secondary:hover { background: var(--surface-3); border-color: var(--border-hover); }
 button.danger { background: var(--red); color: #fff; }
-button.danger:hover { opacity: .9; }
-button.small { padding: 6px 12px; font-size: 11px; }
+button.danger:hover { box-shadow: 0 4px 16px rgba(255, 64, 96, 0.3); }
+button.small { padding: 7px 14px; font-size: 11px; border-radius: 6px; }
 button:disabled { opacity: .35; cursor: default; pointer-events: none; }
-button.ghost { background: transparent; color: var(--text-muted); padding: 6px 8px; }
+button.ghost { background: transparent; color: var(--text-muted); padding: 6px 10px; }
 button.ghost:hover { background: var(--surface-2); color: var(--text); }
 
 /* ── Badge ──────────────────────────────────────────────── */
-.badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; letter-spacing: .3px; font-family: var(--font-mono); }
-.badge-green { background: var(--green-bg); color: var(--green); }
-.badge-red { background: var(--red-bg); color: var(--red); }
-.badge-amber { background: var(--amber-bg); color: var(--amber); }
-.badge-blue { background: var(--blue-bg); color: var(--blue); }
-.badge-profile { background: #a855f733; color: #c084fc; }
+.badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 9999px; font-size: 10px; font-weight: 700; letter-spacing: .3px; font-family: var(--font-mono); }
+.badge-green { background: var(--green-bg); color: var(--green); border: 1px solid rgba(0, 229, 191, 0.15); }
+.badge-red { background: var(--red-bg); color: var(--red); border: 1px solid rgba(255, 64, 96, 0.15); }
+.badge-amber { background: var(--amber-bg); color: var(--amber); border: 1px solid rgba(245, 158, 11, 0.15); }
+.badge-blue { background: var(--blue-bg); color: var(--blue); border: 1px solid rgba(96, 160, 255, 0.15); }
+.badge-profile { background: var(--purple-bg); color: var(--purple); border: 1px solid rgba(168, 85, 247, 0.15); }
 
 /* ── Advanced flags toggle ────────────────────────────── */
 .advanced-flags summary { cursor: pointer; font-size: 12px; color: var(--text-muted); font-weight: 600; user-select: none; padding: 4px 0; }
@@ -249,15 +297,38 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
 
 /* ── Flag rows ─────────────────────────────────────────── */
 .flag-row { display: flex; gap: 6px; margin-bottom: 6px; align-items: center; }
-.flag-row select.flag-name { width: auto; min-width: 160px; flex-shrink: 0; }
+.flag-row .flag-search-wrapper { position: relative; flex-shrink: 0; min-width: 160px; }
+.flag-row .flag-search { width: 100%; padding: 9px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text); font-size: 13px; outline: none; transition: all var(--transition); font-family: var(--font); box-sizing: border-box; }
+.flag-row .flag-search:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
+.flag-row .flag-search.open { border-radius: var(--radius-sm) var(--radius-sm) 0 0; }
+.flag-row .flag-dropdown { position: absolute; top: 100%; left: 0; right: 0; max-height: 240px; overflow-y: auto; background: var(--surface); border: 1px solid var(--border); border-top: none; border-radius: 0 0 var(--radius-sm) var(--radius-sm); z-index: 100; box-shadow: 0 12px 32px rgba(0,0,0,.5); }
+.flag-row .flag-dropdown-item { padding: 7px 12px; font-size: 12px; cursor: pointer; color: var(--text); font-family: var(--font-mono); transition: background var(--transition); }
+.flag-row .flag-dropdown-item:hover, .flag-row .flag-dropdown-item.sel { background: var(--accent-bg); color: var(--accent); }
+.flag-row .flag-dropdown-divider { border-top: 1px solid var(--border); margin: 0; }
+.flag-row .flag-dropdown-item-custom { color: var(--text-muted); font-family: var(--font); }
+.flag-row .flag-dropdown-item-custom:hover { color: var(--text); }
+.flag-row .flag-dropdown-empty { color: var(--text-dim); cursor: default; font-family: var(--font); }
 .flag-row input.flag-custom { flex: 1; }
 .flag-row input.flag-value { flex: 1; }
+
+/* ── Settings edit mode ───────────────────────────────── */
+.settings-card .settings-readonly { display: block; }
+.settings-card .settings-form { display: none; }
+.settings-card.editing .settings-readonly { display: none; }
+.settings-card.editing .settings-form { display: block; }
+.settings-card.editing .settings-edit-btn { display: none; }
+
+/* ── Detail rows (Settings info) ──────────────────────── */
+.detail-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border); }
+.detail-row:last-child { border-bottom: none; }
+.detail-label { font-size: 12px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: .5px; display: flex; align-items: center; gap: 6px; }
+.detail-value { font-size: 13px; color: var(--text); text-align: right; }
 
 /* ── Empty state ───────────────────────────────────────── */
 .empty-state { text-align: center; padding: 48px 20px; color: var(--text-dim); }
 .instance-grid .empty-state { grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 200px; }
-.empty-state .icon { font-size: 36px; margin-bottom: 12px; opacity: .6; }
-.empty-state .title { font-size: 15px; font-weight: 600; color: var(--text-muted); margin-bottom: 4px; }
+.empty-state .icon { font-size: 40px; margin-bottom: 12px; opacity: .5; }
+.empty-state .title { font-size: 16px; font-weight: 600; color: var(--text-muted); margin-bottom: 4px; }
 .empty-state p { font-size: 13px; }
 
 /* ── Chat ──────────────────────────────────────────────── */
@@ -279,21 +350,22 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
 .chat-msgs .assistant .copy-btn { position: absolute; top: 8px; right: 8px; font-size: 12px; background: none; border: none; cursor: pointer; opacity: 0; padding: 2px 4px; border-radius: 4px; transition: opacity var(--transition), background var(--transition); }
 .chat-msgs .assistant:hover .copy-btn { opacity: 0.5; }
 .chat-msgs .assistant .copy-btn:hover { opacity: 1; background: var(--surface-2); }
-.chat-input-row { display: flex; flex-direction: column; gap: 8px; background: var(--surface); border-radius: var(--radius-sm); padding: 15px; border: 1px solid var(--border); }
+.chat-input-row { display: flex; flex-direction: column; gap: 8px; background: var(--surface); border-radius: var(--radius-sm); padding: 15px; border: 1px solid var(--border); transition: border-color var(--transition); }
+.chat-input-row:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
 .chat-input-row .input-wrap { display: flex; gap: 8px; align-items: flex-end; }
 .chat-input-row .input-wrap textarea { flex: 1; max-height: 200px; }
 .chat-loading { animation: pulse 1.2s infinite; display: inline-block; letter-spacing: 4px; font-size: 18px; line-height: 1; color: var(--text-dim); }
 .reasoning { color: var(--text-dim); font-style: italic; font-size: 12px; border-left: 2px solid var(--accent); padding-left: 12px; margin-bottom: 8px; opacity: .85; }
-.ctx-label { padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; background: var(--accent-bg); color: var(--accent); font-family: var(--font-mono); }
+.ctx-label { padding: 2px 8px; border-radius: 9999px; font-size: 10px; font-weight: 600; background: var(--accent-bg); color: var(--accent); font-family: var(--font-mono); border: 1px solid rgba(0, 229, 191, 0.15); }
 
 /* ── Logs Modal ────────────────────────────────────────── */
-.modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,.75); z-index: 100; animation: fadeIn 150ms ease; }
+.modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,.75); z-index: 100; animation: fadeIn 150ms ease; backdrop-filter: blur(4px); }
 .modal-content { background: var(--surface); margin: 6% auto; padding: 24px; width: 86%; max-width: 720px; max-height: 72vh; border-radius: var(--radius); overflow: auto; border: 1px solid var(--border); box-shadow: var(--shadow-lg); overscroll-behavior: contain; }
 .modal-content h2 { font-size: 15px; font-weight: 700; }
 .modal-content pre { background: var(--bg); padding: 14px; border-radius: var(--radius-sm); margin-top: 14px; font-size: 11.5px; line-height: 1.5; overflow: auto; max-height: 55vh; white-space: pre-wrap; color: var(--text-muted); font-family: var(--font-mono); }
 
 /* ── Error line ───────────────────────────────────────── */
-.error-line { font-size: 11px; color: var(--red); margin-top: 8px; padding: 6px 10px; background: var(--red-bg); border-radius: var(--radius-sm); word-break: break-all; font-family: var(--font-mono); }
+.error-line { font-size: 11px; color: var(--red); margin-top: 8px; padding: 6px 10px; background: var(--red-bg); border-radius: var(--radius-sm); word-break: break-all; font-family: var(--font-mono); border: 1px solid rgba(255, 64, 96, 0.15); }
 
 /* ── Chat history ─────────────────────────────────────── */
 .chat-history-item { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; border-radius: var(--radius-sm); transition: background var(--transition); cursor: pointer; }
@@ -305,18 +377,18 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
 .chat-history-actions { display: flex; gap: 4px; flex-shrink: 0; margin-left: 8px; }
 
 /* ── Model list ────────────────────────────────────────── */
-.model-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border-radius: var(--radius-sm); transition: background var(--transition); cursor: pointer; }
+.model-row { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border-radius: var(--radius-sm); transition: all var(--transition); cursor: pointer; }
 .model-row:hover .name { color: var(--accent); }
 .model-row .info-icon { font-size: 11px; opacity: 0; transition: opacity var(--transition); margin-left: 4px; }
 .model-row:hover .info-icon { opacity: 0.6; }
-.model-row:hover { background: var(--surface-2); }
+.model-row:hover { background: var(--accent-bg); }
 .model-row .name { font-size: 13px; font-weight: 500; word-break: break-all; }
 .model-row .info { font-size: 11px; color: var(--text-dim); margin-top: 4px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 
 /* ── Animations / Utilities ────────────────────────────── */
 .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .6s linear infinite; vertical-align: middle; }
 .refreshing { opacity: .5; pointer-events: none; transition: opacity var(--transition); }
-.tag { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 600; background: var(--surface-2); color: var(--text-muted); font-family: var(--font-mono); }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 10px; font-weight: 600; background: var(--surface-2); color: var(--text-muted); font-family: var(--font-mono); border: 1px solid var(--border); }
 .tps { font-variant-numeric: tabular-nums; }
 
 /* ── Pull suggestions dropdown ──────────────────────── */
@@ -337,8 +409,8 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
   .sidebar { width: 60px; }
   .sidebar .logo { padding: 12px 8px; }
   .sidebar .logo img { max-width: 28px; }
-  .sidebar .nav-item .label { display: none; }
-  .sidebar .nav-item { justify-content: center; padding: 10px; }
+  .sidebar nav .nav-item .label { display: none; }
+  .sidebar nav .nav-item { justify-content: center; padding: 10px; }
   .sidebar .bottom button .label { display: none; }
   .main { padding: 20px 16px; }
   .metrics { grid-template-columns: 1fr 1fr; }
@@ -415,7 +487,10 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
   <div class="section">
     <div class="section-header">
       <h2>Running Instances</h2>
-      <span class="badge badge-blue" id="instanceCount"></span>
+      <div style="display:flex;align-items:center;gap:6px">
+        <span class="badge badge-blue" id="instanceCount"></span>
+        <button class="ghost small" onclick="loadInstances()" title="Refresh instances" style="font-size:13px;padding:2px 4px">🔄</button>
+      </div>
     </div>
     <div id="instances" class="instance-grid">
       <div class="empty-state">
@@ -431,7 +506,7 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
 <div id="view-models" class="view" role="tabpanel" aria-label="Models">
   <div class="page-header">
     <h1>Models</h1>
-    <p id="modelCount"><span class="spinner" id="modelCountSpinner"></span> Loading…</p>
+    <p><span id="modelCount"><span class="spinner" id="modelCountSpinner"></span> Loading…</span> <button class="ghost small" onclick="loadModels()" title="Refresh models" style="font-size:12px;padding:1px 6px;vertical-align:middle">🔄</button></p>
   </div>
   <div id="modelList" class="card"><div class="card-body"><div class="empty-state"><span class="spinner"></span> Loading models…</div></div></div>
   <div class="section" style="margin-top:32px">
@@ -474,13 +549,6 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
     <button class="primary" onclick="launchModelFromDetails()" id="md-launch-btn" style="margin-top:16px;width:100%">🚀 Launch</button>
   </div>
 </div>
-
-<style>
-.detail-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; border-bottom: 1px solid var(--border); }
-.detail-row:last-child { border-bottom: none; }
-.detail-label { font-size: 12px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: .5px; }
-.detail-value { font-size: 13px; color: var(--text); text-align: right; }
-</style>
 
 <!-- ── Chat History Modal ──────────────────────────── -->
 <div class="modal" id="chatHistoryModal" role="dialog" aria-modal="true" aria-label="Chat history">
@@ -535,13 +603,26 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
     <h1>Settings</h1>
     <p>Configuration and system information</p>
   </div>
-  <div class="card"><div class="card-body" style="line-height: 2.2">
-    <div style="font-size: 13px; color: var(--text-muted);">
-      <div><strong style="color: var(--text)">gollama</strong> <span class="tag" id="s-version">—</span></div>
-      <div><strong style="color: var(--text)">llama-server</strong> <span class="tag" id="s-llama-version">—</span></div>
-      <div><strong style="color: var(--text)">Backend</strong> <span class="tag" id="s-backend">—</span></div>
-      <div><strong style="color: var(--text)">Config</strong> <code style="font-size: 11px; color: var(--text-dim)">~/.gollama/config.json</code></div>
-      <div><strong style="color: var(--text)">Models dir</strong> <code style="font-size: 11px; color: var(--text-dim)">~/.gollama/models/</code></div>
+  <div class="card"><div class="card-body">
+    <div class="detail-row">
+      <span class="detail-label">⚡ gollama</span>
+      <span class="detail-value"><span class="tag" id="s-version">—</span></span>
+    </div>
+    <div class="detail-row">
+      <span class="detail-label">🧠 llama-server</span>
+      <span class="detail-value"><span class="tag" id="s-llama-version">—</span></span>
+    </div>
+    <div class="detail-row">
+      <span class="detail-label">🔧 Backend</span>
+      <span class="detail-value"><span class="tag" id="s-backend">—</span></span>
+    </div>
+    <div class="detail-row">
+      <span class="detail-label">📁 Config</span>
+      <span class="detail-value"><code style="font-size:12px;color:var(--text-dim);font-family:var(--font-mono)">~/.gollama/config.json</code></span>
+    </div>
+    <div class="detail-row">
+      <span class="detail-label">📦 Models dir</span>
+      <span class="detail-value"><code style="font-size:12px;color:var(--text-dim);font-family:var(--font-mono)">~/.gollama/models/</code></span>
     </div>
   </div></div>
   <div class="card" style="margin-top:16px"><div class="card-body">
@@ -553,34 +634,67 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
       <span id="idleTtlStatus" style="font-size:12px;color:var(--text-muted)"></span>
     </div>
   </div></div>
-  <div class="card" style="margin-top:16px"><div class="card-body">
-    <div style="font-size:13px;font-weight:600;margin-bottom:8px">Quick Launch Defaults</div>
-    <div style="font-size:11px;color:var(--text-dim);margin-bottom:8px">Pre-fills the Quick Launch form for manual launches</div>
-    <div id="settingsFlagsContainer"></div>
-    <button class="ghost small" onclick="addSettingsFlag()" style="margin-top:4px">＋ Add Flag</button>
-    <div style="margin-top:10px">
-      <button class="primary small" onclick="saveSettingsFlags()">Save UI Defaults</button>
-      <span id="settingsFlagsStatus" style="font-size:12px;color:var(--text-muted);margin-left:8px"></span>
+  <div class="card settings-card" id="settings-ql" style="margin-top:16px"><div class="card-body">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px">
+      <div>
+        <div style="font-size:13px;font-weight:600">Quick Launch Defaults</div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:2px">Pre-fills the Quick Launch form for manual launches</div>
+      </div>
+      <button class="ghost small settings-edit-btn" onclick="toggleEditSettings('ql')">✏️ Edit</button>
+    </div>
+    <div class="settings-readonly" id="ql-readonly">
+      <div style="font-size:12px;color:var(--text-dim)">No custom flags set.</div>
+    </div>
+    <div class="settings-form">
+      <div id="settingsFlagsContainer"></div>
+      <button class="ghost small" onclick="addSettingsFlag()" style="margin-top:4px">＋ Add Flag</button>
+      <div style="margin-top:10px">
+        <button class="primary small" onclick="saveSettingsFlags()">Save</button>
+        <button class="secondary small" onclick="cancelEditSettings('ql')">Cancel</button>
+        <span id="settingsFlagsStatus" style="font-size:12px;color:var(--text-muted);margin-left:8px"></span>
+      </div>
     </div>
   </div></div>
-  <div class="card" style="margin-top:16px"><div class="card-body">
-    <div style="font-size:13px;font-weight:600;margin-bottom:8px">API Launch Defaults</div>
-    <div style="font-size:11px;color:var(--text-dim);margin-bottom:8px">Used when auto-launching via API — acts as fallback when no profile matches</div>
-    <div id="proxyFlagsContainer"></div>
-    <button class="ghost small" onclick="addProxyFlag()" style="margin-top:4px">＋ Add Flag</button>
-    <div style="margin-top:10px">
-      <button class="primary small" onclick="saveProxyFlags()">Save Proxy Defaults</button>
-      <span id="proxyFlagsStatus" style="font-size:12px;color:var(--text-muted);margin-left:8px"></span>
+  <div class="card settings-card" id="settings-api" style="margin-top:16px"><div class="card-body">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px">
+      <div>
+        <div style="font-size:13px;font-weight:600">API Launch Defaults</div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:2px">Used when auto-launching via API — acts as fallback when no profile matches</div>
+      </div>
+      <button class="ghost small settings-edit-btn" onclick="toggleEditSettings('api')">✏️ Edit</button>
+    </div>
+    <div class="settings-readonly" id="api-readonly">
+      <div style="font-size:12px;color:var(--text-dim)">No custom flags set.</div>
+    </div>
+    <div class="settings-form">
+      <div id="proxyFlagsContainer"></div>
+      <button class="ghost small" onclick="addProxyFlag()" style="margin-top:4px">＋ Add Flag</button>
+      <div style="margin-top:10px">
+        <button class="primary small" onclick="saveProxyFlags()">Save</button>
+        <button class="secondary small" onclick="cancelEditSettings('api')">Cancel</button>
+        <span id="proxyFlagsStatus" style="font-size:12px;color:var(--text-muted);margin-left:8px"></span>
+      </div>
     </div>
   </div></div>
-  <div class="card" style="margin-top:16px"><div class="card-body">
-    <div style="font-size:13px;font-weight:600;margin-bottom:8px">Profiles</div>
-    <div style="font-size:11px;color:var(--text-dim);margin-bottom:8px">Named flag sets. When a profile's model matches the request, its flags override proxy defaults.</div>
-    <div id="profilesContainer"></div>
-    <button class="ghost small" onclick="addProfile()" style="margin-top:4px">＋ Add Profile</button>
-    <div style="margin-top:10px">
-      <button class="primary small" onclick="saveProfiles()">Save Profiles</button>
-      <span id="profilesStatus" style="font-size:12px;color:var(--text-muted);margin-left:8px"></span>
+  <div class="card settings-card" id="settings-profiles" style="margin-top:16px"><div class="card-body">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px">
+      <div>
+        <div style="font-size:13px;font-weight:600">Model Profiles</div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:2px">Named flag sets for auto-launch routing. When a model profile's model matches the request, its flags override proxy defaults.</div>
+      </div>
+      <button class="ghost small settings-edit-btn" onclick="toggleEditSettings('profiles')">✏️ Edit</button>
+    </div>
+    <div class="settings-readonly" id="profiles-readonly">
+      <div style="font-size:12px;color:var(--text-dim)">No model profiles configured.</div>
+    </div>
+    <div class="settings-form">
+      <div id="profilesContainer"></div>
+      <button class="ghost small" onclick="addProfile()" style="margin-top:4px">＋ Add Model Profile</button>
+      <div style="margin-top:10px">
+        <button class="primary small" onclick="saveProfiles()">Save</button>
+        <button class="secondary small" onclick="cancelEditSettings('profiles')">Cancel</button>
+        <span id="profilesStatus" style="font-size:12px;color:var(--text-muted);margin-left:8px"></span>
+      </div>
     </div>
   </div></div>
   <div class="card" style="margin-top:16px"><div class="card-body" style="text-align:center">
@@ -735,7 +849,7 @@ async function loadInstances() {
       var uptime = i.started_at ? (function() { var s = Math.floor((Date.now() - new Date(i.started_at).getTime()) / 1000); return '<span title="Uptime">⏱ ' + (s > 86400 ? Math.floor(s/86400)+'d ' : '') + (s > 3600 ? Math.floor((s%86400)/3600)+'h ' : '') + Math.floor((s%3600)/60)+'m</span>'; })() : '';
       var idle = i.last_activity ? (function() { var s = Math.floor((Date.now() - new Date(i.last_activity).getTime()) / 1000); if (s < 60) return ''; return '<span title="Idle time">💤 ' + (s > 3600 ? Math.floor(s/3600)+'h ' : '') + Math.floor((s%3600)/60)+'m</span>'; })() : '';
       var tokens = i.total_tokens ? '<span title="Total tokens">🔤 ' + (i.total_tokens > 999 ? Math.round(i.total_tokens/1000) + 'K' : i.total_tokens) + '</span>' : '';
-      var metrics = (i.device_split ? '<span title="Model split">📊 ' + i.device_split + '</span>' : '') + (i.profile ? ' <span class="badge badge-profile" title="Active profile">📋 ' + escHtml(i.profile) + '</span>' : '');
+      var metrics = (i.device_split ? '<span title="Model split">📊 ' + i.device_split + '</span>' : '') + (i.profile ? ' <span class="badge badge-profile" title="Active model profile">📋 ' + escHtml(i.profile) + '</span>' : '');
       var flags = i.flags && i.flags.length ? formatFlags(i.flags) : '';
       var flagsHtml = flags ? '<div style="font-size: 11px; color: var(--text-dim); margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); word-break: break-all; font-family: var(--font-mono)">' + escHtml(flags) + '</div>' : '';
       var errDiv = i.status != 'running' ? '<div class="error-line" id="err-' + i.port + '"></div>' : '';
@@ -1126,20 +1240,20 @@ var flagHints = {
   '--tts-use-guide-tokens': 'use guide tokens to improve TTS word recall',
 };
 
-function flagOptions(selected) {
-  return commonFlags.map(function(f) { return '<option value="' + escAttr(f) + '"' + (f === selected ? ' selected' : '') + '>' + escHtml(f) + '</option>'; }).join('') +
-    '<option value=""' + (!selected || commonFlags.indexOf(selected) === -1 ? ' selected' : '') + '>Custom…</option>';
-}
-
 function makeFlagRow(name, value) {
   var r = document.createElement('div'); r.className = 'flag-row';
   var isCustom = name && commonFlags.indexOf(name) === -1;
   var displayName = isCustom ? '' : (name || '');
-  r.innerHTML = '<select class="flag-name" onchange="onFlagChange(this)">' + flagOptions(displayName) + '</select>' +
+  r.innerHTML =
+    '<div class="flag-search-wrapper">' +
+      '<input type="text" class="flag-search" placeholder="Search or type flag\u2026" autocomplete="off" value="' + escAttr(displayName) + '">' +
+      '<div class="flag-dropdown" style="display:none"></div>' +
+    '</div>' +
     '<input type="text" class="flag-custom" placeholder="Flag name" autocomplete="off" style="display:' + (isCustom ? '' : 'none') + '" value="' + (isCustom ? escAttr(name) : '') + '">' +
     '<input type="text" class="flag-value" placeholder="Value" autocomplete="off" value="' + escAttr(value || '') + '">' +
     '<button class="small danger" onclick="this.parentElement.remove()" aria-label="Remove flag">\u2715</button>';
   if (!isCustom && standaloneFlags[name]) r.querySelector('.flag-value').style.display = 'none';
+  setupFlagDropdown(r);
   return r;
 }
 
@@ -1147,12 +1261,128 @@ function addFlag() {
   document.getElementById('flagsContainer').appendChild(makeFlagRow('', ''));
 }
 
-function onFlagChange(sel) {
-  var row = sel.parentElement, valInput = row.querySelector('.flag-value');
-  row.querySelector('.flag-custom').style.display = sel.value === '' ? '' : 'none';
-  var isStandalone = standaloneFlags[sel.value];
-  valInput.style.display = isStandalone ? 'none' : '';
-  valInput.placeholder = flagHints[sel.value] || 'Value';
+function setupFlagDropdown(row) {
+  var wrapper = row.querySelector('.flag-search-wrapper');
+  var input = wrapper.querySelector('.flag-search');
+  var dropdown = wrapper.querySelector('.flag-dropdown');
+  var customInput = row.querySelector('.flag-custom');
+  var valInput = row.querySelector('.flag-value');
+
+  function buildItems(query) {
+    var q = query.toLowerCase();
+    var html = '';
+    var found = false;
+    commonFlags.forEach(function(f) {
+      if (f.indexOf(q) !== -1) {
+        html += '<div class="flag-dropdown-item" data-value="' + escAttr(f) + '">' + escHtml(f) + '</div>';
+        found = true;
+      }
+    });
+    if (!found && q) {
+      html += '<div class="flag-dropdown-item flag-dropdown-empty">No flags match\u2026</div>';
+    }
+    html += '<div class="flag-dropdown-divider"></div>';
+    html += '<div class="flag-dropdown-item flag-dropdown-item-custom" data-value="">Custom\u2026</div>';
+    dropdown.innerHTML = html;
+  }
+
+  function selectValue(val) {
+    if (val) {
+      input.value = val;
+      customInput.style.display = 'none';
+      customInput.value = '';
+      var isStandalone = standaloneFlags[val];
+      valInput.style.display = isStandalone ? 'none' : '';
+      valInput.placeholder = flagHints[val] || 'Value';
+    } else {
+      input.value = '';
+      customInput.style.display = '';
+      customInput.focus();
+    }
+    dropdown.style.display = 'none';
+    input.classList.remove('open');
+  }
+
+  input.addEventListener('focus', function() {
+    buildItems(input.value);
+    dropdown.style.display = '';
+    input.classList.add('open');
+  });
+
+  input.addEventListener('input', function() {
+    buildItems(input.value);
+    dropdown.style.display = '';
+    input.classList.add('open');
+    customInput.style.display = 'none';
+    valInput.style.display = '';
+    valInput.placeholder = 'Value';
+    customInput.value = '';
+  });
+
+  dropdown.addEventListener('mousedown', function(e) {
+    var item = e.target.closest('.flag-dropdown-item');
+    if (!item) return;
+    e.preventDefault();
+    var val = item.getAttribute('data-value');
+    if (val === null) return;
+    selectValue(val);
+    input.focus();
+  });
+
+  input.addEventListener('keydown', function(e) {
+    var items = dropdown.querySelectorAll('.flag-dropdown-item');
+    var sel = dropdown.querySelector('.sel');
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (!sel) {
+        if (items[0]) items[0].classList.add('sel');
+      } else {
+        sel.classList.remove('sel');
+        var next = sel.nextElementSibling;
+        if (next && next.classList.contains('flag-dropdown-item')) {
+          next.classList.add('sel');
+        } else if (items[0]) {
+          items[0].classList.add('sel');
+        }
+      }
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (!sel) {
+        var last = items[items.length - 1];
+        if (last) last.classList.add('sel');
+      } else {
+        sel.classList.remove('sel');
+        var prev = sel.previousElementSibling;
+        if (prev && prev.classList.contains('flag-dropdown-item')) {
+          prev.classList.add('sel');
+        } else if (items[items.length - 1]) {
+          items[items.length - 1].classList.add('sel');
+        }
+      }
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (sel) {
+        var val = sel.getAttribute('data-value');
+        if (val !== null) selectValue(val);
+      } else {
+        var first = items[0];
+        if (first) {
+          var val = first.getAttribute('data-value');
+          if (val !== null) selectValue(val);
+        }
+      }
+    } else if (e.key === 'Escape') {
+      dropdown.style.display = 'none';
+      input.classList.remove('open');
+    }
+  });
+
+  input.addEventListener('blur', function() {
+    setTimeout(function() {
+      dropdown.style.display = 'none';
+      input.classList.remove('open');
+    }, 200);
+  });
 }
 
 // Parse a flat flag array into rows, respecting standalone booleans
@@ -1174,8 +1404,9 @@ function renderFlags(container, flags) {
 function collectFlags(container) {
   var flags = [];
   container.querySelectorAll('.flag-row').forEach(function(row) {
-    var sel = row.querySelector('.flag-name'), valInput = row.querySelector('.flag-value'), customInput = row.querySelector('.flag-custom');
-    var name = sel.value || customInput.value.trim(), val = valInput.value.trim();
+    var searchInput = row.querySelector('.flag-search'), valInput = row.querySelector('.flag-value'), customInput = row.querySelector('.flag-custom');
+    var name = (searchInput ? searchInput.value.trim() : '') || customInput.value.trim();
+    var val = valInput.value.trim();
     if (!name) return;
     flags.push(name);
     if (val && !standaloneFlags[name]) flags.push(val);
@@ -1667,6 +1898,64 @@ function toggleTheme() {
 })();
 
 // ── Settings ────────────────────────────────────────────
+
+function toggleEditSettings(key) {
+  document.getElementById('settings-' + key).classList.toggle('editing');
+}
+
+function cancelEditSettings(key) {
+  document.getElementById('settings-' + key).classList.remove('editing');
+  loadSettings();
+}
+
+function renderReadOnlyFlags(container, flags) {
+  if (!flags || !flags.length) {
+    container.innerHTML = '<div style="font-size:12px;color:var(--text-dim)">No custom flags set.</div>';
+    return;
+  }
+  var html = '<div style="font-size:12px;font-family:var(--font-mono);display:flex;flex-wrap:wrap;gap:4px;align-items:center">';
+  for (var i = 0; i < flags.length; i++) {
+    var flag = flags[i];
+    html += '<span class="tag">' + escHtml(flag) + '</span>';
+    if (i + 1 < flags.length && !standaloneFlags[flag] && !flags[i + 1].startsWith('--')) {
+      i++;
+      html += '<span class="tag" style="color:var(--text-dim)">' + escHtml(flags[i]) + '</span>';
+    }
+  }
+  html += '</div>';
+  container.innerHTML = html;
+}
+
+function renderReadOnlyProfiles(profiles) {
+  var container = document.getElementById('profiles-readonly');
+  if (!profiles || Object.keys(profiles).length === 0) {
+    container.innerHTML = '<div style="font-size:12px;color:var(--text-dim)">No model profiles configured.</div>';
+    return;
+  }
+  var html = '<div style="display:flex;flex-direction:column;gap:8px">';
+  for (var name in profiles) {
+    var p = profiles[name];
+    html += '<div style="background:var(--surface-2);border-radius:6px;padding:10px 12px;border:1px solid var(--border)">' +
+      '<div style="font-weight:600;font-size:13px;margin-bottom:2px">' + escHtml(name) + '</div>';
+    if (p.model) html += '<div style="font-size:11px;color:var(--text-dim);margin-bottom:2px">Model: <code style="font-size:11px">' + escHtml(p.model) + '</code></div>';
+    if (p.description) html += '<div style="font-size:11px;color:var(--text-dim)">' + escHtml(p.description) + '</div>';
+    if (p.flags && p.flags.length) {
+      html += '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px">';
+      for (var i = 0; i < p.flags.length; i++) {
+        html += '<span class="tag" style="font-family:var(--font-mono);font-size:10px">' + escHtml(p.flags[i]) + '</span>';
+        if (i + 1 < p.flags.length && !standaloneFlags[p.flags[i]] && !p.flags[i + 1].startsWith('--')) {
+          i++;
+          html += '<span class="tag" style="font-family:var(--font-mono);font-size:10px;color:var(--text-dim)">' + escHtml(p.flags[i]) + '</span>';
+        }
+      }
+      html += '</div>';
+    }
+    html += '</div>';
+  }
+  html += '</div>';
+  container.innerHTML = html;
+}
+
 async function loadSettings() {
   try {
     var vr = await fetch('/api/v1/version'), vd = await vr.json();
@@ -1677,7 +1966,9 @@ async function loadSettings() {
     document.getElementById('idleTtlInput').value = cfg.idle_ttl || 0;
     renderFlags(document.getElementById('settingsFlagsContainer'), cfg.default_flags);
     renderFlags(document.getElementById('proxyFlagsContainer'), cfg.proxy_defaults);
-    // Load profiles into settings
+    renderReadOnlyFlags(document.getElementById('ql-readonly'), cfg.default_flags);
+    renderReadOnlyFlags(document.getElementById('api-readonly'), cfg.proxy_defaults);
+    // Load model profiles into settings
     var pc = document.getElementById('profilesContainer');
     pc.innerHTML = '';
     var nextPid = 0;
@@ -1691,6 +1982,7 @@ async function loadSettings() {
       nextPid = i;
     }
     _pid = nextPid;
+    renderReadOnlyProfiles(cfg.profiles);
   } catch (e) {}
 }
 
@@ -1716,7 +2008,7 @@ async function saveSettingsFlags() {
   var st = document.getElementById('settingsFlagsStatus');
   try {
     var r = await fetch('/api/v1/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ default_flags: collectFlags(document.getElementById('settingsFlagsContainer')) }) });
-    if (r.ok) { st.textContent = 'Saved'; setTimeout(function() { st.textContent = ''; }, 2000); }
+    if (r.ok) { st.textContent = 'Saved'; setTimeout(function() { st.textContent = ''; }, 2000); loadSettings(); document.getElementById('settings-ql').classList.remove('editing'); }
     else { st.textContent = 'Error saving'; }
   } catch (e) { st.textContent = 'Error: ' + e.message; }
 }
@@ -1725,12 +2017,12 @@ async function saveProxyFlags() {
   var st = document.getElementById('proxyFlagsStatus');
   try {
     var r = await fetch('/api/v1/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ proxy_defaults: collectFlags(document.getElementById('proxyFlagsContainer')) }) });
-    if (r.ok) { st.textContent = 'Saved'; setTimeout(function() { st.textContent = ''; }, 2000); }
+    if (r.ok) { st.textContent = 'Saved'; setTimeout(function() { st.textContent = ''; }, 2000); loadSettings(); document.getElementById('settings-api').classList.remove('editing'); }
     else { st.textContent = 'Error saving'; }
   } catch (e) { st.textContent = 'Error: ' + e.message; }
 }
 
-// ── Profiles ────────────────────────────────────────
+// ── Model Profiles ─────────────────────────────────
 var _pid = 0;
 function addProfile() {
   var c = document.getElementById('profilesContainer');
@@ -1740,7 +2032,7 @@ function addProfile() {
   d.innerHTML =
     '<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">' +
       '<span style="font-size:15px">📋</span>' +
-      '<input type="text" class="flag-custom" placeholder="Profile name" style="flex:1;font-weight:600;font-size:14px;min-width:100px;border:0;background:transparent;color:var(--text)" id="pn-' + i + '">' +
+      '<input type="text" placeholder="Model profile name" style="flex:1;font-weight:600;font-size:14px;min-width:120px;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);outline:none;transition:border-color var(--transition);font-family:var(--font)" id="pn-' + i + '">' +
       '<button class="small danger" onclick="document.getElementById(\'pc-' + i + '\').remove()" title="Remove profile">\u2715</button>' +
     '</div>' +
     '<div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">' +
@@ -1783,7 +2075,7 @@ function renderProfile(p, i) {
   d.innerHTML =
     '<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">' +
       '<span style="font-size:15px">📋</span>' +
-      '<input type="text" class="flag-custom" placeholder="Profile name" style="flex:1;font-weight:600;font-size:14px;min-width:100px;border:0;background:transparent;color:var(--text)" id="pn-' + i + '" value="' + escAttr(p.name) + '">' +
+      '<input type="text" placeholder="Model profile name" style="flex:1;font-weight:600;font-size:14px;min-width:120px;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);outline:none;transition:border-color var(--transition);font-family:var(--font)" id="pn-' + i + '" value="' + escAttr(p.name) + '">' +
       '<button class="small danger" onclick="document.getElementById(\'pc-' + i + '\').remove()" title="Remove profile">\u2715</button>' +
     '</div>' +
     '<div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">' +
@@ -1829,12 +2121,11 @@ async function saveProfiles() {
     var fc = document.getElementById('pf-' + idx);
     if (fc) {
       for (var j = 0; j < fc.children.length; j++) {
-        var sel = fc.children[j].querySelector('.flag-name');
+        var searchInput = fc.children[j].querySelector('.flag-search');
         var custom = fc.children[j].querySelector('.flag-custom');
         var valInput = fc.children[j].querySelector('.flag-value');
-        var fn = sel ? sel.value : '';
+        var fn = (searchInput ? searchInput.value.trim() : '') || (custom ? custom.value : '');
         var fv = valInput ? valInput.value : '';
-        if (!fn && custom) fn = custom.value;
         if (fn) { flags.push(fn); if (!standaloneFlags[fn] && fv) flags.push(fv); }
       }
     }
@@ -1855,7 +2146,7 @@ async function saveProfiles() {
   }
   try {
     var r = await fetch('/api/v1/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profiles: profiles }) });
-    if (r.ok) { st.textContent = 'Saved'; setTimeout(function() { st.textContent = ''; }, 2000); }
+    if (r.ok) { st.textContent = 'Saved'; setTimeout(function() { st.textContent = ''; }, 2000); loadSettings(); document.getElementById('settings-profiles').classList.remove('editing'); }
     else { st.textContent = 'Error saving'; }
   } catch (e) { st.textContent = 'Error: ' + e.message; }
 }

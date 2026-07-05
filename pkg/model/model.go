@@ -554,9 +554,12 @@ func ScanModels() {
 				}
 				short := strings.ToLower(base)
 				info.ShortName = short
-				if _, exists := idx[base]; !exists {
+				if existing, exists := idx[base]; !exists {
 					idx[base] = info
 					log.Printf("scanned split model: %s (%s, %s, %s)", base, info.Architecture, info.Quantization, FormatSize(info.Size))
+				} else if _, err := os.Stat(existing.BlobPath); os.IsNotExist(err) {
+					idx[base] = info
+					log.Printf("replaced stale split model: %s (%s, %s, %s)", base, info.Architecture, info.Quantization, FormatSize(info.Size))
 				}
 				continue
 			}

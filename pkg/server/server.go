@@ -815,7 +815,7 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 	var launchFlags []string
 	if profileName != "" {
 		launchFlags = cfg.ProfileFlags(profileName)
-		log.Printf("using profile %q for model %q", profileName, modelName)
+		log.Printf("using model profile %q for model %q", profileName, modelName)
 	} else {
 		launchFlags = cfg.ProxyFlags()
 	}
