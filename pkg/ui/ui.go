@@ -1661,6 +1661,16 @@ function selectChatFor(port, model) {
 function addSystemMsg(t) { var c = document.getElementById('chatPanel'); c.innerHTML += '<div class="msg system">' + escHtml(t) + '</div>'; c.scrollTop = c.scrollHeight; }
 function addMsg(r, t, re) {
   var c = document.getElementById('chatPanel');
+  if (!re && t) {
+    var si = t.indexOf('<think>');
+    if (si >= 0) {
+      var ei = t.indexOf('</think>', si);
+      if (ei >= 0) {
+        re = t.slice(si + 7, ei);
+        t = t.slice(0, si) + t.slice(ei + 8);
+      }
+    }
+  }
   var el = document.createElement('div'); el.className = 'msg ' + r;
   el.textContent = t;
   if (r === 'assistant' && t) {
@@ -1760,9 +1770,16 @@ async function sendChat() {
   resolveCtxLimit();
   trimHistory();
   updateContextMeter();
-  var content = '', reasoning = '', msgEl = null, reasoningEl = null, chatPanel = document.getElementById('chatPanel');
+  var content = '', reasoning = '', msgEl = null, reasoningEl = null, thinking = false, chatPanel = document.getElementById('chatPanel');
   try {
     var r = await fetch('/api/v1/chat?port=' + chatPort, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'default', messages: chatHistory.slice(-20), max_tokens: 4096, stream: true }) });
+    if (!r.ok) {
+      var errText = await r.text();
+      var msg;
+      try { var errJson = JSON.parse(errText); msg = errJson.error || errText; } catch(e) { msg = errText; }
+      addMsg('system', 'Server error (' + r.status + '): ' + msg);
+      return;
+    }
     var reader = r.body.getReader(), decoder = new TextDecoder(), buf = '';
     while (true) {
       var { done, value } = await reader.read();
@@ -1781,14 +1798,68 @@ async function sendChat() {
             reasoningEl.textContent = reasoning;
           }
           if (delta.content) {
-            if (!msgEl) { msgEl = document.createElement('div'); msgEl.className = 'msg assistant'; chatPanel.appendChild(msgEl); }
-            content += delta.content; msgEl.textContent = content;
+            var txt = delta.content;
+            if (thinking) {
+              reasoning += txt;
+            } else {
+              var ti = txt.indexOf('<think>');
+              var ti2 = ti >= 0 ? -1 : txt.indexOf('<think');
+              if (ti >= 0) {
+                thinking = true;
+                reasoning += txt.slice(ti + 7);
+              } else if (ti2 >= 0) {
+                thinking = true;
+                reasoning += txt.slice(ti2);
+              } else {
+                content += txt;
+                if (!msgEl) { msgEl = document.createElement('div'); msgEl.className = 'msg assistant'; chatPanel.appendChild(msgEl); }
+                msgEl.textContent = content;
+              }
+            }
+            if (thinking) {
+              var endIdx = reasoning.indexOf('</think>');
+              if (endIdx >= 0) {
+                var after = reasoning.slice(endIdx + 8);
+                reasoning = reasoning.slice(0, endIdx);
+                if (reasoning.indexOf('<think>') === 0) reasoning = reasoning.slice(7);
+                else if (reasoning.indexOf('<think') === 0) reasoning = reasoning.slice(6);
+                thinking = false;
+                if (after) {
+                  content += after;
+                  if (!msgEl) { msgEl = document.createElement('div'); msgEl.className = 'msg assistant'; chatPanel.appendChild(msgEl); }
+                  msgEl.textContent = content;
+                }
+              }
+              var displayR = reasoning;
+              if (displayR.indexOf('<think>') === 0) displayR = displayR.slice(7);
+              else if (displayR.indexOf('<think') === 0) displayR = displayR.slice(6);
+              if (displayR) {
+                if (!reasoningEl) { reasoningEl = document.createElement('div'); reasoningEl.className = 'reasoning'; chatPanel.appendChild(reasoningEl); }
+                reasoningEl.textContent = displayR;
+              }
+            }
           }
         } catch (e) {}
       }
       chatPanel.scrollTop = chatPanel.scrollHeight;
     }
-    if (msgEl) { chatHistory.push({ role: 'assistant', content: content }); saveChatHistory(); }
+    if (thinking && reasoning) {
+      // Model never closed </think> - flush reasoning as content
+      var remaining = reasoning;
+      if (remaining.indexOf('<think>') === 0) remaining = remaining.slice(7);
+      else if (remaining.indexOf('<think') === 0) remaining = remaining.slice(6);
+      content = remaining;
+      reasoning = '';
+      thinking = false;
+      if (reasoningEl) { reasoningEl.remove(); reasoningEl = null; }
+      if (!msgEl) { msgEl = document.createElement('div'); msgEl.className = 'msg assistant'; chatPanel.appendChild(msgEl); }
+      msgEl.textContent = content;
+    }
+    if (msgEl) {
+      var saveContent = reasoning ? '<think>' + reasoning + '</think>' + content : content;
+      chatHistory.push({ role: 'assistant', content: saveContent });
+      saveChatHistory();
+    }
     updateContextMeter();
   } catch (e) { if (msgEl) { msgEl.innerHTML = 'Error: ' + escHtml(e.message); msgEl.className = 'msg system'; } else { var em = addMsg('assistant', ''); em.innerHTML = 'Error: ' + escHtml(e.message); em.className = 'msg system'; } }
 }

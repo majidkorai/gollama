@@ -648,6 +648,16 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode >= 400 {
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		for k, v := range resp.Header {
+			w.Header()[k] = v
+		}
+		w.WriteHeader(resp.StatusCode)
+		w.Write(bodyBytes)
+		return
+	}
+
 	if isStream {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
@@ -940,27 +950,46 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 			return
 		}
 		shouldStrip := shouldStripReasoning(cfg, profileName)
-		buf := make([]byte, 256)
+		inThink := false
+		thinkBuf := ""
+		reader := bufio.NewReader(resp.Body)
 		for {
-			n, err := resp.Body.Read(buf)
-			if n > 0 {
-				s.mgr.TouchActivity(inst.Port)
-				data := buf[:n]
-				if shouldStrip {
-					data = stripReasoningContent(data)
+			line, err := reader.ReadString('\n')
+			if err != nil && err != io.EOF {
+				break
+			}
+			s.mgr.TouchActivity(inst.Port)
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "data: ") {
+				data := strings.TrimPrefix(trimmed, "data: ")
+				if data == "[DONE]" {
+					w.Write([]byte(line))
+					flusher.Flush()
+					break
 				}
-				w.Write(data)
-				flusher.Flush()
+				if !shouldStrip {
+					data = extractThinkStream(data, &inThink, &thinkBuf)
+				}
+				var cleaned []byte
+				if shouldStrip {
+					cleaned = stripContentThinkTags([]byte(data))
+					cleaned = stripReasoningContent(cleaned)
+				} else {
+					cleaned = []byte(data)
+				}
+				line = "data: " + string(cleaned) + "\n"
 				var usage struct {
 					Usage *struct {
 						CompletionTokens int64 `json:"completion_tokens"`
 					} `json:"usage"`
 				}
-				if json.Unmarshal(buf[:n], &usage) == nil && usage.Usage != nil {
+				if json.Unmarshal([]byte(data), &usage) == nil && usage.Usage != nil {
 					s.mgr.AddCompletionTokens(inst.Port, usage.Usage.CompletionTokens)
 				}
 			}
-			if err != nil {
+			w.Write([]byte(line))
+			flusher.Flush()
+			if err == io.EOF {
 				break
 			}
 		}
@@ -986,7 +1015,10 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 	}
 
 	if shouldStripReasoning(cfg, profileName) {
+		respBody = stripContentThinkTags(respBody)
 		respBody = stripReasoningContent(respBody)
+	} else {
+		respBody = convertCompleteThink(respBody)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1007,6 +1039,7 @@ func shouldStripReasoning(cfg *model.Config, profileName string) bool {
 }
 
 // stripReasoningContent removes "reasoning_content" fields from JSON responses.
+// <think> tags are stripped unconditionally by stripContentThinkTags before this runs.
 func stripReasoningContent(data []byte) []byte {
 	var obj map[string]interface{}
 	if err := json.Unmarshal(data, &obj); err != nil {
@@ -1024,6 +1057,237 @@ func stripReasoningContent(data []byte) []byte {
 	for _, key := range []string{"delta", "message"} {
 		if msg, ok := choice[key].(map[string]interface{}); ok {
 			delete(msg, "reasoning_content")
+			break
+		}
+	}
+	cleaned, _ := json.Marshal(obj)
+	return cleaned
+}
+
+// extractThinkStream handles <think>..</think> extraction from streaming SSE chunks.
+// Accumulates thinking across chunks, flushes as reasoning_content on </think>.
+func extractThinkStream(data string, inThink *bool, buf *string) string {
+	// Parse the JSON and extract the content from delta/message
+	deltaKey, content, err := parseDeltaContent([]byte(data))
+	if err != nil || deltaKey == "" {
+		return data
+	}
+
+	if *inThink {
+		if ei := strings.Index(content, "</think>"); ei >= 0 {
+			*buf += content[:ei]
+			after := content[ei+8:]
+			type choicesObj = map[string]interface{}
+			var obj choicesObj
+			json.Unmarshal([]byte(data), &obj)
+			choices, _ := obj["choices"].([]interface{})
+			if len(choices) > 0 {
+				if ch, ok := choices[0].(choicesObj); ok {
+					if d, ok := ch["delta"].(choicesObj); ok {
+						d["reasoning_content"] = *buf
+						delete(d, "content")
+					}
+				}
+			}
+			cleaned, _ := json.Marshal(obj)
+			*buf = ""
+			*inThink = false
+			if after != "" {
+				var obj2 choicesObj
+				json.Unmarshal(cleaned, &obj2)
+				chs, _ := obj2["choices"].([]interface{})
+				if len(chs) > 0 {
+					if ch, ok := chs[0].(choicesObj); ok {
+						if d, ok := ch["delta"].(choicesObj); ok {
+							d["content"] = after
+						}
+					}
+				}
+				cleaned2, _ := json.Marshal(obj2)
+				return string(cleaned2)
+			}
+			return string(cleaned)
+		}
+		*buf += content
+		return rewriteDeltaContent([]byte(data), deltaKey, "")
+	}
+
+	if si := strings.Index(content, "<think>"); si >= 0 {
+		afterOpen := content[si+7:]
+		if ei := strings.Index(afterOpen, "</think>"); ei >= 0 {
+			// Complete think in one chunk — rewrite directly
+			pre := content[:si]
+			reasoning := afterOpen[:ei]
+			post := afterOpen[ei+8:]
+			result := []byte(data)
+			type choicesObj = map[string]interface{}
+			var obj choicesObj
+			if json.Unmarshal(result, &obj) == nil {
+				if chs, ok := obj["choices"].([]interface{}); ok && len(chs) > 0 {
+					if ch, ok := chs[0].(choicesObj); ok {
+						if d, ok := ch["delta"].(choicesObj); ok {
+							d["reasoning_content"] = reasoning
+							if pre != "" || post != "" {
+								d["content"] = pre + post
+							} else {
+								delete(d, "content")
+							}
+						}
+					}
+				}
+			}
+			cleaned, _ := json.Marshal(obj)
+			return string(cleaned)
+		}
+		// Start buffering
+		if si > 0 {
+			result := rewriteDeltaContent([]byte(data), deltaKey, content[:si])
+			*buf = afterOpen
+			*inThink = true
+			return result
+		} else {
+			result := rewriteDeltaContent([]byte(data), deltaKey, "")
+			*buf = afterOpen
+			*inThink = true
+			return result
+		}
+	}
+
+	return data
+}
+
+// parseDeltaContent extracts the content string from delta or message field.
+func parseDeltaContent(raw []byte) (key string, content string, err error) {
+	var obj map[string]interface{}
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return "", "", err
+	}
+	choices, _ := obj["choices"].([]interface{})
+	if len(choices) == 0 {
+		return "", "", nil
+	}
+	choice, _ := choices[0].(map[string]interface{})
+	if choice == nil {
+		return "", "", nil
+	}
+	for _, k := range []string{"delta", "message"} {
+		if msg, ok := choice[k].(map[string]interface{}); ok {
+			if c, ok := msg["content"].(string); ok {
+				return k, c, nil
+			}
+		}
+	}
+	return "", "", nil
+}
+
+// rewriteDeltaContent sets the content field in delta/message to a new value.
+func rewriteDeltaContent(raw []byte, key string, value string) string {
+	if key == "" {
+		return string(raw)
+	}
+	var obj map[string]interface{}
+	if json.Unmarshal(raw, &obj) != nil {
+		return string(raw)
+	}
+	choices, _ := obj["choices"].([]interface{})
+	if len(choices) == 0 {
+		return string(raw)
+	}
+	choice, _ := choices[0].(map[string]interface{})
+	if choice == nil {
+		return string(raw)
+	}
+	if msg, ok := choice[key].(map[string]interface{}); ok {
+		if value == "" {
+			delete(msg, "content")
+		} else {
+			msg["content"] = value
+		}
+	}
+	cleaned, _ := json.Marshal(obj)
+	return string(cleaned)
+}
+
+// convertCompleteThink extracts <think>..</think> from message content
+// into reasoning_content for a complete (non-streaming) response.
+func convertCompleteThink(data []byte) []byte {
+	var obj map[string]interface{}
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return data
+	}
+	choices, _ := obj["choices"].([]interface{})
+	if len(choices) == 0 {
+		return data
+	}
+	choice, _ := choices[0].(map[string]interface{})
+	if choice == nil {
+		return data
+	}
+	msg, _ := choice["message"].(map[string]interface{})
+	if msg == nil {
+		return data
+	}
+	c, _ := msg["content"].(string)
+	if c == "" {
+		return data
+	}
+	si := strings.Index(c, "<think>")
+	if si < 0 {
+		return data
+	}
+	afterOpen := c[si+7:]
+	ei := strings.Index(afterOpen, "</think>")
+	if ei < 0 {
+		return data
+	}
+	reasoning := afterOpen[:ei]
+	rest := afterOpen[ei+8:]
+	msg["reasoning_content"] = reasoning
+	if si > 0 || rest != "" {
+		msg["content"] = c[:si] + rest
+	} else {
+		delete(msg, "content")
+	}
+	cleaned, _ := json.Marshal(obj)
+	return cleaned
+}
+
+// stripThinkTags removes <think>...</think> sections from a string.
+func stripThinkTags(s string) string {
+	for {
+		si := strings.Index(s, "<think>")
+		if si < 0 {
+			break
+		}
+		ei := strings.Index(s[si:], "</think>")
+		if ei < 0 {
+			break
+		}
+		s = s[:si] + s[si+ei+8:]
+	}
+	return s
+}
+
+// stripContentThinkTags removes <think>...</think> from content fields in JSON responses.
+// This is called when strip_reasoning is enabled for a profile.
+func stripContentThinkTags(data []byte) []byte {
+	var obj map[string]interface{}
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return data
+	}
+	choices, _ := obj["choices"].([]interface{})
+	if len(choices) == 0 {
+		return data
+	}
+	choice, _ := choices[0].(map[string]interface{})
+	if choice == nil {
+		return data
+	}
+	for _, key := range []string{"delta", "message"} {
+		if msg, ok := choice[key].(map[string]interface{}); ok {
+			if c, ok := msg["content"].(string); ok {
+				msg["content"] = stripThinkTags(c)
+			}
 			break
 		}
 	}
