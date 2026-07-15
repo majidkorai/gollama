@@ -85,7 +85,7 @@ var standaloneFlags = map[string]bool{
 
 func DefaultConfig() *Config {
 	flags := []string{"--host", "0.0.0.0", "--ctx-size", "2048", "--flash-attn", "on", "--temp", "0.7"}
-	return &Config{DefaultFlags: flags, IdleTTL: 30}
+	return &Config{DefaultFlags: flags, IdleTTL: 30, Profiles: make(map[string]Profile)}
 }
 
 func sanitizeFlags(flags []string) []string {
@@ -124,6 +124,9 @@ func LoadConfig() *Config {
 	if json.Unmarshal(data, &cfg) != nil || cfg.DefaultFlags == nil {
 		cfg = *DefaultConfig()
 		SaveConfig(&cfg)
+	}
+	if cfg.Profiles == nil {
+		cfg.Profiles = make(map[string]Profile)
 	}
 	cfg.DefaultFlags = sanitizeFlags(cfg.DefaultFlags)
 	cfg.ProxyDefaults = sanitizeFlags(cfg.ProxyDefaults)
