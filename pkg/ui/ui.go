@@ -2111,7 +2111,7 @@ async function loadSettings() {
       var i = 0;
       for (var name in cfg.profiles) {
         var p = cfg.profiles[name];
-        renderProfile({ name: name, model: p.model || '', desc: p.description || '', flags: p.flags, strip_reasoning: p.strip_reasoning, env: p.env }, i);
+        renderProfile({ name: name, model: p.model || '', desc: p.description || '', flags: p.flags, strip_reasoning: p.strip_reasoning, merge_reasoning: p.merge_reasoning, env: p.env }, i);
         i++;
       }
       nextPid = i;
@@ -2217,6 +2217,7 @@ function renderProfile(p, i) {
       '<div style="flex:1;min-width:140px"><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Model (optional)</label><input type="text" class="flag-custom" placeholder="e.g. qwen3-coder-next" style="width:100%" id="pm-' + i + '" value="' + escAttr(p.model || '') + '"></div>' +
       '<div style="flex:2;min-width:180px"><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Description</label><input type="text" class="flag-custom" placeholder="What is this profile for?" style="width:100%" id="pd-' + i + '" value="' + escAttr(p.desc || '') + '"></div>' +
       '<div style="flex:0 0 auto;display:flex;align-items:end;padding-bottom:2px"><label style="font-size:11px;color:var(--text-dim);display:flex;align-items:center;gap:4px;white-space:nowrap;cursor:pointer"><input type="checkbox" id="ps-' + i + '" ' + (p.strip_reasoning ? 'checked' : '') + ' style="accent-color:var(--accent)"> Strip reasoning</label></div>' +
+      '<div style="flex:0 0 auto;display:flex;align-items:end;padding-bottom:2px"><label style="font-size:11px;color:var(--text-dim);display:flex;align-items:center;gap:4px;white-space:nowrap;cursor:pointer"><input type="checkbox" id="pmr-' + i + '" ' + (p.merge_reasoning ? 'checked' : '') + ' style="accent-color:var(--accent)"> Merge reasoning</label></div>' +
     '</div>' +
     '<div style="font-size:11px;color:var(--text-dim);margin-bottom:6px">Flags</div>' +
     '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px" id="pf-' + i + '"></div>' +
@@ -2266,6 +2267,8 @@ async function saveProfiles() {
     }
     var profileObj = { model: model ? model.value : '', description: desc ? desc.value : '', flags: flags };
     if (stripEl && stripEl.checked) profileObj.strip_reasoning = true;
+    var mergeEl = document.getElementById('pmr-' + idx);
+    if (mergeEl && mergeEl.checked) profileObj.merge_reasoning = true;
     var envObj = {};
     var ec = document.getElementById('pe-' + idx);
     if (ec) {

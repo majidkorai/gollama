@@ -43,6 +43,7 @@ type Profile struct {
 	Flags          []string          `json:"flags"`
 	Description    string            `json:"description,omitempty"`
 	StripReasoning *bool             `json:"strip_reasoning,omitempty"`
+	MergeReasoning *bool             `json:"merge_reasoning,omitempty"`
 	Env            map[string]string `json:"env,omitempty"`
 }
 

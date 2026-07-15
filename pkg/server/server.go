@@ -438,6 +438,11 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 								p.StripReasoning = &b
 							}
 						}
+						if mr, ok := pMap["merge_reasoning"]; ok {
+							if b, ok := mr.(bool); ok && b {
+								p.MergeReasoning = &b
+							}
+						}
 						if envRaw, ok := pMap["env"].(map[string]interface{}); ok {
 							env := make(map[string]string, len(envRaw))
 							for ek, ev := range envRaw {
@@ -830,6 +835,12 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 	var reqMap map[string]interface{}
 	json.Unmarshal(body, &reqMap)
 
+	// Sanitize pattern fields in JSON schemas (response_format, tools)
+	// llama-server requires regex patterns to start with ^ and end with $
+	stripAdditionalProperties(reqMap)
+	sanitizeSchemaPatterns(reqMap)
+	body, _ = json.Marshal(reqMap)
+
 	modelName, _ := reqMap["model"].(string)
 	if modelName == "" {
 		jsonError(w, "model field is required", 400)
@@ -932,6 +943,36 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 
 	if resp.StatusCode >= 400 {
 		bodyBytes, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		errMsg := strings.ToLower(string(bodyBytes))
+		// If grammar parsing failed, retry with simplified tool schemas to avoid GBNF complexity limits
+		if (strings.Contains(errMsg, "grammar") || strings.Contains(errMsg, "parse error")) && reqMap["tools"] != nil {
+			log.Printf("grammar parse error, retrying with simplified tools")
+			simplifyToolSchemas(reqMap)
+			retryBody, _ := json.Marshal(reqMap)
+			retryCtx, retryCancel := context.WithTimeout(r.Context(), 10*time.Minute)
+			defer retryCancel()
+			retryReq, err := http.NewRequestWithContext(retryCtx, "POST", target, strings.NewReader(string(retryBody)))
+			if err == nil {
+				retryReq.Header.Set("Content-Type", "application/json")
+				resp2, err2 := http.DefaultClient.Do(retryReq)
+				if err2 == nil && resp2.StatusCode < 400 {
+					defer resp2.Body.Close()
+					for k, v := range resp2.Header {
+						w.Header()[k] = v
+					}
+					w.WriteHeader(resp2.StatusCode)
+					io.Copy(w, resp2.Body)
+					return
+				}
+				if err2 != nil {
+					log.Printf("retry also failed: %v", err2)
+				}
+				if resp2 != nil {
+					resp2.Body.Close()
+				}
+			}
+		}
 		for k, v := range resp.Header {
 			w.Header()[k] = v
 		}
@@ -950,6 +991,7 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 			return
 		}
 		shouldStrip := shouldStripReasoning(cfg, profileName)
+		shouldMerge := shouldMergeReasoning(cfg, profileName)
 		inThink := false
 		thinkBuf := ""
 		reader := bufio.NewReader(resp.Body)
@@ -967,16 +1009,19 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 					flusher.Flush()
 					break
 				}
-				if !shouldStrip {
-					data = extractThinkStream(data, &inThink, &thinkBuf)
-				}
-				var cleaned []byte
-				if shouldStrip {
-					cleaned = stripContentThinkTags([]byte(data))
-					cleaned = stripReasoningContent(cleaned)
-				} else {
-					cleaned = []byte(data)
-				}
+			var cleaned []byte
+			if shouldMerge {
+				// Merge mode: keep <think> content in content field for clients that
+				// don't parse reasoning_content (e.g. opencode's TUI).
+				// Skip extractThinkStream since it strips <think> into reasoning_content.
+				cleaned = []byte(data)
+			} else if shouldStrip {
+				cleaned = stripContentThinkTags([]byte(data))
+				cleaned = stripReasoningContent(cleaned)
+			} else {
+				data = extractThinkStream(data, &inThink, &thinkBuf)
+				cleaned = []byte(data)
+			}
 				line = "data: " + string(cleaned) + "\n"
 				var usage struct {
 					Usage *struct {
@@ -1025,6 +1070,19 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 	w.Write(respBody)
 }
 
+// shouldMergeReasoning checks whether reasoning_content should be moved into
+// content for the given profile. Default is false (keep separate).
+func shouldMergeReasoning(cfg *model.Config, profileName string) bool {
+	if profileName == "" || cfg == nil {
+		return false
+	}
+	p, ok := cfg.Profiles[profileName]
+	if !ok {
+		return false
+	}
+	return p.MergeReasoning != nil && *p.MergeReasoning
+}
+
 // shouldStripReasoning checks whether reasoning_content should be stripped
 // for the given profile. Default is false (show reasoning).
 func shouldStripReasoning(cfg *model.Config, profileName string) bool {
@@ -1036,6 +1094,40 @@ func shouldStripReasoning(cfg *model.Config, profileName string) bool {
 		return false
 	}
 	return p.StripReasoning != nil && *p.StripReasoning
+}
+
+// mergeReasoningContent converts "reasoning_content" into "content" in real-time
+// so it's visible as regular text to clients that don't parse reasoning_content.
+func mergeReasoningContent(data []byte) []byte {
+	var obj map[string]interface{}
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return data
+	}
+	choices, _ := obj["choices"].([]interface{})
+	if len(choices) == 0 {
+		return data
+	}
+	choice, _ := choices[0].(map[string]interface{})
+	if choice == nil {
+		return data
+	}
+	delta, ok := choice["delta"].(map[string]interface{})
+	if !ok {
+		return data
+	}
+
+	if rc, ok := delta["reasoning_content"].(string); ok {
+		// Send reasoning as visible content immediately instead of accumulating
+		delete(delta, "reasoning_content")
+		if existing, ok := delta["content"].(string); ok {
+			delta["content"] = existing + rc
+		} else {
+			delta["content"] = rc
+		}
+	}
+
+	cleaned, _ := json.Marshal(obj)
+	return cleaned
 }
 
 // stripReasoningContent removes "reasoning_content" fields from JSON responses.
@@ -1304,4 +1396,102 @@ func jsonError(w http.ResponseWriter, msg string, code int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}
+
+// simplifyToolSchemas strips nested properties/items from tool parameter schemas
+// to prevent llama-server's grammar parser from exceeding repetition limits.
+// Only keeps the top-level parameter names and types; nested objects become
+// untyped placeholders.
+func simplifyToolSchemas(v interface{}) {
+	tools, ok := v.(map[string]interface{})
+	if !ok {
+		return
+	}
+	toolsArr, ok := tools["tools"].([]interface{})
+	if !ok {
+		return
+	}
+	for _, t := range toolsArr {
+		tool, ok := t.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		fn, ok := tool["function"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		params, ok := fn["parameters"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		props, ok := params["properties"].(map[string]interface{})
+		if !ok {
+			continue
+		}
+		for _, propVal := range props {
+			propObj, ok := propVal.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			// Remove nested properties/items from any object/array parameter
+			delete(propObj, "properties")
+			delete(propObj, "items")
+		}
+	}
+}
+
+// stripAdditionalProperties removes "additionalProperties" from JSON schemas
+// to prevent llama-server's grammar parser from generating massive
+// character-by-character matching rules that exceed repetition limits.
+func stripAdditionalProperties(v interface{}) {
+	switch val := v.(type) {
+	case map[string]interface{}:
+		delete(val, "additionalProperties")
+		for _, child := range val {
+			stripAdditionalProperties(child)
+		}
+	case []interface{}:
+		for _, item := range val {
+			stripAdditionalProperties(item)
+		}
+	}
+}
+
+// sanitizeSchemaPatterns walks a JSON-like map and sanitizes regex patterns
+// in JSON schemas so llama-server's grammar parser doesn't reject them.
+// Replaces unsupported regex escapes (\S, \D, \W, \s, \d, \w) with GBNF-safe equivalents.
+func sanitizeSchemaPatterns(v interface{}) {
+	replacer := strings.NewReplacer(
+		`\S`, `[^ ]`,
+		`\D`, `[^0-9]`,
+		`\W`, `[^a-zA-Z0-9_]`,
+		`\s`, `[ ]`,
+		`\d`, `[0-9]`,
+		`\w`, `[a-zA-Z0-9_]`,
+	)
+	switch val := v.(type) {
+	case map[string]interface{}:
+		for k, child := range val {
+			if k == "pattern" {
+				if s, ok := child.(string); ok {
+					fixed := replacer.Replace(s)
+					needsStart := !strings.HasPrefix(fixed, "^")
+					needsEnd := !strings.HasSuffix(fixed, "$")
+					if needsStart {
+						fixed = "^" + fixed
+					}
+					if needsEnd {
+						fixed = fixed + "$"
+					}
+					val[k] = fixed
+				}
+			} else {
+				sanitizeSchemaPatterns(child)
+			}
+		}
+	case []interface{}:
+		for _, item := range val {
+			sanitizeSchemaPatterns(item)
+		}
+	}
 }
