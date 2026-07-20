@@ -835,10 +835,16 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 	var reqMap map[string]interface{}
 	json.Unmarshal(body, &reqMap)
 
-	// Sanitize pattern fields in JSON schemas (response_format, tools)
-	// llama-server requires regex patterns to start with ^ and end with $
-	stripAdditionalProperties(reqMap)
-	sanitizeSchemaPatterns(reqMap)
+	// Only apply schema sanitization when tools or response_format are present.
+	// These are expensive recursive walks that we skip for simple chat requests.
+	if _, hasTools := reqMap["tools"]; hasTools {
+		stripAdditionalProperties(reqMap)
+		sanitizeSchemaPatterns(reqMap)
+		simplifyToolSchemas(reqMap)
+	} else if _, hasRespFmt := reqMap["response_format"]; hasRespFmt {
+		stripAdditionalProperties(reqMap)
+		sanitizeSchemaPatterns(reqMap)
+	}
 	body, _ = json.Marshal(reqMap)
 
 	modelName, _ := reqMap["model"].(string)

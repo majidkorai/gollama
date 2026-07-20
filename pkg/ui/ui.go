@@ -2228,9 +2228,13 @@ function renderProfile(p, i) {
   c.appendChild(d);
   var fc = document.getElementById('pf-' + i);
   if (p.flags) {
-    p.flags.forEach(function(f, fi) {
-      if (fi % 2 == 0) fc.appendChild(makeFlagRow(f, p.flags[fi+1] || ''));
-    });
+    for (var fi = 0; fi < p.flags.length; fi++) {
+      var f = p.flags[fi];
+      var isStandalone = standaloneFlags[f];
+      var val = (!isStandalone && fi + 1 < p.flags.length) ? p.flags[fi + 1] : '';
+      fc.appendChild(makeFlagRow(f, val));
+      if (!isStandalone && val) fi++;
+    }
   }
   var ec = document.getElementById('pe-' + i);
   if (p.env) {
