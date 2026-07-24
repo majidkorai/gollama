@@ -1040,13 +1040,39 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 		launchFlags = cfg.ProxyFlags()
 	}
 
-	// Stop any running instances with a different model (single-instance mode).
-	// This preempts image when text is needed, and switches between text models.
+	// Stop other text models when switching. Don't stop image instances —
+	// give them a grace period to finish generating (avoids cutting off the
+	// response mid-flight). Image can be preempted if it's been running for
+	// more than 30 seconds or has been idle for 10+ seconds.
 	if running := s.mgr.List(); len(running) > 0 {
 		for _, inst := range running {
-			if inst.Status == "running" && inst.Model != modelName {
-				log.Printf("stopping existing instance %q (port %d) for new model %q", inst.Model, inst.Port, modelName)
+			if inst.Status == "running" && inst.Type != "image" && inst.Model != modelName {
+				log.Printf("stopping existing text instance %q (port %d) for new model %q", inst.Model, inst.Port, modelName)
 				s.mgr.Stop(inst.Port)
+				continue
+			}
+			if inst.Status == "running" && inst.Type == "image" {
+				sinceStart := time.Since(inst.StartedAt)
+				sinceActivity := time.Since(inst.LastActivity)
+				if sinceStart < 30*time.Second || sinceActivity < 10*time.Second {
+					log.Printf("image instance %q (port %d) running for %v — deferring text until image finishes", inst.Model, inst.Port, sinceStart.Round(time.Second))
+					// Wait for image to complete (up to 60s)
+					deadline := time.Now().Add(60 * time.Second)
+					for time.Now().Before(deadline) {
+						if !s.mgr.HasInstance(inst.Port) {
+							log.Printf("image instance completed, proceeding with text model %q", modelName)
+							break
+						}
+						time.Sleep(1 * time.Second)
+					}
+					if s.mgr.HasInstance(inst.Port) {
+						log.Printf("image instance timed out — forcefully preempting")
+						s.mgr.Stop(inst.Port)
+					}
+				} else {
+					log.Printf("stopping stale image instance %q (port %d) for new model %q", inst.Model, inst.Port, modelName)
+					s.mgr.Stop(inst.Port)
+				}
 			}
 		}
 	}

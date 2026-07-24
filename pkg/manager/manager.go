@@ -714,6 +714,13 @@ func (m *Manager) SetProfile(port int, profile string) {
 	}
 }
 
+func (m *Manager) HasInstance(port int) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	_, ok := m.instances[port]
+	return ok
+}
+
 func (m *Manager) TouchActivity(port int) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
