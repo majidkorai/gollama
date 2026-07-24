@@ -263,7 +263,7 @@ func main() {
 			os.Exit(1)
 		}
 		unit := fmt.Sprintf(`[Unit]
-Description=gollama — llama.cpp instance manager
+Description=gollama — model manager (text + image generation)
 After=network-online.target
 Wants=network-online.target
 
@@ -455,7 +455,7 @@ func runWizard() {
 			bin, err := os.Executable()
 			if err == nil {
 				unit := fmt.Sprintf(`[Unit]
-Description=gollama — llama.cpp instance manager
+Description=gollama — model manager (text + image generation)
 After=network-online.target
 Wants=network-online.target
 
@@ -524,7 +524,7 @@ func truncate(s string, n int) string {
 }
 
 func printUsage() {
-	fmt.Println(`gollama — llama.cpp instance manager
+	fmt.Println(`gollama — model manager (text + image generation)
 
 Usage:
   gollama update                 Download/update llama-server binary

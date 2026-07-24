@@ -1,8 +1,8 @@
 # gollama 🦙
 
-**Spin up GGUF models in seconds** — a single Go binary that downloads, manages, and runs llama.cpp instances with an OpenAI-compatible API, real-time streaming chat, reasoning display, web UI, REST API, and full flag control.
+**Text + image model manager** — a single Go binary that downloads, manages, and runs llama.cpp instances (text) and diffusers pipelines (image) with an OpenAI-compatible API, real-time streaming chat, reasoning display, image generation, web UI, REST API, and full control.
 
-Pull any model from HuggingFace, launch it on any port, chat with streaming token-by-token responses — all from one command. No dependencies, no Docker, no Python.
+Pull any model from HuggingFace, launch it on any port, chat with streaming token-by-token responses or generate images — all from one binary. No dependencies, no Docker.
 
 ## Install
 
