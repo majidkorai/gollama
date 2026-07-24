@@ -834,7 +834,7 @@ async function loadInstances() {
     var running = list.filter(function(i) { return i.status == 'running'; });
 
     cs.innerHTML = '<option value="">— select a running instance —</option>';
-    list.forEach(function(i) { var mn = i.model || '?'; cs.innerHTML += '<option value="' + i.port + '"' + (chatPort == i.port ? ' selected' : '') + '>' + i.port + ' - ' + (mn.length > 35 ? mn.slice(0, 35) + '…' : escHtml(mn)) + '</option>'; });
+    list.forEach(function(i) { if (i.type == 'image') return; var mn = i.model || '?'; cs.innerHTML += '<option value="' + i.port + '"' + (chatPort == i.port ? ' selected' : '') + '>' + i.port + ' - ' + (mn.length > 35 ? mn.slice(0, 35) + '…' : escHtml(mn)) + '</option>'; });
     if (!list.length) {
       document.getElementById('chatPanel').style.display = 'none';
       document.getElementById('chatEmpty').style.display = 'flex';
@@ -853,7 +853,8 @@ async function loadInstances() {
       var uptime = i.started_at ? (function() { var s = Math.floor((Date.now() - new Date(i.started_at).getTime()) / 1000); return '<span title="Uptime">⏱ ' + (s > 86400 ? Math.floor(s/86400)+'d ' : '') + (s > 3600 ? Math.floor((s%86400)/3600)+'h ' : '') + Math.floor((s%3600)/60)+'m</span>'; })() : '';
       var idle = i.last_activity ? (function() { var s = Math.floor((Date.now() - new Date(i.last_activity).getTime()) / 1000); if (s < 60) return ''; return '<span title="Idle time">💤 ' + (s > 3600 ? Math.floor(s/3600)+'h ' : '') + Math.floor((s%3600)/60)+'m</span>'; })() : '';
       var tokens = i.total_tokens ? '<span title="Total tokens">🔤 ' + (i.total_tokens > 999 ? Math.round(i.total_tokens/1000) + 'K' : i.total_tokens) + '</span>' : '';
-      var metrics = (i.device_split ? '<span title="Model split">📊 ' + i.device_split + '</span>' : '') + (i.profile ? ' <span class="badge badge-profile" title="Active model profile">📋 ' + escHtml(i.profile) + '</span>' : '');
+      var typeLabel = i.type == 'image' ? '<span class="badge" style="background:var(--accent-bg);color:var(--accent)">🖼️ image</span>' : '<span class="badge" style="background:var(--surface-2);color:var(--text-dim)">💬 text</span>';
+var metrics = typeLabel + (i.device_split ? '<span title="Model split">📊 ' + i.device_split + '</span>' : '') + (i.profile ? ' <span class="badge badge-profile" title="Active model profile">📋 ' + escHtml(i.profile) + '</span>' : '');
       var flags = i.flags && i.flags.length ? formatFlags(i.flags) : '';
       var flagsHtml = flags ? '<div style="font-size: 11px; color: var(--text-dim); margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); word-break: break-all; font-family: var(--font-mono)">' + escHtml(flags) + '</div>' : '';
       var errDiv = i.status != 'running' ? '<div class="error-line" id="err-' + i.port + '"></div>' : '';
@@ -862,8 +863,8 @@ async function loadInstances() {
         errDiv + flagsHtml +
         '<div class="actions"><button class="small danger" onclick="stopInstance(' + i.port + ')" aria-label="Stop instance on port ' + i.port + '">⏹ Stop</button>' +
         '<button class="small secondary" onclick="restartInstance(' + i.port + ')" aria-label="Restart instance on port ' + i.port + '">🔄 Restart</button>' +
-        '<button class="small secondary" onclick="selectChatFor(' + i.port + ', \'' + escAttr(mn.replace(/'/g, '')) + '\')" aria-label="Chat with instance on port ' + i.port + '">💬 Chat</button>' +
-        '<button class="small secondary" onclick="window.open(\'http://\' + location.hostname + \':' + i.port + '\', \'_blank\'); return false" aria-label="Open instance on port ' + i.port + '">🌐 Open</button>' +
+        (i.type == 'image' ? '' : '<button class="small secondary" onclick="selectChatFor(' + i.port + ', \'' + escAttr(mn.replace(/'/g, '')) + '\')" aria-label="Chat with instance on port ' + i.port + '">💬 Chat</button>') +
+        (i.type == 'image' ? '' : '<button class="small secondary" onclick="window.open(\'http://\' + location.hostname + \':' + i.port + '\', \'_blank\'); return false" aria-label="Open instance on port ' + i.port + '">🌐 Open</button>') +
         '<button class="small secondary" onclick="viewLogs(' + i.port + ')" aria-label="View logs for port ' + i.port + '">📋 Logs</button></div></div>';
     }).join('');
     list.forEach(function(i) { if (i.status != 'running') fetchErrorLog(i.port); });
