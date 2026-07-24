@@ -21,23 +21,24 @@ import (
 )
 
 type Instance struct {
-	Port         int        `json:"port"`
-	Model        string     `json:"model"`
-	BlobPath     string     `json:"blob_path"`
-	PID          int        `json:"pid"`
-	Status       string     `json:"status"`
-	Ready        bool       `json:"ready"`
-	TokensPerSec float64    `json:"tokens_per_sec,omitempty"`
-	Flags        []string   `json:"flags,omitempty"`
-	StartedAt    time.Time  `json:"started_at"`
-	TotalTokens  int64      `json:"total_tokens"`
-	LastActivity time.Time  `json:"last_activity"`
-	GpuUtil      float64    `json:"gpu_util"`
-	CpuPercent   float64    `json:"cpu_percent"`
-	MemoryMB     float64    `json:"memory_mb"`
-	DeviceSplit  string     `json:"device_split,omitempty"`
-	Profile      string     `json:"profile,omitempty"`
-	Type         string     `json:"type,omitempty"` // "text" or "image"
+	Port             int        `json:"port"`
+	Model            string     `json:"model"`
+	BlobPath         string     `json:"blob_path"`
+	PID              int        `json:"pid"`
+	Status           string     `json:"status"`
+	Ready            bool       `json:"ready"`
+	TokensPerSec     float64    `json:"tokens_per_sec,omitempty"`
+	Flags            []string   `json:"flags,omitempty"`
+	StartedAt        time.Time  `json:"started_at"`
+	TotalTokens      int64      `json:"total_tokens"`
+	LastActivity     time.Time  `json:"last_activity"`
+	GpuUtil          float64    `json:"gpu_util"`
+	CpuPercent       float64    `json:"cpu_percent"`
+	MemoryMB         float64    `json:"memory_mb"`
+	DeviceSplit      string     `json:"device_split,omitempty"`
+	Profile          string     `json:"profile,omitempty"`
+	Type             string     `json:"type,omitempty"` // "text" or "image"
+	ActiveConnections int32     `json:"-"` // number of in-flight proxy connections
 }
 
 type Manager struct {
@@ -712,6 +713,42 @@ func (m *Manager) SetProfile(port int, profile string) {
 	if inst, ok := m.instances[port]; ok {
 		inst.Profile = profile
 	}
+}
+
+func (m *Manager) AddConnection(port int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if inst, ok := m.instances[port]; ok {
+		inst.ActiveConnections++
+	}
+}
+
+func (m *Manager) DecConnection(port int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if inst, ok := m.instances[port]; ok && inst.ActiveConnections > 0 {
+		inst.ActiveConnections--
+	}
+}
+
+func (m *Manager) HasActiveConnections(port int) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if inst, ok := m.instances[port]; ok {
+		return inst.ActiveConnections > 0
+	}
+	return false
+}
+
+func (m *Manager) WaitForIdle(port int, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if !m.HasActiveConnections(port) {
+			return true
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return false
 }
 
 func (m *Manager) TouchActivity(port int) {
