@@ -597,9 +597,6 @@ func (s *Server) waitForInstanceReady(port int) {
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
 	deadline := time.Now().Add(60 * time.Second)
 	for time.Now().Before(deadline) {
-		// Check cached readiness first
-		s.mgr.TouchActivity(port)
-		// Then check /health endpoint
 		resp, err := healthClient.Get(baseURL + "/health")
 		if err == nil {
 			resp.Body.Close()
@@ -918,13 +915,19 @@ func (s *Server) handleV1ImageGenerations(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Stop any running text instances (they restart on next text request)
-	// Wait for active connections to drain before stopping
+	// Stop text instances only if they've been idle for a short grace period
+	// (no active requests). This prevents interrupting in-flight SSE streams
+	// while still allowing preemption when the text model is sitting idle.
 	for _, inst := range s.mgr.List() {
 		if inst.Status == "running" && inst.Type != "image" {
-			log.Printf("waiting for text instance %q (port %d) to become idle before stopping for image generation", inst.Model, inst.Port)
-			s.mgr.WaitForIdle(inst.Port, 60*time.Second)
-			log.Printf("stopping text instance %q (port %d) for image generation", inst.Model, inst.Port)
+			sinceActivity := time.Since(inst.LastActivity)
+			if sinceActivity < 10*time.Second && sinceActivity >= 0 {
+				log.Printf("text instance %q (port %d) active %v ago — deferring image", inst.Model, inst.Port, sinceActivity.Round(time.Second))
+				w.Header().Set("Retry-After", "10")
+				jsonError(w, fmt.Sprintf("text model %q is busy, retry image generation later", inst.Model), 503)
+				return
+			}
+			log.Printf("stopping idle text instance %q (port %d) for image generation (idle %v)", inst.Model, inst.Port, sinceActivity.Round(time.Second))
 			s.mgr.Stop(inst.Port)
 		}
 	}
@@ -1090,9 +1093,6 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 	}
 	s.mgr.TouchActivity(inst.Port)
 	s.waitForInstanceReady(inst.Port)
-
-	s.mgr.AddConnection(inst.Port)
-	defer s.mgr.DecConnection(inst.Port)
 
 	isStream, _ := reqMap["stream"].(bool)
 	target := fmt.Sprintf("http://127.0.0.1:%d%s", inst.Port, targetPath)
