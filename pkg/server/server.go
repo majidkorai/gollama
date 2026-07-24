@@ -915,11 +915,19 @@ func (s *Server) handleV1ImageGenerations(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Don't stop text instances — image runs alongside using cpu_offload
-	// (peak ~2-4GB VRAM, components moved in/out of GPU as needed).
+	// Stop text instances to free VRAM for image generation.
+	// Only preempt if text has been idle for 10s — avoids toggling war
+	// when text is actively being used (e.g. agent cron turns).
 	for _, inst := range s.mgr.List() {
 		if inst.Status == "running" && inst.Type != "image" {
-			log.Printf("text instance %q (port %d) running — image will load alongside with cpu_offload", inst.Model, inst.Port)
+			sinceActivity := time.Since(inst.LastActivity)
+			if sinceActivity < 10*time.Second && sinceActivity >= 0 {
+				log.Printf("text instance %q (port %d) active %v ago — deferring image", inst.Model, inst.Port, sinceActivity.Round(time.Second))
+				jsonError(w, fmt.Sprintf("text model %q is busy, retry image generation later", inst.Model), 503)
+				return
+			}
+			log.Printf("stopping idle text instance %q (port %d) for image generation", inst.Model, inst.Port)
+			s.mgr.Stop(inst.Port)
 		}
 	}
 
