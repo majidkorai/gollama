@@ -59,6 +59,7 @@ The first-run wizard:
 - **Model search-as-you-type** — search HuggingFace directly from the pull input. Shows model sizes, likes, and downloads. Click any result to pull.
 - **Multi-file GGUF split download** — automatically detects and downloads all parts of split models (e.g. `model-00001-of-00005.gguf` through `model-00005-of-00005.gguf`) with per-part progress.
 - **Per-part progress** — terminal and web UI show which part is downloading (`[2/6] Downloading…`).
+- **Image generation** — `POST /v1/images/generations` generates images via diffusers (Flux, SDXL, etc.). Auto-stops text instances before loading the image model (single-GPU friendly). Configured through profiles with `"type": "image"`.
 - **Auto-stop idle instances** — configurable TTL (default 30 min). Stops unused instances to free GPU memory.
 - **Model management** — list, pull, delete models from HuggingFace. Click any model to see architecture, quantization, context length, and file path.
 - **Multi-instance** — run multiple models on separate ports simultaneously. Restart with modified flags.
@@ -140,6 +141,7 @@ response = client.chat.completions.create(
 | `GET /v1/models` | List downloaded models (not running instances) |
 | `POST /v1/chat/completions` | Chat completions — auto-starts model if needed (streaming supported) |
 | `POST /v1/completions` | Text completions — auto-starts model if needed (streaming supported) |
+| `POST /v1/images/generations` | Image generation — auto-starts image model if needed (requires Python + diffusers) |
 
 The `model` field accepts the full name (e.g. `hf.co/unsloth/gemma-4-12b-it-GGUF:Q4_K_M`) or **any substring** like `gemma-4-12b`. If it matches an indexed model, gollama auto-launches it on a free port, waits for it to be ready, then proxies your request.
 
@@ -205,7 +207,8 @@ Model Profiles are named presets that bundle model selection, launch flags, envi
 | `model` | string | Model name to auto-select this profile (fuzzy match) |
 | `flags` | string[] | Launch flags for this profile |
 | `strip_reasoning` | bool | Strip `reasoning_content` from API responses |
-| `env` | object | Environment variables applied to the llama-server process |
+| `env` | object | Environment variables applied to the llama-server or image process |
+| `type` | string | `"text"` (default) or `"image"` — launches a diffusers process for image gen |
 | `description` | string | Human-readable description (displayed in UI) |
 
 - **Env vars** (`env`) let you control GPU selection (`CUDA_VISIBLE_DEVICES`), thread counts, or any process-level variable — applied per instance.
@@ -231,6 +234,58 @@ Common flags (searchable from the UI flag editor):
 | `--cont-batching` | Continuous batching |
 | `--cache-type-k q4_0` | KV cache quantization (reduces VRAM) |
 | `-np N` | Parallel slots |
+
+## Image Generation
+
+gollama supports image generation through profiles with `"type": "image"`. These launch a Python diffusers subprocess instead of llama-server. The API is OpenAI-compatible (`POST /v1/images/generations`).
+
+### Setup
+
+You need Python 3.10+ with `diffusers`, `torch`, `transformers`, `fastapi`, and `uvicorn`:
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
+pip install diffusers transformers accelerate fastapi uvicorn
+```
+
+gollama looks for the Python binary at `/opt/image-api/.venv/bin/python` and the app at `/opt/image-api/app.py`. Override with `GOLLAMA_IMAGE_PYTHON` and `GOLLAMA_IMAGE_APP` env vars.
+
+### Profile Configuration
+
+Add an image profile to `~/.gollama/config.json`:
+
+```json
+{
+  "profiles": {
+    "flux": {
+      "model": "black-forest-labs/FLUX.1-schnell",
+      "type": "image",
+      "description": "Flux image generation (4 steps)",
+      "env": {
+        "HF_TOKEN": "hf_..."
+      }
+    }
+  }
+}
+```
+
+Some models (like Flux, SD3.5) require Hugging Face authentication. Set `HF_TOKEN` in the profile's `env` to download gated models.
+
+### Usage
+
+```bash
+curl -X POST http://localhost:9080/v1/images/generations \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "A cat", "profile": "flux"}'
+```
+
+If the image model isn't running, gollama auto-starts it and returns a 503 with `Retry-After: 5`. The client retries and gets the image.
+
+### GPU Management
+
+Image instances use the GPU the same way text instances do. On single-GPU systems, gollama stops any running text instances before loading the image model, and vice versa — no manual GPU juggling required. Env vars in the image profile (e.g. `CUDA_VISIBLE_DEVICES`) let you pin GPU selection on multi-GPU systems.
 
 ## Model Metadata
 
