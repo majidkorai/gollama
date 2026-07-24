@@ -915,20 +915,11 @@ func (s *Server) handleV1ImageGenerations(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// Stop text instances only if they've been idle for a short grace period
-	// (no active requests). This prevents interrupting in-flight SSE streams
-	// while still allowing preemption when the text model is sitting idle.
+	// Don't stop text instances — image runs alongside using cpu_offload
+	// (peak ~2-4GB VRAM, components moved in/out of GPU as needed).
 	for _, inst := range s.mgr.List() {
 		if inst.Status == "running" && inst.Type != "image" {
-			sinceActivity := time.Since(inst.LastActivity)
-			if sinceActivity < 10*time.Second && sinceActivity >= 0 {
-				log.Printf("text instance %q (port %d) active %v ago — deferring image", inst.Model, inst.Port, sinceActivity.Round(time.Second))
-				w.Header().Set("Retry-After", "10")
-				jsonError(w, fmt.Sprintf("text model %q is busy, retry image generation later", inst.Model), 503)
-				return
-			}
-			log.Printf("stopping idle text instance %q (port %d) for image generation (idle %v)", inst.Model, inst.Port, sinceActivity.Round(time.Second))
-			s.mgr.Stop(inst.Port)
+			log.Printf("text instance %q (port %d) running — image will load alongside with cpu_offload", inst.Model, inst.Port)
 		}
 	}
 
@@ -1041,7 +1032,8 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 		launchFlags = cfg.ProxyFlags()
 	}
 
-	// Check if a different instance is already running — stop it (single-instance mode)
+	// Stop any running instances with a different model (single-instance mode).
+	// This preempts image when text is needed, and switches between text models.
 	if running := s.mgr.List(); len(running) > 0 {
 		for _, inst := range running {
 			if inst.Status == "running" && inst.Model != modelName {
@@ -1067,14 +1059,11 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 				return
 			}
 			log.Printf("auto-started model %q on port %d", modelName, inst.Port)
-			// Record which profile launched this instance
 			if profileName != "" {
 				s.mgr.SetProfile(inst.Port, profileName)
 			}
-			go s.waitForInstanceReady(inst.Port)
-			w.Header().Set("Retry-After", "5")
-			jsonError(w, fmt.Sprintf("model %q is starting, retry in a few seconds", modelName), 503)
-			return
+			// Wait synchronously — client connection stays alive, no 503
+			s.waitForInstanceReady(inst.Port)
 		} else {
 			available := s.mgr.List()
 			names := make([]string, 0, len(available))
