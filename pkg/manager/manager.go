@@ -37,6 +37,7 @@ type Instance struct {
 	MemoryMB     float64    `json:"memory_mb"`
 	DeviceSplit  string     `json:"device_split,omitempty"`
 	Profile      string     `json:"profile,omitempty"`
+	Type         string     `json:"type,omitempty"` // "text" or "image"
 }
 
 type Manager struct {
@@ -536,6 +537,131 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 				}
 			} else {
 				log.Printf("instance stopped: port=%d", port)
+			}
+		}
+		m.mu.Unlock()
+	}()
+
+	return inst, nil
+}
+
+// StartImage starts the Python image generation server as a managed subprocess.
+func (m *Manager) StartImage(modelID string, port int, env map[string]string) (*Instance, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, exists := m.instances[port]; exists {
+		return nil, fmt.Errorf("port %d is already in use", port)
+	}
+
+	if !portAvailable(port) {
+		for retry := 0; retry < 15; retry++ {
+			time.Sleep(200 * time.Millisecond)
+			if portAvailable(port) {
+				break
+			}
+		}
+	}
+	if !portAvailable(port) {
+		for i := port + 1; i < port+100; i++ {
+			if _, exists := m.instances[i]; exists {
+				continue
+			}
+			if portAvailable(i) {
+				log.Printf("port %d is busy, using %d instead", port, i)
+				port = i
+				break
+			}
+		}
+		if port > m.nextPort {
+			m.nextPort = port + 1
+		}
+	}
+
+	pythonBin := model.ImagePythonPath()
+	appPath := model.ImageAppPath()
+
+	if _, err := os.Stat(pythonBin); os.IsNotExist(err) {
+		return nil, fmt.Errorf("Python binary not found at %s — set GOLLAMA_IMAGE_PYTHON env var", pythonBin)
+	}
+	if _, err := os.Stat(appPath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("image app not found at %s — set GOLLAMA_IMAGE_APP env var", appPath)
+	}
+
+	cmd := exec.Command(pythonBin, appPath)
+	cmd.Env = os.Environ()
+	if modelID != "" {
+		cmd.Env = append(cmd.Env, "MODEL_ID="+modelID)
+	}
+	cmd.Env = append(cmd.Env, "PORT="+strconv.Itoa(port))
+	cmd.Env = append(cmd.Env, "HOST=127.0.0.1")
+	for k, v := range env {
+		cmd.Env = append(cmd.Env, k+"="+v)
+	}
+
+	logDir := filepath.Join(model.GollamaDir(), "logs")
+	model.EnsureDir(logDir)
+	logFile := filepath.Join(logDir, fmt.Sprintf("port-%d.log", port))
+	logF, logErr := os.Create(logFile)
+	if logErr != nil {
+		log.Printf("warning: could not create log file %s: %v", logFile, logErr)
+		logF = nil
+	}
+	if logF != nil {
+		cmd.Stdout = io.MultiWriter(logF, os.Stderr)
+		cmd.Stderr = io.MultiWriter(logF, os.Stderr)
+	} else {
+		cmd.Stdout = os.Stderr
+		cmd.Stderr = os.Stderr
+	}
+
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("starting image server: %w", err)
+	}
+
+	inst := &Instance{
+		Port:         port,
+		Model:        modelID,
+		PID:          cmd.Process.Pid,
+		Status:       "running",
+		StartedAt:    time.Now(),
+		LastActivity: time.Now(),
+		Type:         "image",
+	}
+	m.instances[port] = inst
+
+	log.Printf("image instance started: model=%s port=%d pid=%d", modelID, port, cmd.Process.Pid)
+
+	go func() {
+		healthClient := &http.Client{Timeout: 2 * time.Second}
+		baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
+		deadline := time.Now().Add(120 * time.Second)
+		for time.Now().Before(deadline) {
+			resp, err := healthClient.Get(baseURL + "/health")
+			if err == nil {
+				resp.Body.Close()
+				if resp.StatusCode == 200 {
+					m.mu.Lock()
+					inst.Ready = true
+					m.mu.Unlock()
+					log.Printf("image instance ready: port=%d", port)
+					return
+				}
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+		log.Printf("image instance did not become ready: port=%d — check logs with 'gollama logs %d'", port, port)
+	}()
+
+	go func() {
+		err := cmd.Wait()
+		m.mu.Lock()
+		if inst.Status == "running" {
+			inst.Status = "stopped"
+			if err != nil {
+				log.Printf("image instance stopped with error: port=%d err=%v", port, err)
+			} else {
+				log.Printf("image instance stopped: port=%d", port)
 			}
 		}
 		m.mu.Unlock()

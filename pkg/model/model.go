@@ -45,6 +45,7 @@ type Profile struct {
 	StripReasoning *bool             `json:"strip_reasoning,omitempty"`
 	MergeReasoning *bool             `json:"merge_reasoning,omitempty"`
 	Env            map[string]string `json:"env,omitempty"`
+	Type           string            `json:"type,omitempty"` // "text" (default) or "image"
 }
 
 type Config struct {
@@ -791,6 +792,22 @@ func ListModels() ([]ModelInfo, error) {
 		populateModelInfo(&modelList[i])
 	}
 	return modelList, nil
+}
+
+// ImagePythonPath returns the absolute path to the Python interpreter for image generation.
+func ImagePythonPath() string {
+	if p := os.Getenv("GOLLAMA_IMAGE_PYTHON"); p != "" {
+		return p
+	}
+	return "/opt/image-api/.venv/bin/python"
+}
+
+// ImageAppPath returns the absolute path to the image generation server script.
+func ImageAppPath() string {
+	if p := os.Getenv("GOLLAMA_IMAGE_APP"); p != "" {
+		return p
+	}
+	return "/opt/image-api/app.py"
 }
 
 func ResolveModelBlob(model string) (string, error) {

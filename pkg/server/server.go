@@ -65,6 +65,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/v1/models/", s.handleV1ModelsByID)
 	s.mux.HandleFunc("/v1/chat/completions", s.handleV1ChatCompletions)
 	s.mux.HandleFunc("/v1/completions", s.handleV1Completions)
+	s.mux.HandleFunc("/v1/images/generations", s.handleV1ImageGenerations)
 	s.mux.HandleFunc("/", s.handleUI)
 }
 
@@ -433,6 +434,9 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 						if desc, ok := pMap["description"].(string); ok {
 							p.Description = desc
 						}
+						if typ, ok := pMap["type"].(string); ok {
+							p.Type = typ
+						}
 						if sr, ok := pMap["strip_reasoning"]; ok {
 							if b, ok := sr.(bool); ok && b {
 								p.StripReasoning = &b
@@ -672,10 +676,13 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, "streaming not supported", 500)
 			return
 		}
+		sentDone := false
+		hadFinishReason := false
 		reader := bufio.NewReader(resp.Body)
 		for {
 			line, err := reader.ReadString('\n')
 			if err != nil && err != io.EOF {
+				sentDone = true
 				break
 			}
 			s.mgr.TouchActivity(port)
@@ -686,7 +693,27 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 			if strings.HasPrefix(trimmed, "data: ") {
 				data := strings.TrimPrefix(trimmed, "data: ")
 				if data == "[DONE]" {
+					sentDone = true
+					if !hadFinishReason {
+						w.Write([]byte("data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n"))
+						flusher.Flush()
+					}
 					break
+				}
+				if !hadFinishReason {
+					var check struct {
+						Choices []struct {
+							FinishReason *string `json:"finish_reason"`
+						} `json:"choices"`
+					}
+					if json.Unmarshal([]byte(data), &check) == nil {
+						for _, c := range check.Choices {
+							if c.FinishReason != nil && *c.FinishReason != "" {
+								hadFinishReason = true
+								break
+							}
+						}
+					}
 				}
 				var payload struct {
 					Usage *struct {
@@ -698,8 +725,17 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			if err == io.EOF {
+				sentDone = true
 				break
 			}
+		}
+		if !sentDone && !hadFinishReason {
+			w.Write([]byte("data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n"))
+			flusher.Flush()
+		}
+		if !sentDone {
+			w.Write([]byte("data: [DONE]\n"))
+			flusher.Flush()
 		}
 		return
 	}
@@ -825,6 +861,131 @@ func (s *Server) handleV1Completions(w http.ResponseWriter, r *http.Request) {
 	s.proxyToInstance(w, r, "/v1/completions")
 }
 
+func (s *Server) handleV1ImageGenerations(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+
+	var body json.RawMessage
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		jsonError(w, "invalid request body", 400)
+		return
+	}
+
+	var reqMap map[string]interface{}
+	json.Unmarshal(body, &reqMap)
+	prompt, _ := reqMap["prompt"].(string)
+	if prompt == "" {
+		jsonError(w, "prompt field is required", 400)
+		return
+	}
+
+	modelName, _ := reqMap["model"].(string)
+	profileName, _ := reqMap["profile"].(string)
+
+	cfg := model.LoadConfig()
+
+	// Resolve profile: explicit or auto-detect by model name
+	if profileName == "" {
+		for name, p := range cfg.Profiles {
+			if p.Type == "image" {
+				if modelName != "" && p.Model != "" && strings.EqualFold(modelName, p.Model) {
+					profileName = name
+					break
+				}
+				if modelName == "" {
+					profileName = name
+					break
+				}
+			}
+		}
+	}
+
+	// Ensure resolved profile is an image type
+	if profileName != "" {
+		p, ok := cfg.Profiles[profileName]
+		if !ok || p.Type != "image" {
+			jsonError(w, fmt.Sprintf("profile %q is not an image model", profileName), 400)
+			return
+		}
+		if modelName == "" {
+			modelName = p.Model
+		}
+	}
+	if modelName == "" {
+		jsonError(w, "no image model found. Define an image profile in settings.", 400)
+		return
+	}
+
+	// Stop any running text instances (they restart on next text request)
+	for _, inst := range s.mgr.List() {
+		if inst.Status == "running" && inst.Type != "image" {
+			log.Printf("stopping text instance %q (port %d) for image generation", inst.Model, inst.Port)
+			s.mgr.Stop(inst.Port)
+		}
+	}
+
+	inst := s.mgr.FindInstanceByModel(modelName)
+	if inst == nil {
+		startPort := 9081
+		// Find the next free port in the 9081+ range
+		for _, existing := range s.mgr.List() {
+			if existing.Type == "image" && existing.Port >= startPort {
+				startPort = existing.Port + 1
+			}
+		}
+
+		var profileEnv map[string]string
+		if profileName != "" {
+			if p, ok := cfg.Profiles[profileName]; ok {
+				profileEnv = p.Env
+			}
+		}
+
+		inst, err := s.mgr.StartImage(modelName, startPort, profileEnv)
+		if err != nil {
+			jsonError(w, fmt.Sprintf("starting image model %q: %v", modelName, err), 500)
+			return
+		}
+		log.Printf("auto-started image model %q on port %d", modelName, inst.Port)
+		if profileName != "" {
+			s.mgr.SetProfile(inst.Port, profileName)
+		}
+		go s.waitForInstanceReady(inst.Port)
+		w.Header().Set("Retry-After", "5")
+		jsonError(w, fmt.Sprintf("image model %q is starting, retry in a few seconds", modelName), 503)
+		return
+	}
+	s.mgr.TouchActivity(inst.Port)
+	s.waitForInstanceReady(inst.Port)
+
+	target := fmt.Sprintf("http://127.0.0.1:%d/v1/images/generations", inst.Port)
+
+	proxyCtx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
+	defer cancel()
+
+	proxyReq, err := http.NewRequestWithContext(proxyCtx, "POST", target, strings.NewReader(string(body)))
+	if err != nil {
+		jsonError(w, fmt.Sprintf("proxy error: %v", err), 502)
+		return
+	}
+	proxyReq.Header.Set("Content-Type", "application/json")
+
+	resp, err := http.DefaultClient.Do(proxyReq)
+	if err != nil {
+		jsonError(w, fmt.Sprintf("proxy error: %v", err), 502)
+		return
+	}
+	defer resp.Body.Close()
+
+	for k, v := range resp.Header {
+		w.Header()[k] = v
+	}
+	w.WriteHeader(resp.StatusCode)
+	io.Copy(w, resp.Body)
+}
+
 func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetPath string) {
 	var body json.RawMessage
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -930,10 +1091,17 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 	isStream, _ := reqMap["stream"].(bool)
 	target := fmt.Sprintf("http://127.0.0.1:%d%s", inst.Port, targetPath)
 
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
-	defer cancel()
+	var proxyCtx context.Context
+	proxyCtx = r.Context()
+	if isStream {
+		proxyCtx = context.Background()
+	} else {
+		var cancel context.CancelFunc
+		proxyCtx, cancel = context.WithTimeout(r.Context(), 10*time.Minute)
+		defer cancel()
+	}
 
-	proxyReq, err := http.NewRequestWithContext(ctx, "POST", target, strings.NewReader(string(body)))
+	proxyReq, err := http.NewRequestWithContext(proxyCtx, "POST", target, strings.NewReader(string(body)))
 	if err != nil {
 		jsonError(w, fmt.Sprintf("proxy error: %v", err), 502)
 		return
@@ -1000,10 +1168,13 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 		shouldMerge := shouldMergeReasoning(cfg, profileName)
 		inThink := false
 		thinkBuf := ""
+		sentDone := false
+		hadFinishReason := false
 		reader := bufio.NewReader(resp.Body)
 		for {
 			line, err := reader.ReadString('\n')
 			if err != nil && err != io.EOF {
+				sentDone = true
 				break
 			}
 			s.mgr.TouchActivity(inst.Port)
@@ -1011,6 +1182,11 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 			if strings.HasPrefix(trimmed, "data: ") {
 				data := strings.TrimPrefix(trimmed, "data: ")
 				if data == "[DONE]" {
+					sentDone = true
+					if !hadFinishReason {
+						w.Write([]byte("data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n"))
+						flusher.Flush()
+					}
 					w.Write([]byte(line))
 					flusher.Flush()
 					break
@@ -1028,6 +1204,21 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 				data = extractThinkStream(data, &inThink, &thinkBuf)
 				cleaned = []byte(data)
 			}
+				if !hadFinishReason {
+					var check struct {
+						Choices []struct {
+							FinishReason *string `json:"finish_reason"`
+						} `json:"choices"`
+					}
+					if json.Unmarshal(cleaned, &check) == nil {
+						for _, c := range check.Choices {
+							if c.FinishReason != nil && *c.FinishReason != "" {
+								hadFinishReason = true
+								break
+							}
+						}
+					}
+				}
 				line = "data: " + string(cleaned) + "\n"
 				var usage struct {
 					Usage *struct {
@@ -1041,8 +1232,17 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 			w.Write([]byte(line))
 			flusher.Flush()
 			if err == io.EOF {
+				sentDone = true
 				break
 			}
+		}
+		if !sentDone && !hadFinishReason {
+			w.Write([]byte("data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n"))
+			flusher.Flush()
+		}
+		if !sentDone {
+			w.Write([]byte("data: [DONE]\n"))
+			flusher.Flush()
 		}
 		return
 	}

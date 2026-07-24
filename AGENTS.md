@@ -85,7 +85,9 @@ type Profile struct {
     Flags          []string          `json:"flags"`
     Description    string            `json:"description,omitempty"`
     StripReasoning *bool             `json:"strip_reasoning,omitempty"`
+    MergeReasoning *bool             `json:"merge_reasoning,omitempty"`
     Env            map[string]string `json:"env,omitempty"`
+    Type           string            `json:"type,omitempty"` // "text" (default) or "image"
 }
 ```
 
@@ -100,6 +102,7 @@ type Instance struct {
     StartedAt, LastActivity time.Time
     TotalTokens int64
     Profile string          // profile name used to launch
+    Type    string          // "text" or "image"
     // ... GPU/CPU metrics
 }
 ```
@@ -116,6 +119,40 @@ type ModelInfo struct {
 }
 ```
 
+### Profile Type
+
+Profiles now support a `type` field: `"text"` (default) or `"image"`. Image type launches a Python diffusers subprocess instead of llama-server.
+
+### Image Generation
+
+Gollama supports image generation via Python diffusers subprocesses. Configured through profiles with `"type": "image"`.
+
+**Automatic sequential GPU switching:** Text models are stopped before image gen loads, and vice versa. This enables single-GPU setups — no GPU env vars needed.
+
+**Example image profile:**
+```json
+{
+  "profiles": {
+    "flux": {
+      "model": "black-forest-labs/FLUX.1-schnell",
+      "type": "image",
+      "description": "Flux image generation (4 steps)",
+      "env": {
+        "HF_TOKEN": "hf_..."
+      }
+    }
+  }
+}
+```
+
+**API:** `POST /v1/images/generations` — OpenAI-compatible, auto-launches image model on first request (503 + Retry-After: 5).
+
+**Lifecycle:** Same as text instances — idle timeout, health checks, log management.
+
+**Paths:**
+- `GOLLAMA_IMAGE_PYTHON` env var overrides Python binary (default: `/opt/image-api/.venv/bin/python`)
+- `GOLLAMA_IMAGE_APP` env var overrides app script (default: `/opt/image-api/app.py`)
+
 ### Config (`~/.gollama/config.json`)
 
 Auto-created on first `LoadConfig()` call. Defaults from `DefaultConfig()`:
@@ -131,7 +168,7 @@ Auto-created on first `LoadConfig()` call. Defaults from `DefaultConfig()`:
 
 - `default_flags`: used by Quick Launch form and CLI `gollama run`/`chat`
 - `proxy_defaults`: used by API auto-launch; falls back to `default_flags` if empty
-- `profiles`: map of named Model Profiles, each bundling model, flags, env vars, strip_reasoning
+- `profiles`: map of named Model Profiles, each bundling model, flags, env vars, type, strip_reasoning
 - `idle_ttl`: auto-stop idle instances after N minutes (0=disable)
 
 ## API Endpoints (`pkg/server/server.go`)
@@ -157,6 +194,7 @@ All routes registered in `registerRoutes()`. Key ones:
 | `/api/v1/restart` | POST | Restart gollama |
 | `/v1/chat/completions` | POST | OpenAI-compatible (auto-launches) |
 | `/v1/completions` | POST | OpenAI-compatible (auto-launches) |
+| `/v1/images/generations` | POST | OpenAI-compatible image generation (auto-launches image profile) |
 | `/v1/models` | GET | OpenAI model list |
 | `/` | GET | Serves embedded web UI |
 
