@@ -66,6 +66,9 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/v1/chat/completions", s.handleV1ChatCompletions)
 	s.mux.HandleFunc("/v1/completions", s.handleV1Completions)
 	s.mux.HandleFunc("/v1/images/generations", s.handleV1ImageGenerations)
+	s.mux.HandleFunc("/api/v1/image-models", s.handleImageModels)
+	s.mux.HandleFunc("/api/v1/image-models/search", s.handleImageModelSearch)
+	s.mux.HandleFunc("/api/v1/image-models/install", s.handleImageModelInstall)
 	s.mux.HandleFunc("/", s.handleUI)
 }
 
@@ -989,6 +992,106 @@ func (s *Server) handleV1ImageGenerations(w http.ResponseWriter, r *http.Request
 	}
 	w.WriteHeader(resp.StatusCode)
 	io.Copy(w, resp.Body)
+}
+
+// ── Image Model Management ──────────────────────────
+
+func (s *Server) handleImageModels(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	cfg := model.LoadConfig()
+	type imgModelEntry struct {
+		Name    string `json:"name"`
+		ModelID string `json:"model_id"`
+		Cached  bool   `json:"cached"`
+		Size    int64  `json:"size"`
+		Desc    string `json:"description"`
+	}
+	var entries []imgModelEntry
+	for name, p := range cfg.Profiles {
+		if p.Type == "image" && p.Model != "" {
+			entry := imgModelEntry{
+				Name:    name,
+				ModelID: p.Model,
+				Desc:    p.Description,
+				Cached:  model.IsImageModelCached(p.Model),
+			}
+			if entry.Cached {
+				entry.Size = model.ImageModelCacheSize(p.Model)
+			}
+			entries = append(entries, entry)
+		}
+	}
+	if entries == nil {
+		entries = []imgModelEntry{}
+	}
+	jsonResponse(w, entries)
+}
+
+func (s *Server) handleImageModelSearch(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	query := r.URL.Query().Get("q")
+	if query == "" {
+		query = "text-to-image"
+	}
+	results, err := model.SearchImageModels(query)
+	if err != nil {
+		jsonError(w, err.Error(), 502)
+		return
+	}
+	if results == nil {
+		results = []model.ImageModelSearchResult{}
+	}
+	jsonResponse(w, results)
+}
+
+func (s *Server) handleImageModelInstall(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	var req struct {
+		Name    string `json:"name"`
+		ModelID string `json:"model_id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, err.Error(), 400)
+		return
+	}
+	if req.Name == "" || req.ModelID == "" {
+		jsonError(w, "name and model_id are required", 400)
+		return
+	}
+
+	cfg := model.LoadConfig()
+	if _, exists := cfg.Profiles[req.Name]; exists {
+		jsonError(w, fmt.Sprintf("profile %q already exists", req.Name), 409)
+		return
+	}
+
+	// Check disk space for model dir
+	home, _ := os.UserHomeDir()
+	cacheDir := filepath.Join(home, ".cache", "huggingface")
+	free, err := model.FreeDiskBytes(cacheDir)
+	if err == nil && free < 10<<30 { // warn if less than 10GB
+		log.Printf("disk space warning for image model %s: %s free", req.ModelID, model.FormatSize(int64(free)))
+	}
+
+	cfg.Profiles[req.Name] = model.Profile{
+		Model:       req.ModelID,
+		Type:        "image",
+		Flags:       []string{},
+		Description: req.ModelID,
+	}
+	model.SaveConfig(cfg)
+
+	log.Printf("image profile installed: %s → %s", req.Name, req.ModelID)
+	jsonResponse(w, map[string]string{"status": "installed", "name": req.Name, "model_id": req.ModelID})
 }
 
 func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetPath string) {

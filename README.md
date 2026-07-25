@@ -239,6 +239,32 @@ Common flags (searchable from the UI flag editor):
 
 gollama supports image generation through profiles with `"type": "image"`. These launch a Python diffusers subprocess instead of llama-server. The API is OpenAI-compatible (`POST /v1/images/generations`).
 
+### Web UI Playground
+
+Open the **🎨 Image** tab from the sidebar:
+
+1. **Select a model** — pick from configured image profiles (e.g. `flux-dev`, `flux-schnell`)
+2. **Type a prompt** — describe what you want to generate
+3. **Adjust parameters** (optional) — expand "Advanced settings" to control:
+   - **Images** — number of images to generate (1-8)
+   - **Size** — resolution presets or custom (e.g. `1024x1024`)
+   - **Steps** — inference steps (4 for schnell, 28 for dev, higher = better quality)
+   - **Guidance** — CFG scale (0 = auto, higher = more prompt adherence)
+   - **Seed** — set for reproducible results, leave blank for random
+4. Click **Generate** — the image appears in the results panel
+
+From result cards you can **download** (⬇), **re-generate** (🔄), or remove. Click any image to view full-size in a lightbox.
+
+### Finding & Adding Models
+
+Use the **🔍 Browse** button in the Image Playground to search HuggingFace for text-to-image models:
+
+- Search by name (e.g. `flux`, `sdxl`, `sd3.5`)
+- Results show model name, likes, downloads, size, and **gated** badge (requires HF token)
+- Click **Add** to create an image profile — it will download on first use
+
+Configured models are listed with a **cached** / **not cached** status badge and their size.
+
 ### Setup
 
 You need Python 3.10+ with `diffusers`, `torch`, `transformers`, `fastapi`, and `uvicorn`:
@@ -254,34 +280,60 @@ gollama looks for the Python binary at `/opt/image-api/.venv/bin/python` and the
 
 ### Profile Configuration
 
-Add an image profile to `~/.gollama/config.json`:
+Image models are configured through **Model Profiles** with `"type": "image"`. Manage them from the **Settings** page in the web UI, or directly in `~/.gollama/config.json`:
 
 ```json
 {
   "profiles": {
-    "flux": {
-      "model": "black-forest-labs/FLUX.1-schnell",
+    "flux-dev": {
+      "model": "black-forest-labs/FLUX.1-dev",
       "type": "image",
-      "description": "Flux image generation (4 steps)",
+      "description": "FLUX.1-dev (28 steps, high quality)",
       "env": {
         "HF_TOKEN": "hf_..."
       }
+    },
+    "flux-schnell": {
+      "model": "black-forest-labs/FLUX.1-schnell",
+      "type": "image",
+      "description": "FLUX.1-schnell (4 steps, fast)"
     }
   }
 }
 ```
 
-Some models (like Flux, SD3.5) require Hugging Face authentication. Set `HF_TOKEN` in the profile's `env` to download gated models.
+| Field | Type | Description |
+|-------|------|-------------|
+| `model` | string | HuggingFace model ID (e.g. `black-forest-labs/FLUX.1-dev`) |
+| `type` | string | Must be `"image"` |
+| `flags` | string[] | Not used for image models (reserved) |
+| `description` | string | Shown in the model selector |
+| `env` | object | Environment variables (e.g. `HF_TOKEN` for gated models) |
+
+Some models (like Flux, SD3.5) require HuggingFace authentication. Set `HF_TOKEN` in the profile's `env` to download gated models. The model is downloaded automatically on first use — the UI retries until it's ready.
 
 ### Usage
 
 ```bash
 curl -X POST http://localhost:9080/v1/images/generations \
   -H "Content-Type: application/json" \
-  -d '{"prompt": "A cat", "profile": "flux"}'
+  -d '{"prompt": "A cat", "profile": "flux-dev", "steps": 28, "size": "1024x1024"}'
 ```
 
-If the image model isn't running, gollama auto-starts it and returns a 503 with `Retry-After: 5`. The client retries and gets the image.
+**Advanced parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `prompt` | string | required | Image description |
+| `profile` | string | auto | Profile name to use |
+| `model` | string | from profile | Override model ID |
+| `n` | int | 1 | Number of images (1-8) |
+| `size` | string | `"1024x1024"` | Resolution, e.g. `"512x512"`, `"1280x720"` |
+| `steps` | int | 4 | Inference steps (more = higher quality, slower) |
+| `guidance` | float | 0 | CFG scale (0 = auto, 3-7 typical) |
+| `seed` | int | random | Set for reproducibility |
+
+If the image model isn't running, gollama auto-starts it and returns a 503 with `Retry-After: 5`. The client (or UI) retries until ready.
 
 ### GPU Management
 

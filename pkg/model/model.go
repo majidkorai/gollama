@@ -810,6 +810,116 @@ func ImageAppPath() string {
 	return "/opt/image-api/app.py"
 }
 
+// ImageModelCacheDir returns the path where diffusers models are cached.
+func ImageModelCacheDir() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".cache", "huggingface", "hub")
+}
+
+// ImageModelCachePath returns the cache directory for a specific HF model ID.
+func ImageModelCachePath(modelID string) string {
+	folder := "models--" + strings.ReplaceAll(modelID, "/", "--")
+	return filepath.Join(ImageModelCacheDir(), folder)
+}
+
+// IsImageModelCached checks if a diffusers model is already downloaded.
+func IsImageModelCached(modelID string) bool {
+	cachePath := ImageModelCachePath(modelID)
+	fi, err := os.Stat(cachePath)
+	if err != nil || !fi.IsDir() {
+		return false
+	}
+	return true
+}
+
+// ImageModelCacheSize returns the total size of a cached model in bytes.
+func ImageModelCacheSize(modelID string) int64 {
+	cachePath := ImageModelCachePath(modelID)
+	var total int64
+	filepath.Walk(cachePath, func(path string, fi os.FileInfo, err error) error {
+		if err != nil || fi == nil {
+			return nil
+		}
+		if !fi.IsDir() {
+			total += fi.Size()
+		}
+		return nil
+	})
+	return total
+}
+
+// ImageModelSearchResult describes an image model found on HF.
+type ImageModelSearchResult struct {
+	ID          string `json:"id"`
+	Likes       int    `json:"likes"`
+	Downloads   int    `json:"downloads"`
+	PipelineTag string `json:"pipeline_tag"`
+	Gated       bool   `json:"gated"`
+	Size        int64  `json:"size"`
+	License     string `json:"license,omitempty"`
+}
+
+// SearchImageModels searches HuggingFace for text-to-image models.
+func SearchImageModels(query string) ([]ImageModelSearchResult, error) {
+	if query == "" {
+		query = "text-to-image"
+	}
+	apiURL := fmt.Sprintf("https://huggingface.co/api/models?search=%s&sort=likes&direction=-1&limit=20&full=true", url.QueryEscape(query))
+	resp, err := HTTPClient.Get(apiURL)
+	if err != nil {
+		return nil, fmt.Errorf("searching models: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return nil, fmt.Errorf("search failed (HTTP %d)", resp.StatusCode)
+	}
+
+	var hfResults []struct {
+		ID          string      `json:"id"`
+		Likes       int         `json:"likes"`
+		Downloads   int         `json:"downloads"`
+		PipelineTag string      `json:"pipeline_tag"`
+		Gated       interface{} `json:"gated"`
+		Siblings    []struct {
+			Filename string `json:"rfilename"`
+			Size     int64  `json:"size"`
+		} `json:"siblings"`
+		CardData struct {
+			License string `json:"license"`
+		} `json:"cardData"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&hfResults); err != nil {
+		return nil, fmt.Errorf("parsing search results: %w", err)
+	}
+
+	results := make([]ImageModelSearchResult, 0, len(hfResults))
+	for _, r := range hfResults {
+		if r.PipelineTag != "text-to-image" && r.PipelineTag != "image-to-image" {
+			continue
+		}
+		result := ImageModelSearchResult{
+			ID:          r.ID,
+			Likes:       r.Likes,
+			Downloads:   r.Downloads,
+			PipelineTag: r.PipelineTag,
+			Gated:       isGated(r.Gated),
+			License:     r.CardData.License,
+		}
+		for _, s := range r.Siblings {
+			if result.Size < s.Size {
+				result.Size = s.Size
+			}
+		}
+		results = append(results, result)
+	}
+	return results, nil
+}
+
+// FreeDiskBytes returns free disk space in bytes for the given path's filesystem.
+func FreeDiskBytes(path string) (uint64, error) {
+	return freeDiskBytes(path)
+}
+
 func ResolveModelBlob(model string) (string, error) {
 	idx := LoadIndex()
 	// Exact match first

@@ -127,16 +127,28 @@ Profiles now support a `type` field: `"text"` (default) or `"image"`. Image type
 
 Gollama supports image generation via Python diffusers subprocesses. Configured through profiles with `"type": "image"`.
 
+**Web UI:** 🎨 Image tab — full playground with prompt, parameters (n, size, steps, guidance, seed), result cards with download/re-generate, lightbox, and history (localStorage).
+
+**Model browser:** 🔍 Browse button in the playground searches HF for text-to-image models. "Add" creates an image profile. The model list shows configured profiles with cached/not-cached status and size.
+
+**API endpoints:**
+- `POST /v1/images/generations` — OpenAI-compatible, auto-launches image model on first request
+- `GET /api/v1/image-models` — list configured image profiles with cache status
+- `GET /api/v1/image-models/search?q=` — search HF for image generation models
+- `POST /api/v1/image-models/install` — add a new image profile
+
+**API params:** `prompt` (required), `profile`, `model`, `n` (1-8), `size` (e.g. `"1024x1024"`), `steps`, `guidance`, `seed`, `response_format`
+
 **Automatic sequential GPU switching:** Text models are stopped before image gen loads, and vice versa. This enables single-GPU setups — no GPU env vars needed.
 
 **Example image profile:**
 ```json
 {
   "profiles": {
-    "flux": {
-      "model": "black-forest-labs/FLUX.1-schnell",
+    "flux-dev": {
+      "model": "black-forest-labs/FLUX.1-dev",
       "type": "image",
-      "description": "Flux image generation (4 steps)",
+      "description": "FLUX.1-dev (28 steps, high quality)",
       "env": {
         "HF_TOKEN": "hf_..."
       }

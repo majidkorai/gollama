@@ -354,6 +354,50 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
 .chat-input-row:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-bg); }
 .chat-input-row .input-wrap { display: flex; gap: 8px; align-items: flex-end; }
 .chat-input-row .input-wrap textarea { flex: 1; max-height: 200px; }
+
+/* ── Image Playground ────────────────────────────────── */
+.image-container { display: flex; flex-direction: column; height: calc(100vh - 64px); }
+.image-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 16px; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
+.image-header .header-left { display: flex; align-items: center; gap: 12px; flex: 1; flex-wrap: wrap; }
+.image-header .header-left h1 { font-size: 22px; font-weight: 800; letter-spacing: -.5px; }
+.image-header select { width: auto; min-width: 200px; }
+.image-header .header-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.image-body { flex: 1; display: flex; gap: 20px; }
+.image-prompt-area { flex: 0 0 340px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; height: 100%; }
+.image-results { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
+.image-input-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
+.image-input-card label { display: block; font-size: 12px; font-weight: 600; color: var(--text-dim); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .5px; }
+.image-input-card textarea { width: 100%; min-height: 120px; max-height: 240px; resize: vertical; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text); font-family: inherit; font-size: 13px; line-height: 1.6; padding: 10px 12px; outline: none; transition: border-color var(--transition); }
+.image-input-card textarea:focus { border-color: var(--accent); }
+.image-gen-btn { width: 100%; padding: 10px 16px; font-size: 14px; font-weight: 600; border-radius: var(--radius-sm); border: none; cursor: pointer; background: var(--accent-gradient); color: #000; transition: opacity var(--transition), transform 100ms ease; }
+.image-gen-btn:hover { opacity: 0.9; }
+.image-gen-btn:active { transform: scale(0.98); }
+.image-gen-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.image-result-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; animation: slideUp 200ms ease both; }
+.image-result-card .result-meta { padding: 10px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.image-result-card .result-prompt { font-size: 12px; color: var(--text-muted); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.image-result-card .result-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.image-result-card .result-img { display: block; width: 100%; max-height: 72vh; object-fit: contain; cursor: zoom-in; transition: opacity var(--transition); background: #000; }
+.image-result-card .result-img:hover { opacity: 0.9; }
+.image-history-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 12px; }
+.image-thumb { border-radius: var(--radius-sm); overflow: hidden; border: 1px solid var(--border); cursor: pointer; transition: border-color var(--transition), transform 150ms ease; position: relative; }
+.image-thumb:hover { border-color: var(--accent); transform: scale(1.02); }
+.image-thumb img { width: 100%; display: block; }
+.image-thumb .thumb-overlay { position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,.7), transparent); opacity: 0; transition: opacity var(--transition); display: flex; align-items: flex-end; padding: 8px; }
+.image-thumb:hover .thumb-overlay { opacity: 1; }
+.image-thumb .thumb-prompt { font-size: 11px; color: #fff; line-height: 1.4; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
+.image-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; color: var(--text-dim); }
+.image-empty .icon { font-size: 48px; opacity: 0.4; }
+.image-empty .title { font-size: 16px; font-weight: 600; color: var(--text-muted); }
+.image-empty p { font-size: 13px; text-align: center; max-width: 300px; }
+.image-spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 600ms linear infinite; vertical-align: middle; margin-right: 6px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.image-lightbox { position: fixed; inset: 0; z-index: 9999; background: rgba(0,0,0,.85); display: flex; align-items: center; justify-content: center; padding: 40px; cursor: zoom-out; }
+.image-lightbox img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: var(--radius); box-shadow: var(--shadow-lg); }
+.image-lightbox .lb-close { position: absolute; top: 16px; right: 16px; background: var(--surface); border: none; border-radius: 50%; width: 36px; height: 36px; cursor: pointer; font-size: 16px; display: flex; align-items: center; justify-content: center; color: var(--text); }
+.image-lightbox .lb-close:hover { background: var(--surface-2); }
+.image-loading-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 40px; text-align: center; color: var(--text-dim); }
+.image-loading-card .spinner { width: 40px; height: 40px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 800ms linear infinite; margin: 0 auto 16px; }
 .chat-loading { animation: pulse 1.2s infinite; display: inline-block; letter-spacing: 4px; font-size: 18px; line-height: 1; color: var(--text-dim); }
 .reasoning { color: var(--text-dim); font-style: italic; font-size: 12px; border-left: 2px solid var(--accent); padding-left: 12px; margin-bottom: 8px; opacity: .85; }
 .ctx-label { padding: 2px 8px; border-radius: 9999px; font-size: 10px; font-weight: 600; background: var(--accent-bg); color: var(--accent); font-family: var(--font-mono); border: 1px solid rgba(0, 229, 191, 0.15); }
@@ -437,6 +481,9 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
     </button>
     <button class="nav-item" onclick="switchView('chat')" aria-label="Chat">
       <span class="icon">💬</span><span class="label">Chat</span>
+    </button>
+    <button class="nav-item" onclick="switchView('image')" aria-label="Image">
+      <span class="icon">🎨</span><span class="label">Image</span>
     </button>
     <button class="nav-item" onclick="switchView('settings')" aria-label="Settings">
       <span class="icon">⚙️</span><span class="label">Settings</span>
@@ -601,6 +648,67 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
   </div>
 </div>
 
+<!-- ── Image Playground ──────────────────────────────── -->
+<div id="view-image" class="view" role="tabpanel" aria-label="Image Generation">
+  <div class="image-container">
+    <div class="image-header">
+      <div class="header-left">
+        <h1>Image Playground</h1>
+      </div>
+      <div class="header-actions">
+        <button class="pill-btn" onclick="clearImageHistory()" title="Clear generation history">🗑 Clear History</button>
+      </div>
+    </div>
+    <div class="image-body">
+      <div class="image-prompt-area">
+        <div class="image-input-card" style="padding:12px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <label style="font-size:12px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;margin:0">Model</label>
+            <button class="ghost small" onclick="toggleImageModelSearch()" id="imgModelBrowseBtn">🔍 Browse</button>
+          </div>
+          <select id="imageProfileSelect" aria-label="Select profile" style="width:100%;margin-bottom:0">
+            <option value="">Loading profiles…</option>
+          </select>
+          <div id="imgModelSearchWrap" style="display:none;margin-top:8px">
+            <input type="text" id="imgModelSearchInput" placeholder="Search image models on HF…" autocomplete="off" oninput="onImageModelSearch(this.value)" style="width:100%">
+            <div id="imgModelSearchResults" style="margin-top:4px;border:1px solid var(--border);border-radius:var(--radius-sm);overflow:hidden;display:none"></div>
+          </div>
+          <div id="imgModelList" style="margin-top:6px;display:none"></div>
+        </div>
+        <div class="image-input-card">
+          <label>Prompt</label>
+          <textarea id="imagePromptInput" placeholder="Describe the image you want to generate…" onkeydown="if(event.key=='Enter'&&!event.shiftKey){event.preventDefault();generateImage()}" oninput="autoGrow(this)"></textarea>
+        </div>
+        <button class="image-gen-btn" onclick="generateImage()" id="imageGenBtn">Generate</button>
+        <details class="advanced-flags" style="margin-top:8px">
+          <summary style="cursor:pointer;font-size:12px;color:var(--text-muted);font-weight:600;user-select:none">Advanced settings</summary>
+          <div style="margin-top:8px;display:flex;flex-direction:column;gap:10px">
+            <div><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Images</label><input type="number" id="imageNInput" value="1" min="1" max="8" style="width:100%"></div>
+            <div><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Size</label><select id="imageSizeSelect" style="width:100%"><option value="512x512">512×512</option><option value="768x768">768×768</option><option value="1024x1024" selected>1024×1024</option><option value="1280x720">1280×720</option><option value="1024x768">1024×768</option><option value="custom">Custom…</option></select><input type="text" id="imageSizeCustom" placeholder="WIDTHxHEIGHT" style="width:100%;display:none;margin-top:4px"></div>
+            <div><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Steps</label><input type="number" id="imageStepsInput" value="28" min="1" max="100" style="width:100%"></div>
+            <div><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Guidance</label><input type="number" id="imageGuidanceInput" value="0" min="0" max="30" step="0.5" style="width:100%"></div>
+            <div><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Seed</label><input type="number" id="imageSeedInput" placeholder="random" style="width:100%"></div>
+          </div>
+        </details>
+        <div id="imageHistorySection" style="display:none">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+            <span style="font-size:12px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px">History</span>
+            <span id="imageHistoryCount" style="font-size:11px;color:var(--text-dim)"></span>
+          </div>
+          <div id="imageHistoryGrid" class="image-history-grid"></div>
+        </div>
+      </div>
+      <div class="image-results" id="imageResultsArea">
+        <div class="image-empty" id="imageEmpty">
+          <div class="icon">🎨</div>
+          <div class="title">No images generated yet</div>
+          <p>Type a prompt and click Generate to create an image. Results appear here.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- ── Settings ──────────────────────────────────────── -->
 <div id="view-settings" class="view" role="tabpanel" aria-label="Settings">
   <div class="page-header">
@@ -726,6 +834,8 @@ var chatPort = 0, chatHistory = [], chatSessionId = null;
 var currentView = 'dashboard';
 var cachedModelCount = 0;
 var cachedModels = [];
+var imageHistory = [];
+var imageGenerating = false;
 
 // ── Navigation ──────────────────────────────────────
 function switchView(name) {
@@ -743,6 +853,7 @@ function switchView(name) {
       updateContextMeter();
     }
   }
+  if (name == 'image') loadImageProfiles();
   if (name == 'models') loadModels();
 }
 
@@ -2302,12 +2413,346 @@ async function restartGollama() {
   } catch (e) { alert('Restart failed: ' + e.message); }
 }
 
+// ── Image Generation ──────────────────────────────────
+var _cachedImageProfiles = [];
+
+async function loadImageProfiles() {
+  var sel = document.getElementById('imageProfileSelect');
+  if (!sel) return;
+  try {
+    var r = await fetch('/api/v1/config'), cfg = await r.json();
+    _cachedImageProfiles = [];
+    for (var name in cfg.profiles) {
+      if (cfg.profiles[name].type === 'image') {
+        _cachedImageProfiles.push({ name: name, desc: cfg.profiles[name].description || cfg.profiles[name].model || name });
+      }
+    }
+    sel.innerHTML = '';
+    if (_cachedImageProfiles.length === 0) {
+      sel.innerHTML = '<option value="">No image profiles configured</option>';
+      sel.disabled = true;
+    } else {
+      sel.disabled = false;
+      sel.innerHTML = '<option value="">Select profile…</option>';
+      _cachedImageProfiles.forEach(function(p) {
+        sel.innerHTML += '<option value="' + escAttr(p.name) + '">' + escHtml(p.name) + (p.desc ? ' — ' + escHtml(p.desc.slice(0, 40)) : '') + '</option>';
+      });
+      if (imageHistory.length > 0) {
+        var last = imageHistory[imageHistory.length - 1];
+        if (last.profile) sel.value = last.profile;
+      }
+    }
+    renderImageHistory();
+    loadImageModels();
+  } catch (e) {
+    sel.innerHTML = '<option value="">Error loading profiles</option>';
+  }
+}
+
+async function loadImageModels() {
+  var list = document.getElementById('imgModelList');
+  if (!list) return;
+  try {
+    var r = await fetch('/api/v1/image-models'), models = await r.json();
+    if (!models || !models.length) { list.style.display = 'none'; return; }
+    list.style.display = 'block';
+    list.innerHTML = models.map(function(m) {
+      var status = m.cached
+        ? '<span class="badge badge-green" style="font-size:9px">cached ' + (m.size ? fmtSize(m.size) : '') + '</span>'
+        : '<span class="badge" style="background:var(--surface-2);color:var(--text-dim);font-size:9px">not cached</span>';
+      return '<div style="font-size:11px;padding:6px 0;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">' +
+        '<div style="min-width:0"><div style="font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(m.name) + '</div><div style="font-size:10px;color:var(--text-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + escHtml(m.model_id) + '</div></div>' +
+        status +
+        '</div>';
+    }).join('');
+  } catch (e) { list.style.display = 'none'; }
+}
+
+var _imgModelSearchTimer = null;
+
+function toggleImageModelSearch() {
+  var wrap = document.getElementById('imgModelSearchWrap');
+  if (wrap.style.display === 'block') { wrap.style.display = 'none'; return; }
+  wrap.style.display = 'block';
+  document.getElementById('imgModelSearchInput').focus();
+}
+
+function onImageModelSearch(query) {
+  if (_imgModelSearchTimer) clearTimeout(_imgModelSearchTimer);
+  var results = document.getElementById('imgModelSearchResults');
+  if (!query || query.length < 2) { results.style.display = 'none'; return; }
+  results.innerHTML = '<div style="padding:10px;text-align:center;color:var(--text-dim)"><span class="spinner"></span> Searching…</div>';
+  results.style.display = 'block';
+  _imgModelSearchTimer = setTimeout(async function() {
+    try {
+      var r = await fetch('/api/v1/image-models/search?q=' + encodeURIComponent(query));
+      if (!r.ok) { results.innerHTML = '<div style="padding:10px;text-align:center;color:var(--text-dim)">Search failed</div>'; return; }
+      var items = await r.json();
+      if (!items || !items.length) { results.innerHTML = '<div style="padding:10px;text-align:center;color:var(--text-dim)">No models found</div>'; return; }
+      results.innerHTML = items.map(function(m) {
+        var gated = m.gated ? ' <span class="badge" style="background:var(--amber-bg);color:var(--amber);font-size:9px">gated</span>' : '';
+        var size = m.size ? ' · ' + fmtSize(m.size) : '';
+        var tag = m.pipeline_tag === 'text-to-image' ? '🖼️' : '🎨';
+        return '<div style="padding:8px 10px;cursor:pointer;border-bottom:1px solid var(--border);transition:background var(--transition)" onmouseover="this.style.background=\'var(--surface-2)\'" onmouseout="this.style.background=\'transparent\'">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center">' +
+          '<div style="min-width:0;flex:1">' +
+          '<div style="font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + tag + ' ' + escHtml(m.id) + gated + '</div>' +
+          '<div style="font-size:10px;color:var(--text-dim);margin-top:1px">⭐ ' + m.likes + ' · ⬇ ' + m.downloads + size + '</div>' +
+          '</div>' +
+          '<button class="small primary" onclick="event.stopPropagation();installImageModel(\'' + escAttr(m.id) + '\')" style="font-size:10px;white-space:nowrap;flex-shrink:0">Add</button>' +
+          '</div>' +
+          '</div>';
+      }).join('');
+    } catch (e) { results.innerHTML = '<div style="padding:10px;text-align:center;color:var(--text-dim)">Error: ' + escHtml(e.message) + '</div>'; }
+  }, 300);
+}
+
+async function installImageModel(modelId) {
+  var name = prompt('Profile name for "' + modelId.split('/').pop() + '":', modelId.split('/').pop().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 30));
+  if (!name) return;
+  try {
+    var r = await fetch('/api/v1/image-models/install', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, model_id: modelId }) });
+    if (!r.ok) { var e = await r.text(); try { var j = JSON.parse(e); alert(j.error || e); } catch (x) { alert(e); } return; }
+    document.getElementById('imgModelSearchWrap').style.display = 'none';
+    document.getElementById('imgModelSearchResults').style.display = 'none';
+    loadImageProfiles();
+    alert('Profile "' + name + '" added for ' + modelId + '. Select it from the Model dropdown and generate!');
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+async function generateImage() {
+  if (imageGenerating) return;
+  var prompt = document.getElementById('imagePromptInput').value.trim();
+  if (!prompt) { alert('Enter a prompt first.'); return; }
+  var profile = document.getElementById('imageProfileSelect').value;
+  if (!profile) { alert('Select an image profile first.'); return; }
+
+  var n = parseInt(document.getElementById('imageNInput').value) || 1;
+  var sizeEl = document.getElementById('imageSizeSelect');
+  var size = sizeEl.value === 'custom' ? document.getElementById('imageSizeCustom').value.trim() : sizeEl.value;
+  var steps = parseInt(document.getElementById('imageStepsInput').value) || 4;
+  var guidance = parseFloat(document.getElementById('imageGuidanceInput').value) || 0;
+  var seedInput = document.getElementById('imageSeedInput').value.trim();
+  var seed = seedInput ? parseInt(seedInput) || undefined : undefined;
+
+  var params = { n: n, size: size, steps: steps, guidance: guidance, seed: seed };
+
+  imageGenerating = true;
+  var btn = document.getElementById('imageGenBtn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="image-spinner"></span> Generating…';
+  var resultsArea = document.getElementById('imageResultsArea');
+  var empty = document.getElementById('imageEmpty');
+  if (empty) empty.style.display = 'none';
+
+  var loadingCard = document.createElement('div');
+  loadingCard.className = 'image-loading-card';
+  loadingCard.innerHTML = '<div class="spinner"></div><div>Generating image…</div>';
+  resultsArea.insertBefore(loadingCard, resultsArea.firstChild);
+
+  var body = { prompt: prompt, profile: profile, n: n, size: size, steps: steps };
+  if (guidance > 0) body.guidance = guidance;
+  if (seed !== undefined) body.seed = seed;
+  try {
+    var r = await fetch('/v1/images/generations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    var retries = 0;
+    while (r.status == 503 && retries < 20) {
+      var retryAfter = parseInt(r.headers.get('Retry-After')) || 5;
+      loadingCard.innerHTML = '<div class="spinner"></div><div>Loading model… (attempt ' + (retries + 1) + ')</div>';
+      await new Promise(function(res) { setTimeout(res, retryAfter * 1000); });
+      r = await fetch('/v1/images/generations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      retries++;
+    }
+    loadingCard.remove();
+    if (!r.ok) {
+      var errText = await r.text();
+      var errMsg = errText;
+      try { var j = JSON.parse(errText); errMsg = j.error || errText; } catch (e) {}
+      var errCard = document.createElement('div');
+      errCard.className = 'image-result-card';
+      errCard.innerHTML = '<div style="padding:20px;text-align:center;color:var(--red)"><div style="font-size:24px;margin-bottom:8px">⚠️</div><div style="font-weight:600;margin-bottom:4px">Generation Failed</div><div style="font-size:12px;color:var(--text-dim);white-space:pre-wrap">' + escHtml(errMsg) + '</div></div>';
+      resultsArea.insertBefore(errCard, resultsArea.firstChild);
+      return;
+    }
+    var data = await r.json();
+    var items = data.data || [];
+    if (!items.length) {
+      var emptyCard = document.createElement('div');
+      emptyCard.className = 'image-result-card';
+      emptyCard.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-dim)">No images returned</div>';
+      resultsArea.insertBefore(emptyCard, resultsArea.firstChild);
+      return;
+    }
+    items.forEach(function(item) {
+      var b64 = item.b64_json || item.url || '';
+      if (b64 && item.b64_json && b64.indexOf('data:') !== 0) {
+        b64 = 'data:image/png;base64,' + b64;
+      }
+      var timestamp = new Date().toLocaleString();
+      var idx = imageHistory.length;
+      var entry = { prompt: prompt, profile: profile, data: b64, time: timestamp, params: params, seed: seed };
+      imageHistory.push(entry);
+      try { localStorage.setItem('gollama_image_history', JSON.stringify(imageHistory.slice(-20))); } catch (e) {}
+      renderImageResultCard(resultsArea, idx, false);
+    });
+    renderImageHistory();
+  } catch (e) {
+    loadingCard.remove();
+    var errCard = document.createElement('div');
+    errCard.className = 'image-result-card';
+    errCard.innerHTML = '<div style="padding:20px;text-align:center;color:var(--red)"><div style="font-size:24px;margin-bottom:8px">⚠️</div><div style="font-weight:600;margin-bottom:4px">Request Failed</div><div style="font-size:12px;color:var(--text-dim)">' + escHtml(e.message) + '</div></div>';
+    resultsArea.insertBefore(errCard, resultsArea.firstChild);
+  } finally {
+    imageGenerating = false;
+    btn.disabled = false;
+    btn.textContent = 'Generate';
+  }
+}
+
+function renderImageResultCard(container, idx, isHistory) {
+  var h = imageHistory[idx];
+  if (!h) return;
+  var card = document.createElement('div');
+  card.className = 'image-result-card';
+  var promptShort = h.prompt.length > 80 ? h.prompt.slice(0, 80) + '…' : h.prompt;
+  var removeAttr = isHistory ? 'removeHistoryImage(' + idx + ', this)' : 'removeResultCard(this)';
+
+  var metaParts = [];
+  if (h.params) {
+    var p = h.params;
+    if (p.n && p.n > 1) metaParts.push(p.n + '×');
+    if (p.size) metaParts.push(p.size);
+    if (p.steps) metaParts.push(p.steps + ' steps');
+    if (p.guidance > 0) metaParts.push('CFG ' + p.guidance);
+  }
+  if (h.seed !== undefined && h.seed !== null) {
+    metaParts.push('seed ' + h.seed);
+  }
+  var metaHtml = metaParts.length ? '<div style="font-size:10px;color:var(--text-dim);margin-top:6px;font-family:var(--font-mono)">' + escHtml(metaParts.join(' · ')) + '</div>' : '';
+
+  card.innerHTML =
+    '<div class="result-meta">' +
+      '<div style="min-width:0">' +
+        '<span class="result-prompt" title="' + escAttr(h.prompt) + '">' + escHtml(promptShort) + '</span>' +
+        metaHtml +
+      '</div>' +
+      '<div class="result-actions">' +
+        '<button class="small ghost" onclick="regenerateFromHistory(' + idx + ')" title="Re-generate">🔄</button>' +
+        '<button class="small ghost" onclick="downloadImageByIndex(' + idx + ')" title="Download">⬇</button>' +
+        '<button class="small danger" onclick="' + removeAttr + '" title="Remove">✕</button>' +
+      '</div>' +
+    '</div>';
+  var img = document.createElement('img');
+  img.className = 'result-img';
+  img.src = h.data;
+  img.alt = h.prompt;
+  img.loading = 'lazy';
+  var dataRef = h.data;
+  img.onclick = function() { openLightbox(dataRef); };
+  card.appendChild(img);
+  container.insertBefore(card, container.firstChild);
+}
+
+function regenerateFromHistory(idx) {
+  var h = imageHistory[idx];
+  if (!h) return;
+  document.getElementById('imagePromptInput').value = h.prompt;
+  if (h.params) {
+    var p = h.params;
+    if (p.n) document.getElementById('imageNInput').value = p.n;
+    if (p.size) {
+      var sel = document.getElementById('imageSizeSelect');
+      var opt = Array.from(sel.options).find(function(o) { return o.value === p.size; });
+      if (opt) { sel.value = p.size; document.getElementById('imageSizeCustom').style.display = 'none'; }
+      else { sel.value = 'custom'; document.getElementById('imageSizeCustom').value = p.size; document.getElementById('imageSizeCustom').style.display = 'block'; }
+    }
+    if (p.steps) document.getElementById('imageStepsInput').value = p.steps;
+    if (p.guidance) document.getElementById('imageGuidanceInput').value = p.guidance;
+  }
+  document.getElementById('imageSeedInput').value = h.seed !== undefined && h.seed !== null ? h.seed : '';
+  switchView('image');
+  document.getElementById('imagePromptInput').focus();
+}
+
+function downloadImageByIndex(idx) {
+  var h = imageHistory[idx];
+  if (!h) return;
+  var link = document.createElement('a');
+  link.download = 'gollama-' + (h.time || Date.now()).replace(/[/:]/g, '-') + '.png';
+  link.href = h.data;
+  link.click();
+}
+
+function removeResultCard(btn) {
+  var card = btn.closest('.image-result-card');
+  if (card) card.remove();
+}
+
+function openLightbox(src) {
+  var lb = document.createElement('div');
+  lb.className = 'image-lightbox';
+  lb.innerHTML = '<button class="lb-close" onclick="this.parentElement.remove()">✕</button><img src="' + src + '" alt="Full size">';
+  lb.onclick = function(e) { if (e.target === lb) lb.remove(); };
+  document.body.appendChild(lb);
+}
+
+function clearImageHistory() {
+  if (!confirm('Clear all generation history?')) return;
+  imageHistory = [];
+  try { localStorage.removeItem('gollama_image_history'); } catch (e) {}
+  renderImageHistory();
+  var resultsArea = document.getElementById('imageResultsArea');
+  resultsArea.innerHTML = '<div class="image-empty" id="imageEmpty"><div class="icon">🎨</div><div class="title">No images generated yet</div><p>Type a prompt and click Generate to create an image. Results appear here.</p></div>';
+}
+
+function renderImageHistory() {
+  var section = document.getElementById('imageHistorySection');
+  var grid = document.getElementById('imageHistoryGrid');
+  var count = document.getElementById('imageHistoryCount');
+  if (!section || !grid) return;
+  if (imageHistory.length === 0) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = 'block';
+  count.textContent = imageHistory.length + ' images';
+  grid.innerHTML = imageHistory.slice().reverse().map(function(h, i) {
+    var realIdx = imageHistory.length - 1 - i;
+    var promptShort = h.prompt.length > 60 ? h.prompt.slice(0, 60) + '…' : h.prompt;
+    return '<div class="image-thumb" onclick="showHistoryImage(' + realIdx + ')"><img src="' + escAttr(h.data) + '" loading="lazy"><div class="thumb-overlay"><div class="thumb-prompt">' + escHtml(promptShort) + '</div></div></div>';
+  }).join('');
+}
+
+function showHistoryImage(idx) {
+  var h = imageHistory[idx];
+  if (!h) return;
+  var resultsArea = document.getElementById('imageResultsArea');
+  var empty = document.getElementById('imageEmpty');
+  if (empty) empty.style.display = 'none';
+  renderImageResultCard(resultsArea, idx, true);
+}
+
+function removeHistoryImage(idx, btn) {
+  imageHistory.splice(idx, 1);
+  try { localStorage.setItem('gollama_image_history', JSON.stringify(imageHistory.slice(-20))); } catch (e) {}
+  var card = btn.closest('.image-result-card');
+  if (card) card.remove();
+  renderImageHistory();
+  if (imageHistory.length === 0) {
+    document.getElementById('imageResultsArea').innerHTML = '<div class="image-empty" id="imageEmpty"><div class="icon">🎨</div><div class="title">No images generated yet</div><p>Type a prompt and click Generate to create an image. Results appear here.</p></div>';
+  }
+}
+
 // ── Init (staggered, no pile-up) ─────────────────────
 loadModels();
 setTimeout(loadDefaultFlags, 50);
 setTimeout(loadPresets, 50);
 setTimeout(loadInstances, 100);
 setTimeout(loadSettings, 150);
+try { var saved = localStorage.getItem('gollama_image_history'); if (saved) { imageHistory = JSON.parse(saved); } } catch (e) {}
+document.getElementById('imageSizeSelect').addEventListener('change', function() {
+  document.getElementById('imageSizeCustom').style.display = this.value === 'custom' ? 'block' : 'none';
+});
 </script>
 </body>
 </html>`
