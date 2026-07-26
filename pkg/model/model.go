@@ -46,6 +46,12 @@ type Profile struct {
 	MergeReasoning *bool             `json:"merge_reasoning,omitempty"`
 	Env            map[string]string `json:"env,omitempty"`
 	Type           string            `json:"type,omitempty"` // "text" (default) or "image"
+
+	// Image-specific defaults (optional — user can override in UI)
+	Steps    *int     `json:"steps,omitempty"`
+	Guidance *float64 `json:"guidance,omitempty"`
+	Size     *string  `json:"size,omitempty"`
+	N        *int     `json:"n,omitempty"`
 }
 
 type Config struct {

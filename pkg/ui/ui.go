@@ -666,7 +666,7 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
             <label style="font-size:12px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.5px;margin:0">Model</label>
             <button class="ghost small" onclick="toggleImageModelSearch()" id="imgModelBrowseBtn">🔍 Browse</button>
           </div>
-          <select id="imageProfileSelect" aria-label="Select profile" style="width:100%;margin-bottom:0">
+          <select id="imageProfileSelect" aria-label="Select profile" style="width:100%;margin-bottom:0" onchange="onImageProfileChange()">
             <option value="">Loading profiles…</option>
           </select>
           <div id="imgModelSearchWrap" style="display:none;margin-top:8px">
@@ -683,10 +683,10 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
         <details class="advanced-flags" style="margin-top:8px">
           <summary style="cursor:pointer;font-size:12px;color:var(--text-muted);font-weight:600;user-select:none">Advanced settings</summary>
           <div style="margin-top:8px;display:flex;flex-direction:column;gap:10px">
-            <div><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Images</label><input type="number" id="imageNInput" value="1" min="1" max="8" style="width:100%"></div>
-            <div><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Size</label><select id="imageSizeSelect" style="width:100%"><option value="512x512">512×512</option><option value="768x768">768×768</option><option value="1024x1024" selected>1024×1024</option><option value="1280x720">1280×720</option><option value="1024x768">1024×768</option><option value="custom">Custom…</option></select><input type="text" id="imageSizeCustom" placeholder="WIDTHxHEIGHT" style="width:100%;display:none;margin-top:4px"></div>
-            <div><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Steps</label><input type="number" id="imageStepsInput" value="28" min="1" max="100" style="width:100%"></div>
-            <div><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Guidance</label><input type="number" id="imageGuidanceInput" value="0" min="0" max="30" step="0.5" style="width:100%"></div>
+            <div><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Images</label><input type="number" id="imageNInput" min="1" max="8" style="width:100%" placeholder="profile default"></div>
+            <div><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Size</label><select id="imageSizeSelect" style="width:100%"><option value="">Profile default</option><option value="512x512">512×512</option><option value="768x768">768×768</option><option value="1024x1024">1024×1024</option><option value="1280x720">1280×720</option><option value="1024x768">1024×768</option><option value="custom">Custom…</option></select><input type="text" id="imageSizeCustom" placeholder="WIDTHxHEIGHT" style="width:100%;display:none;margin-top:4px"></div>
+            <div><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Steps</label><input type="number" id="imageStepsInput" min="1" max="100" style="width:100%" placeholder="profile default"></div>
+            <div><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Guidance</label><input type="number" id="imageGuidanceInput" min="0" max="30" step="0.5" style="width:100%" placeholder="profile default"></div>
             <div><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Seed</label><input type="number" id="imageSeedInput" placeholder="random" style="width:100%"></div>
           </div>
         </details>
@@ -801,11 +801,32 @@ button.ghost:hover { background: var(--surface-2); color: var(--text); }
     </div>
     <div class="settings-form">
       <div id="profilesContainer"></div>
-      <button class="ghost small" onclick="addProfile()" style="margin-top:4px">＋ Add Model Profile</button>
+      <button class="ghost small" onclick="addProfile('text')" style="margin-top:4px">＋ Add Text Profile</button>
       <div style="margin-top:10px">
         <button class="primary small" onclick="saveProfiles()">Save</button>
         <button class="secondary small" onclick="cancelEditSettings('profiles')">Cancel</button>
         <span id="profilesStatus" style="font-size:12px;color:var(--text-muted);margin-left:8px"></span>
+      </div>
+    </div>
+  </div></div>
+  <div class="card settings-card" id="settings-image-profiles" style="margin-top:16px"><div class="card-body">
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:8px">
+      <div>
+        <div style="font-size:13px;font-weight:600">Image Profiles</div>
+        <div style="font-size:11px;color:var(--text-dim);margin-top:2px">Image generation model settings. No llama.cpp flags apply.</div>
+      </div>
+      <button class="ghost small settings-edit-btn" onclick="toggleEditSettings('image-profiles')">✏️ Edit</button>
+    </div>
+    <div class="settings-readonly" id="image-profiles-readonly">
+      <div style="font-size:12px;color:var(--text-dim)">No image profiles configured.</div>
+    </div>
+    <div class="settings-form">
+      <div id="imageProfilesContainer"></div>
+      <button class="ghost small" onclick="addProfile('image')" style="margin-top:4px">＋ Add Image Profile</button>
+      <div style="margin-top:10px">
+        <button class="primary small" onclick="saveProfiles()">Save</button>
+        <button class="secondary small" onclick="cancelEditSettings('image-profiles')">Cancel</button>
+        <span id="imageProfilesStatus" style="font-size:12px;color:var(--text-muted);margin-left:8px"></span>
       </div>
     </div>
   </div></div>
@@ -2172,30 +2193,52 @@ function renderReadOnlyFlags(container, flags) {
 }
 
 function renderReadOnlyProfiles(profiles) {
-  var container = document.getElementById('profiles-readonly');
-  if (!profiles || Object.keys(profiles).length === 0) {
-    container.innerHTML = '<div style="font-size:12px;color:var(--text-dim)">No model profiles configured.</div>';
+  var textProfiles = [], imageProfiles = [];
+  for (var name in profiles) {
+    var p = profiles[name];
+    p._name = name;
+    if (p.type === 'image' || (p.type !== 'text' && (p.steps !== undefined || p.size))) { imageProfiles.push(p); } else { textProfiles.push(p); }
+  }
+  renderReadOnlyProfileList('profiles-readonly', textProfiles, 'No model profiles configured.', function(p) {
+    var h = '<div style="font-weight:600;font-size:13px;margin-bottom:2px">' + escHtml(p._name) + '</div>';
+    if (p.model) h += '<div style="font-size:11px;color:var(--text-dim);margin-bottom:2px">Model: <code style="font-size:11px">' + escHtml(p.model) + '</code></div>';
+    if (p.description) h += '<div style="font-size:11px;color:var(--text-dim)">' + escHtml(p.description) + '</div>';
+    if (p.flags && p.flags.length) {
+      h += '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px">';
+      for (var i = 0; i < p.flags.length; i++) {
+        h += '<span class="tag" style="font-family:var(--font-mono);font-size:10px">' + escHtml(p.flags[i]) + '</span>';
+        if (i + 1 < p.flags.length && !standaloneFlags[p.flags[i]] && !p.flags[i + 1].startsWith('--')) {
+          i++;
+          h += '<span class="tag" style="font-family:var(--font-mono);font-size:10px;color:var(--text-dim)">' + escHtml(p.flags[i]) + '</span>';
+        }
+      }
+      h += '</div>';
+    }
+    return h;
+  });
+  renderReadOnlyProfileList('image-profiles-readonly', imageProfiles, 'No image profiles configured.', function(p) {
+    var h = '<div style="font-weight:600;font-size:13px;margin-bottom:2px">' + escHtml(p._name) + '</div>';
+    if (p.model) h += '<div style="font-size:11px;color:var(--text-dim);margin-bottom:2px">Model: <code style="font-size:11px">' + escHtml(p.model) + '</code></div>';
+    if (p.description) h += '<div style="font-size:11px;color:var(--text-dim)">' + escHtml(p.description) + '</div>';
+    var parts = [];
+    if (p.steps) parts.push(p.steps + ' steps');
+    if (p.guidance !== undefined && p.guidance !== null) parts.push('CFG ' + p.guidance);
+    if (p.size) parts.push(p.size);
+    if (p.n) parts.push(p.n + '\u00d7');
+    if (parts.length) h += '<div style="font-size:11px;color:var(--text-dim);margin-top:2px">' + parts.join(' \u00b7 ') + '</div>';
+    return h;
+  });
+}
+
+function renderReadOnlyProfileList(containerId, items, emptyMsg, renderFn) {
+  var container = document.getElementById(containerId);
+  if (!items.length) {
+    container.innerHTML = '<div style="font-size:12px;color:var(--text-dim)">' + emptyMsg + '</div>';
     return;
   }
   var html = '<div style="display:flex;flex-direction:column;gap:8px">';
-  for (var name in profiles) {
-    var p = profiles[name];
-    html += '<div style="background:var(--surface-2);border-radius:6px;padding:10px 12px;border:1px solid var(--border)">' +
-      '<div style="font-weight:600;font-size:13px;margin-bottom:2px">' + escHtml(name) + '</div>';
-    if (p.model) html += '<div style="font-size:11px;color:var(--text-dim);margin-bottom:2px">Model: <code style="font-size:11px">' + escHtml(p.model) + '</code></div>';
-    if (p.description) html += '<div style="font-size:11px;color:var(--text-dim)">' + escHtml(p.description) + '</div>';
-    if (p.flags && p.flags.length) {
-      html += '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px">';
-      for (var i = 0; i < p.flags.length; i++) {
-        html += '<span class="tag" style="font-family:var(--font-mono);font-size:10px">' + escHtml(p.flags[i]) + '</span>';
-        if (i + 1 < p.flags.length && !standaloneFlags[p.flags[i]] && !p.flags[i + 1].startsWith('--')) {
-          i++;
-          html += '<span class="tag" style="font-family:var(--font-mono);font-size:10px;color:var(--text-dim)">' + escHtml(p.flags[i]) + '</span>';
-        }
-      }
-      html += '</div>';
-    }
-    html += '</div>';
+  for (var i = 0; i < items.length; i++) {
+    html += '<div style="background:var(--surface-2);border-radius:6px;padding:10px 12px;border:1px solid var(--border)">' + renderFn(items[i]) + '</div>';
   }
   html += '</div>';
   container.innerHTML = html;
@@ -2217,16 +2260,32 @@ async function loadSettings() {
     renderReadOnlyFlags(document.getElementById('api-readonly'), cfg.proxy_defaults);
     // Load model profiles into settings
     var pc = document.getElementById('profilesContainer');
+    var ipc = document.getElementById('imageProfilesContainer');
     pc.innerHTML = '';
+    if (ipc) ipc.innerHTML = '';
     var nextPid = 0;
     if (cfg.profiles) {
-      var i = 0;
+      var textIdx = 0, imageIdx = 0;
       for (var name in cfg.profiles) {
         var p = cfg.profiles[name];
-        renderProfile({ name: name, model: p.model || '', desc: p.description || '', flags: p.flags, strip_reasoning: p.strip_reasoning, merge_reasoning: p.merge_reasoning, env: p.env }, i);
-        i++;
+        // Auto-set image defaults for profiles missing them
+        if (p.type === 'image' || (p.type !== 'text' && (p.steps !== undefined || p.size))) {
+          p.type = 'image';
+          if (p.steps === undefined || p.steps === null) p.steps = 28;
+          if (p.guidance === undefined || p.guidance === null) p.guidance = 3.5;
+          if (!p.size) p.size = '1024x1024';
+          if (!p.n) p.n = 1;
+        }
+        var profileData = { name: name, model: p.model || '', desc: p.description || '', flags: p.flags, strip_reasoning: p.strip_reasoning, merge_reasoning: p.merge_reasoning, env: p.env, type: p.type, steps: p.steps, guidance: p.guidance, size: p.size, n: p.n };
+        if (p.type === 'image') {
+          renderProfile(profileData, 'img-' + imageIdx);
+          imageIdx++;
+        } else {
+          renderProfile(profileData, textIdx);
+          textIdx++;
+        }
+        nextPid++;
       }
-      nextPid = i;
     }
     _pid = nextPid;
     renderReadOnlyProfiles(cfg.profiles);
@@ -2271,8 +2330,10 @@ async function saveProxyFlags() {
 
 // ── Model Profiles ─────────────────────────────────
 var _pid = 0;
-function addProfile() {
-  var c = document.getElementById('profilesContainer');
+function addProfile(profileType) {
+  profileType = profileType || 'text';
+  var containerId = profileType === 'image' ? 'imageProfilesContainer' : 'profilesContainer';
+  var c = document.getElementById(containerId);
   var i = _pid++;
   var d = document.createElement('div');
   d.style = 'background:var(--surface-2);border-radius:8px;padding:14px;margin-bottom:12px;border:1px solid var(--border)';
@@ -2284,13 +2345,32 @@ function addProfile() {
     '</div>' +
     '<div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">' +
       '<div style="flex:1;min-width:140px"><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Model (optional)</label><input type="text" class="flag-custom" placeholder="e.g. qwen3-coder-next" style="width:100%" id="pm-' + i + '"></div>' +
+      '<div style="flex:1;min-width:100px"><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Type</label><select style="width:100%;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:12px" id="pt-' + i + '"><option value="text"' + (profileType==='text'?' selected':'') + '>Text</option><option value="image"' + (profileType==='image'?' selected':'') + '>Image</option></select></div>' +
       '<div style="flex:2;min-width:180px"><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Description</label><input type="text" class="flag-custom" placeholder="What is this profile for?" style="width:100%" id="pd-' + i + '"></div>' +
     '</div>' +
-    '<div style="font-size:11px;color:var(--text-dim);margin-bottom:6px">Flags</div>' +
-    '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px" id="pf-' + i + '"></div>' +
-    '<button class="ghost small" onclick="addProfileFlag(' + i + ')" style="font-size:11px">＋ Add Flag</button>';
+    '<div id="pimg-' + i + '" style="display:none">' +
+      '<div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">' +
+        '<div style="flex:0 0 60px"><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Steps</label><input type="number" class="flag-custom" placeholder="28" style="width:100%" id="psteps-' + i + '"></div>' +
+        '<div style="flex:0 0 70px"><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Guidance</label><input type="number" class="flag-custom" placeholder="3.5" step="0.5" style="width:100%" id="pguidance-' + i + '"></div>' +
+        '<div style="flex:0 0 150px"><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Size</label><select style="width:100%;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:12px" id="psize-' + i + '"><option value="">Default</option><option value="512x512">512×512</option><option value="768x768">768×768</option><option value="1024x1024">1024×1024</option><option value="1280x720">1280×720</option><option value="1024x768">1024×768</option><option value="__custom__">Custom…</option></select><input type="text" id="psize-custom-' + i + '" placeholder="WIDTHxHEIGHT" style="width:100%;display:none;margin-top:2px;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:12px"></div>' +
+        '<div style="flex:0 0 60px"><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">N</label><input type="number" class="flag-custom" placeholder="1" min="1" max="8" style="width:100%" id="pncount-' + i + '"></div>' +
+      '</div>' +
+    '</div>' +
+    '<div id="pflags-section-' + i + '" style="display:block">' +
+      '<div style="font-size:11px;color:var(--text-dim);margin-bottom:6px">Flags</div>' +
+      '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px" id="pf-' + i + '"></div>' +
+      '<button class="ghost small" onclick="addProfileFlag(' + i + ')" style="font-size:11px">＋ Add Flag</button>' +
+    '</div>';
   d.id = 'pc-' + i;
   c.appendChild(d);
+  document.getElementById('pt-' + i).addEventListener('change', function() {
+    var isImage = this.value === 'image';
+    document.getElementById('pimg-' + i).style.display = isImage ? 'block' : 'none';
+    document.getElementById('pflags-section-' + i).style.display = isImage ? 'none' : 'block';
+  });
+  document.getElementById('psize-' + i).addEventListener('change', function() {
+    document.getElementById('psize-custom-' + i).style.display = this.value === '__custom__' ? 'block' : 'none';
+  });
 }
 
 function addProfileFlag(idx) {
@@ -2315,10 +2395,13 @@ function addProfileEnvRow(idx, key, val) {
 }
 
 function renderProfile(p, i) {
-  var c = document.getElementById('profilesContainer');
+  var containerId = (p.type === 'image') ? 'imageProfilesContainer' : 'profilesContainer';
+  var c = document.getElementById(containerId);
   var d = document.createElement('div');
   d.id = 'pc-' + i;
   d.style = 'background:var(--surface-2);border-radius:8px;padding:14px;margin-bottom:12px;border:1px solid var(--border)';
+  var ptype = p.type || 'text';
+  var isImage = ptype === 'image';
   d.innerHTML =
     '<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px">' +
       '<span style="font-size:15px">📋</span>' +
@@ -2327,13 +2410,24 @@ function renderProfile(p, i) {
     '</div>' +
     '<div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">' +
       '<div style="flex:1;min-width:140px"><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Model (optional)</label><input type="text" class="flag-custom" placeholder="e.g. qwen3-coder-next" style="width:100%" id="pm-' + i + '" value="' + escAttr(p.model || '') + '"></div>' +
+      '<div style="flex:1;min-width:100px"><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Type</label><select style="width:100%;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:12px" id="pt-' + i + '"><option value="text"' + (ptype==='text'?' selected':'') + '>Text</option><option value="image"' + (isImage?' selected':'') + '>Image</option></select></div>' +
       '<div style="flex:2;min-width:180px"><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Description</label><input type="text" class="flag-custom" placeholder="What is this profile for?" style="width:100%" id="pd-' + i + '" value="' + escAttr(p.desc || '') + '"></div>' +
       '<div style="flex:0 0 auto;display:flex;align-items:end;padding-bottom:2px"><label style="font-size:11px;color:var(--text-dim);display:flex;align-items:center;gap:4px;white-space:nowrap;cursor:pointer"><input type="checkbox" id="ps-' + i + '" ' + (p.strip_reasoning ? 'checked' : '') + ' style="accent-color:var(--accent)"> Strip reasoning</label></div>' +
       '<div style="flex:0 0 auto;display:flex;align-items:end;padding-bottom:2px"><label style="font-size:11px;color:var(--text-dim);display:flex;align-items:center;gap:4px;white-space:nowrap;cursor:pointer"><input type="checkbox" id="pmr-' + i + '" ' + (p.merge_reasoning ? 'checked' : '') + ' style="accent-color:var(--accent)"> Merge reasoning</label></div>' +
     '</div>' +
-    '<div style="font-size:11px;color:var(--text-dim);margin-bottom:6px">Flags</div>' +
-    '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px" id="pf-' + i + '"></div>' +
-    '<button class="ghost small" onclick="addProfileFlag(' + i + ')" style="font-size:11px">＋ Add Flag</button>' +
+    '<div id="pimg-' + i + '" style="display:' + (isImage ? 'block' : 'none') + '">' +
+      '<div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">' +
+        '<div style="flex:0 0 60px"><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Steps</label><input type="number" class="flag-custom" placeholder="28" style="width:100%" id="psteps-' + i + '" value="' + (p.steps || '') + '"></div>' +
+        '<div style="flex:0 0 70px"><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Guidance</label><input type="number" class="flag-custom" placeholder="3.5" step="0.5" style="width:100%" id="pguidance-' + i + '" value="' + (p.guidance !== undefined && p.guidance !== null ? p.guidance : '') + '"></div>' +
+        '<div style="flex:0 0 150px"><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Size</label><select style="width:100%;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:12px" id="psize-' + i + '"><option value="">Default</option><option value="512x512">512×512</option><option value="768x768">768×768</option><option value="1024x1024">1024×1024</option><option value="1280x720">1280×720</option><option value="1024x768">1024×768</option><option value="__custom__">Custom…</option></select><input type="text" id="psize-custom-' + i + '" placeholder="WIDTHxHEIGHT" style="width:100%;display:none;margin-top:2px;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:12px"></div>' +
+        '<div style="flex:0 0 60px"><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">N</label><input type="number" class="flag-custom" placeholder="1" min="1" max="8" style="width:100%" id="pncount-' + i + '" value="' + (p.n || '') + '"></div>' +
+      '</div>' +
+    '</div>' +
+    '<div id="pflags-section-' + i + '" style="display:' + (isImage ? 'none' : 'block') + '">' +
+      '<div style="font-size:11px;color:var(--text-dim);margin-bottom:6px">Flags</div>' +
+      '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px" id="pf-' + i + '"></div>' +
+      '<button class="ghost small" onclick="addProfileFlag(' + i + ')" style="font-size:11px">＋ Add Flag</button>' +
+    '</div>' +
     '<div style="font-size:11px;color:var(--text-dim);margin-top:8px;margin-bottom:6px">Environment Variables</div>' +
     '<div style="display:flex;flex-direction:column;gap:4px;margin-bottom:4px" id="pe-' + i + '"></div>' +
     '<button class="ghost small" onclick="addProfileEnv(' + i + ')" style="font-size:11px">＋ Add Env Var</button>';
@@ -2354,11 +2448,32 @@ function renderProfile(p, i) {
       addProfileEnvRow(i, ek, p.env[ek]);
     }
   }
+  // Toggle image-specific and flags sections when type changes
+  document.getElementById('pt-' + i).addEventListener('change', function() {
+    var isImage = this.value === 'image';
+    document.getElementById('pimg-' + i).style.display = isImage ? 'block' : 'none';
+    document.getElementById('pflags-section-' + i).style.display = isImage ? 'none' : 'block';
+  });
+  // Set size dropdown value and show custom input if needed
+  var sizeSel = document.getElementById('psize-' + i);
+  if (p.size) {
+    var opt = sizeSel.querySelector('option[value="' + p.size + '"]');
+    if (opt) {
+      sizeSel.value = p.size;
+    } else {
+      sizeSel.value = '__custom__';
+      document.getElementById('psize-custom-' + i).value = p.size;
+      document.getElementById('psize-custom-' + i).style.display = 'block';
+    }
+  }
+  sizeSel.addEventListener('change', function() {
+    document.getElementById('psize-custom-' + i).style.display = this.value === '__custom__' ? 'block' : 'none';
+  });
 }
 
-async function saveProfiles() {
-  var st = document.getElementById('profilesStatus');
-  var c = document.getElementById('profilesContainer');
+function collectProfilesFromContainer(containerId) {
+  var c = document.getElementById(containerId);
+  if (!c) return {};
   var profiles = {};
   for (var ci = 0; ci < c.children.length; ci++) {
     var card = c.children[ci];
@@ -2369,22 +2484,42 @@ async function saveProfiles() {
     var desc = document.getElementById('pd-' + idx);
     var stripEl = document.getElementById('ps-' + idx);
     if (!name || !name.value) continue;
+    var typeEl = document.getElementById('pt-' + idx);
+    var isImage = typeEl && typeEl.value === 'image';
     var flags = [];
-    var fc = document.getElementById('pf-' + idx);
-    if (fc) {
-      for (var j = 0; j < fc.children.length; j++) {
-        var searchInput = fc.children[j].querySelector('.flag-search');
-        var custom = fc.children[j].querySelector('.flag-custom');
-        var valInput = fc.children[j].querySelector('.flag-value');
-        var fn = (searchInput ? searchInput.value.trim() : '') || (custom ? custom.value : '');
-        var fv = valInput ? valInput.value : '';
-        if (fn) { flags.push(fn); if (!standaloneFlags[fn] && fv) flags.push(fv); }
+    if (!isImage) {
+      var fc = document.getElementById('pf-' + idx);
+      if (fc) {
+        for (var j = 0; j < fc.children.length; j++) {
+          var searchInput = fc.children[j].querySelector('.flag-search');
+          var custom = fc.children[j].querySelector('.flag-custom');
+          var valInput = fc.children[j].querySelector('.flag-value');
+          var fn = (searchInput ? searchInput.value.trim() : '') || (custom ? custom.value : '');
+          var fv = valInput ? valInput.value : '';
+          if (fn) { flags.push(fn); if (!standaloneFlags[fn] && fv) flags.push(fv); }
+        }
       }
     }
     var profileObj = { model: model ? model.value : '', description: desc ? desc.value : '', flags: flags };
+    if (isImage) profileObj.type = 'image';
     if (stripEl && stripEl.checked) profileObj.strip_reasoning = true;
     var mergeEl = document.getElementById('pmr-' + idx);
     if (mergeEl && mergeEl.checked) profileObj.merge_reasoning = true;
+    var stepsEl = document.getElementById('psteps-' + idx);
+    if (stepsEl && stepsEl.value) profileObj.steps = parseInt(stepsEl.value);
+    var guidanceEl = document.getElementById('pguidance-' + idx);
+    if (guidanceEl && guidanceEl.value) profileObj.guidance = parseFloat(guidanceEl.value);
+    var sizeEl = document.getElementById('psize-' + idx);
+    if (sizeEl && sizeEl.value) {
+      if (sizeEl.value === '__custom__') {
+        var customSize = document.getElementById('psize-custom-' + idx);
+        if (customSize && customSize.value) profileObj.size = customSize.value;
+      } else {
+        profileObj.size = sizeEl.value;
+      }
+    }
+    var ncountEl = document.getElementById('pncount-' + idx);
+    if (ncountEl && ncountEl.value) profileObj.n = parseInt(ncountEl.value);
     var envObj = {};
     var ec = document.getElementById('pe-' + idx);
     if (ec) {
@@ -2398,9 +2533,17 @@ async function saveProfiles() {
     if (Object.keys(envObj).length > 0) profileObj.env = envObj;
     profiles[name.value] = profileObj;
   }
+  return profiles;
+}
+
+async function saveProfiles() {
+  var textProfiles = collectProfilesFromContainer('profilesContainer');
+  var imageProfiles = collectProfilesFromContainer('imageProfilesContainer');
+  var profiles = Object.assign({}, textProfiles, imageProfiles);
+  var st = document.getElementById('profilesStatus');
   try {
     var r = await fetch('/api/v1/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profiles: profiles }) });
-    if (r.ok) { st.textContent = 'Saved'; setTimeout(function() { st.textContent = ''; }, 2000); loadSettings(); document.getElementById('settings-profiles').classList.remove('editing'); }
+    if (r.ok) { st.textContent = 'Saved'; setTimeout(function() { st.textContent = ''; }, 2000); loadSettings(); document.getElementById('settings-profiles').classList.remove('editing'); document.getElementById('settings-image-profiles').classList.remove('editing'); }
     else { st.textContent = 'Error saving'; }
   } catch (e) { st.textContent = 'Error: ' + e.message; }
 }
@@ -2414,38 +2557,72 @@ async function restartGollama() {
 }
 
 // ── Image Generation ──────────────────────────────────
-var _cachedImageProfiles = [];
+var _cachedImageProfiles = {};
 
 async function loadImageProfiles() {
   var sel = document.getElementById('imageProfileSelect');
   if (!sel) return;
   try {
     var r = await fetch('/api/v1/config'), cfg = await r.json();
-    _cachedImageProfiles = [];
+    _cachedImageProfiles = {};
     for (var name in cfg.profiles) {
       if (cfg.profiles[name].type === 'image') {
-        _cachedImageProfiles.push({ name: name, desc: cfg.profiles[name].description || cfg.profiles[name].model || name });
+        _cachedImageProfiles[name] = cfg.profiles[name];
       }
     }
     sel.innerHTML = '';
-    if (_cachedImageProfiles.length === 0) {
+    var names = Object.keys(_cachedImageProfiles);
+    if (names.length === 0) {
       sel.innerHTML = '<option value="">No image profiles configured</option>';
       sel.disabled = true;
     } else {
       sel.disabled = false;
       sel.innerHTML = '<option value="">Select profile…</option>';
-      _cachedImageProfiles.forEach(function(p) {
-        sel.innerHTML += '<option value="' + escAttr(p.name) + '">' + escHtml(p.name) + (p.desc ? ' — ' + escHtml(p.desc.slice(0, 40)) : '') + '</option>';
+      names.forEach(function(name) {
+        var p = _cachedImageProfiles[name];
+        var desc = p.description || p.model || name;
+        sel.innerHTML += '<option value="' + escAttr(name) + '">' + escHtml(name) + (desc ? ' — ' + escHtml(desc.slice(0, 40)) : '') + '</option>';
       });
       if (imageHistory.length > 0) {
         var last = imageHistory[imageHistory.length - 1];
         if (last.profile) sel.value = last.profile;
       }
     }
+    onImageProfileChange();
     renderImageHistory();
     loadImageModels();
   } catch (e) {
     sel.innerHTML = '<option value="">Error loading profiles</option>';
+  }
+}
+
+function onImageProfileChange() {
+  var sel = document.getElementById('imageProfileSelect');
+  var name = sel ? sel.value : '';
+  var p = name ? _cachedImageProfiles[name] : null;
+  var sizeSel = document.getElementById('imageSizeSelect');
+  if (p) {
+    document.getElementById('imageStepsInput').value = p.steps || '';
+    document.getElementById('imageGuidanceInput').value = (p.guidance !== undefined && p.guidance !== null) ? p.guidance : '';
+    document.getElementById('imageNInput').value = p.n || '';
+    if (p.size && sizeSel) {
+      var opt = sizeSel.querySelector('option[value="' + p.size + '"]');
+      if (opt) {
+        sizeSel.value = p.size;
+        document.getElementById('imageSizeCustom').style.display = 'none';
+      } else {
+        sizeSel.value = 'custom';
+        document.getElementById('imageSizeCustom').value = p.size;
+        document.getElementById('imageSizeCustom').style.display = 'block';
+      }
+    } else {
+      if (sizeSel) sizeSel.value = '';
+    }
+  } else {
+    document.getElementById('imageStepsInput').value = '';
+    document.getElementById('imageGuidanceInput').value = '';
+    document.getElementById('imageNInput').value = '';
+    if (sizeSel) sizeSel.value = '';
   }
 }
 
@@ -2527,11 +2704,13 @@ async function generateImage() {
   var profile = document.getElementById('imageProfileSelect').value;
   if (!profile) { alert('Select an image profile first.'); return; }
 
-  var n = parseInt(document.getElementById('imageNInput').value) || 1;
+  var pr = _cachedImageProfiles[profile] || {};
+  var n = parseInt(document.getElementById('imageNInput').value) || pr.n || 1;
   var sizeEl = document.getElementById('imageSizeSelect');
-  var size = sizeEl.value === 'custom' ? document.getElementById('imageSizeCustom').value.trim() : sizeEl.value;
-  var steps = parseInt(document.getElementById('imageStepsInput').value) || 4;
-  var guidance = parseFloat(document.getElementById('imageGuidanceInput').value) || 0;
+  var size = sizeEl.value === 'custom' ? document.getElementById('imageSizeCustom').value.trim() : (sizeEl.value || pr.size || '1024x1024');
+  var steps = parseInt(document.getElementById('imageStepsInput').value) || pr.steps || 4;
+  var guidance = parseFloat(document.getElementById('imageGuidanceInput').value);
+  if (!guidance && pr.guidance !== undefined && pr.guidance !== null) guidance = pr.guidance;
   var seedInput = document.getElementById('imageSeedInput').value.trim();
   var seed = seedInput ? parseInt(seedInput) || undefined : undefined;
 

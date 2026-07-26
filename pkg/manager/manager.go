@@ -682,6 +682,7 @@ func (m *Manager) Stop(port int) error {
 	proc, err := os.FindProcess(inst.PID)
 	if err == nil {
 		proc.Signal(os.Interrupt)
+		time.Sleep(500 * time.Millisecond)
 		proc.Kill()
 	}
 

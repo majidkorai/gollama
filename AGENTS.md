@@ -88,6 +88,12 @@ type Profile struct {
     MergeReasoning *bool             `json:"merge_reasoning,omitempty"`
     Env            map[string]string `json:"env,omitempty"`
     Type           string            `json:"type,omitempty"` // "text" (default) or "image"
+
+    // Image-specific defaults (optional — user can override in UI/API)
+    Steps    *int     `json:"steps,omitempty"`
+    Guidance *float64 `json:"guidance,omitempty"`
+    Size     *string  `json:"size,omitempty"`
+    N        *int     `json:"n,omitempty"`
 }
 ```
 
@@ -121,15 +127,19 @@ type ModelInfo struct {
 
 ### Profile Type
 
-Profiles now support a `type` field: `"text"` (default) or `"image"`. Image type launches a Python diffusers subprocess instead of llama-server.
+Profiles support a `type` field: `"text"` (default) or `"image"`. Image type launches a Python diffusers subprocess instead of llama-server.
+
+Image profiles can bundle generation defaults (`steps`, `guidance`, `size`, `n`) so each model carries sensible defaults. The UI auto-fills these when selecting a profile and the API merges them into the request body if not explicitly provided.
 
 ### Image Generation
 
 Gollama supports image generation via Python diffusers subprocesses. Configured through profiles with `"type": "image"`.
 
-**Web UI:** 🎨 Image tab — full playground with prompt, parameters (n, size, steps, guidance, seed), result cards with download/re-generate, lightbox, and history (localStorage).
+**Web UI:** 🎨 Image tab — full playground with prompt, advanced parameters (n, size, steps, guidance, seed), result cards with download/re-generate, lightbox, and history (localStorage). Selecting a profile auto-fills steps/guidance/size/n from the profile.
 
-**Model browser:** 🔍 Browse button in the playground searches HF for text-to-image models. "Add" creates an image profile. The model list shows configured profiles with cached/not-cached status and size.
+**Model browser:** 🔍 Browse button searches HF for text-to-image models. "Add" creates an image profile with auto-detected defaults (schnell→4 steps/0 guidance, dev→28 steps/3.5 guidance). The model list shows configured profiles with cached/not-cached status and size.
+
+**Settings:** Separate "Image Profiles" card (no llama.cpp flags shown). Edit mode shows steps (number), guidance (number), size (dropdown with presets + Custom option), n (number). Read-only view displays the configured parameters.
 
 **API endpoints:**
 - `POST /v1/images/generations` — OpenAI-compatible, auto-launches image model on first request
@@ -137,11 +147,18 @@ Gollama supports image generation via Python diffusers subprocesses. Configured 
 - `GET /api/v1/image-models/search?q=` — search HF for image generation models
 - `POST /api/v1/image-models/install` — add a new image profile
 
-**API params:** `prompt` (required), `profile`, `model`, `n` (1-8), `size` (e.g. `"1024x1024"`), `steps`, `guidance`, `seed`, `response_format`
+**API params:** `prompt` (required), `profile`, `model`, `n` (1-8), `size` (e.g. `"1024x1024"`), `steps`, `guidance`, `seed`, `response_format`. If not set in the request, values from the profile's `steps`/`guidance`/`size`/`n` fields are used as defaults.
+
+**Caller guidance (for agents/cron):**
+- **Omit `steps`/`guidance`/`size`/`n`** — they fall back to profile defaults. Only send them if you need to override.
+- **503 handling:** Model loads ~40s from cold start. Returned with `Retry-After: 5` header. Retry with that delay (5s) — ~8-10 retries should be enough.
+- **Image generation time:** ~1.2s per step for FLUX.1-dev (28 steps ≈ 34s).
+- **Total time from first request:** ~75s (40s start + 34s gen) when starting from cold.
+- **Recommended retry strategy:** Use server's `Retry-After` header (not hardcoded). Retry up to 30 times for 503s, 10 times for other errors/connection failures.
 
 **Automatic sequential GPU switching:** Text models are stopped before image gen loads, and vice versa. This enables single-GPU setups — no GPU env vars needed.
 
-**Example image profile:**
+**Example image profile with defaults:**
 ```json
 {
   "profiles": {
@@ -149,15 +166,28 @@ Gollama supports image generation via Python diffusers subprocesses. Configured 
       "model": "black-forest-labs/FLUX.1-dev",
       "type": "image",
       "description": "FLUX.1-dev (28 steps, high quality)",
+      "steps": 28,
+      "guidance": 3.5,
+      "size": "1024x1024",
+      "n": 1,
       "env": {
         "HF_TOKEN": "hf_..."
       }
+    },
+    "flux-schnell": {
+      "model": "black-forest-labs/FLUX.1-schnell",
+      "type": "image",
+      "description": "FLUX.1-schnell (4 steps, fast)",
+      "steps": 4,
+      "guidance": 0,
+      "size": "1024x1024",
+      "n": 1
     }
   }
 }
 ```
 
-**API:** `POST /v1/images/generations` — OpenAI-compatible, auto-launches image model on first request (503 + Retry-After: 5).
+**API:** `POST /v1/images/generations` — OpenAI-compatible, auto-launches image model on first request (503 + Retry-After: 5). Profile defaults merge into the proxied request.
 
 **Lifecycle:** Same as text instances — idle timeout, health checks, log management.
 

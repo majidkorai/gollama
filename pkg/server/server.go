@@ -466,6 +466,21 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 								}
 							}
 						}
+						// Image-specific fields
+						if steps, ok := pMap["steps"].(float64); ok {
+							v := int(steps)
+							p.Steps = &v
+						}
+						if guidance, ok := pMap["guidance"].(float64); ok {
+							p.Guidance = &guidance
+						}
+						if size, ok := pMap["size"].(string); ok {
+							p.Size = &size
+						}
+						if n, ok := pMap["n"].(float64); ok {
+							v := int(n)
+							p.N = &v
+						}
 						profiles[name] = p
 					}
 				}
@@ -918,6 +933,36 @@ func (s *Server) handleV1ImageGenerations(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	// Merge profile defaults into request body for any unset fields
+	if profileName != "" {
+		if p, ok := cfg.Profiles[profileName]; ok && p.Type == "image" {
+			if p.Steps != nil {
+				if _, exists := reqMap["steps"]; !exists {
+					reqMap["steps"] = *p.Steps
+				}
+			}
+			if p.Guidance != nil {
+				if _, exists := reqMap["guidance"]; !exists {
+					reqMap["guidance"] = *p.Guidance
+				}
+			}
+			if p.Size != nil {
+				if _, exists := reqMap["size"]; !exists {
+					reqMap["size"] = *p.Size
+				}
+			}
+			if p.N != nil {
+				if _, exists := reqMap["n"]; !exists {
+					reqMap["n"] = *p.N
+				}
+			}
+			// Re-encode the merged body for proxying
+			if merged, err := json.Marshal(reqMap); err == nil {
+				body = merged
+			}
+		}
+	}
+
 	// Stop text instances to free VRAM for image generation.
 	// Only preempt if text has been idle for 10s — avoids toggling war
 	// when text is actively being used (e.g. agent cron turns).
@@ -1082,11 +1127,29 @@ func (s *Server) handleImageModelInstall(w http.ResponseWriter, r *http.Request)
 		log.Printf("disk space warning for image model %s: %s free", req.ModelID, model.FormatSize(int64(free)))
 	}
 
+	// Set sensible defaults based on model name
+	steps := 28
+	guidance := 3.5
+	modelLower := strings.ToLower(req.ModelID)
+	if strings.Contains(modelLower, "schnell") || strings.Contains(modelLower, "turbo") || strings.Contains(modelLower, "lcm") {
+		steps = 4
+	}
+	if strings.Contains(modelLower, "schnell") {
+		guidance = 0
+	}
+	if strings.Contains(modelLower, "xl") || strings.Contains(modelLower, "playground") {
+		guidance = 2.5
+	}
+
 	cfg.Profiles[req.Name] = model.Profile{
 		Model:       req.ModelID,
 		Type:        "image",
 		Flags:       []string{},
 		Description: req.ModelID,
+		Steps:       &steps,
+		Guidance:    &guidance,
+		Size:        strPtr("1024x1024"),
+		N:           intPtr(1),
 	}
 	model.SaveConfig(cfg)
 
@@ -1147,11 +1210,13 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 	// give them a grace period to finish generating (avoids cutting off the
 	// response mid-flight). Image can be preempted if it's been running for
 	// more than 30 seconds or has been idle for 10+ seconds.
+	var stoppedText bool
 	if running := s.mgr.List(); len(running) > 0 {
 		for _, inst := range running {
 			if inst.Status == "running" && inst.Type != "image" && inst.Model != modelName {
 				log.Printf("stopping existing text instance %q (port %d) for new model %q", inst.Model, inst.Port, modelName)
 				s.mgr.Stop(inst.Port)
+				stoppedText = true
 				continue
 			}
 			if inst.Status == "running" && inst.Type == "image" {
@@ -1178,6 +1243,13 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 				}
 			}
 		}
+	}
+
+	// GPU cooldown: wait for CUDA to release VRAM from the stopped process
+	// before starting a new model on the same GPU(s).
+	if stoppedText {
+		log.Printf("waiting 2s for GPU memory release")
+		time.Sleep(2 * time.Second)
 	}
 
 	inst := s.mgr.FindInstanceByModel(modelName)
@@ -1724,6 +1796,9 @@ func stripContentThinkTags(data []byte) []byte {
 	cleaned, _ := json.Marshal(obj)
 	return cleaned
 }
+
+func strPtr(s string) *string { return &s }
+func intPtr(i int) *int { return &i }
 
 func jsonResponse(w http.ResponseWriter, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
