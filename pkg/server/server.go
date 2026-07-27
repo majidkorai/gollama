@@ -484,11 +484,15 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 						profiles[name] = p
 					}
 				}
+			// Only prune missing profiles when we actually received profiles
+			// (prevents accidental wipe when saveProfiles sends an empty set)
+			if len(profiles) > 0 {
 				for name := range cfg.Profiles {
 					if _, ok := profiles[name]; !ok {
 						delete(cfg.Profiles, name)
 					}
 				}
+			}
 				for name, p := range profiles {
 					cfg.Profiles[name] = p
 				}

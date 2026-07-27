@@ -2348,7 +2348,7 @@ function addProfile(profileType) {
       '<div style="flex:1;min-width:100px"><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Type</label><select style="width:100%;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:12px" id="pt-' + i + '"><option value="text"' + (profileType==='text'?' selected':'') + '>Text</option><option value="image"' + (profileType==='image'?' selected':'') + '>Image</option></select></div>' +
       '<div style="flex:2;min-width:180px"><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Description</label><input type="text" class="flag-custom" placeholder="What is this profile for?" style="width:100%" id="pd-' + i + '"></div>' +
     '</div>' +
-    '<div id="pimg-' + i + '" style="display:none">' +
+    '<div id="pimg-' + i + '" style="display:' + (profileType==='image' ? 'block' : 'none') + '">' +
       '<div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">' +
         '<div style="flex:0 0 60px"><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Steps</label><input type="number" class="flag-custom" placeholder="28" style="width:100%" id="psteps-' + i + '"></div>' +
         '<div style="flex:0 0 70px"><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Guidance</label><input type="number" class="flag-custom" placeholder="3.5" step="0.5" style="width:100%" id="pguidance-' + i + '"></div>' +
@@ -2356,11 +2356,14 @@ function addProfile(profileType) {
         '<div style="flex:0 0 60px"><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">N</label><input type="number" class="flag-custom" placeholder="1" min="1" max="8" style="width:100%" id="pncount-' + i + '"></div>' +
       '</div>' +
     '</div>' +
-    '<div id="pflags-section-' + i + '" style="display:block">' +
+    '<div id="pflags-section-' + i + '" style="display:' + (profileType==='image' ? 'none' : 'block') + '">' +
       '<div style="font-size:11px;color:var(--text-dim);margin-bottom:6px">Flags</div>' +
       '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px" id="pf-' + i + '"></div>' +
-      '<button class="ghost small" onclick="addProfileFlag(' + i + ')" style="font-size:11px">＋ Add Flag</button>' +
-    '</div>';
+      '<button class="ghost small" onclick="addProfileFlag(\'' + i + '\')" style="font-size:11px">＋ Add Flag</button>' +
+    '</div>' +
+    '<div style="font-size:11px;color:var(--text-dim);margin-top:8px;margin-bottom:6px">Environment Variables</div>' +
+    '<div style="display:flex;flex-direction:column;gap:4px;margin-bottom:4px" id="pe-' + i + '"></div>' +
+    '<button class="ghost small" onclick="addProfileEnv(\'' + i + '\')" style="font-size:11px">＋ Add Env Var</button>';
   d.id = 'pc-' + i;
   c.appendChild(d);
   document.getElementById('pt-' + i).addEventListener('change', function() {
@@ -2426,11 +2429,11 @@ function renderProfile(p, i) {
     '<div id="pflags-section-' + i + '" style="display:' + (isImage ? 'none' : 'block') + '">' +
       '<div style="font-size:11px;color:var(--text-dim);margin-bottom:6px">Flags</div>' +
       '<div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:6px" id="pf-' + i + '"></div>' +
-      '<button class="ghost small" onclick="addProfileFlag(' + i + ')" style="font-size:11px">＋ Add Flag</button>' +
+      '<button class="ghost small" onclick="addProfileFlag(\'' + i + '\')" style="font-size:11px">＋ Add Flag</button>' +
     '</div>' +
     '<div style="font-size:11px;color:var(--text-dim);margin-top:8px;margin-bottom:6px">Environment Variables</div>' +
     '<div style="display:flex;flex-direction:column;gap:4px;margin-bottom:4px" id="pe-' + i + '"></div>' +
-    '<button class="ghost small" onclick="addProfileEnv(' + i + ')" style="font-size:11px">＋ Add Env Var</button>';
+    '<button class="ghost small" onclick="addProfileEnv(\'' + i + '\')" style="font-size:11px">＋ Add Env Var</button>';
   c.appendChild(d);
   var fc = document.getElementById('pf-' + i);
   if (p.flags) {

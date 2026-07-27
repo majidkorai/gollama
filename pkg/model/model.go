@@ -193,7 +193,18 @@ func SaveConfig(cfg *Config) {
 		cfg.Profiles[name] = p
 	}
 	data, _ := json.MarshalIndent(cfg, "", "  ")
-	os.WriteFile(ConfigFile(), data, 0644)
+	path := ConfigFile()
+	// Backup existing config before overwriting
+	if _, err := os.Stat(path); err == nil {
+		input, _ := os.ReadFile(path)
+		if input != nil {
+			os.WriteFile(path+".bak", input, 0644)
+		}
+	}
+	// Atomic write: tmp + rename to prevent corruption on crash
+	tmp := path + ".tmp"
+	os.WriteFile(tmp, data, 0644)
+	os.Rename(tmp, path)
 }
 
 func GollamaDir() string {

@@ -265,6 +265,15 @@ Use the **🔍 Browse** button in the Image Playground to search HuggingFace for
 
 Configured models are listed with a **cached** / **not cached** status badge and their size.
 
+#### Model Compatibility
+
+The image API uses the `diffusers` library and supports:
+
+- **FLUX models** — `black-forest-labs/FLUX.1-dev`, `FLUX.1-schnell`, and any model with `flux`/`schnell`/`dev` in the name (loaded via `FluxPipeline`)
+- **SDXL models** — `stabilityai/stable-diffusion-xl-base-1.0`, fine-tunes, and any model loadable via `StableDiffusionXLPipeline` with a `model_index.json`
+
+**Not compatible:** Models that use other libraries or pipeline formats — e.g. transformer-based models like `HiDream-ai/HiDream-O1-Image` (Qwen3VL, `transformers` library), or older SD 1.5/2.1 models that need different pipeline classes. If a model fails to load, check the gollama logs for details.
+
 ### Setup
 
 You need Python 3.10+ with `diffusers`, `torch`, `transformers`, `fastapi`, and `uvicorn`:
@@ -310,7 +319,7 @@ Image models are configured through **Model Profiles** with `"type": "image"`. M
 | `description` | string | Shown in the model selector |
 | `env` | object | Environment variables (e.g. `HF_TOKEN` for gated models) |
 
-Some models (like Flux, SD3.5) require HuggingFace authentication. Set `HF_TOKEN` in the profile's `env` to download gated models. The model is downloaded automatically on first use — the UI retries until it's ready.
+Some models (like FLUX.2, SD3.5) are **gated** — you must visit their HuggingFace page, accept the terms of use, and set `HF_TOKEN` in the profile's `env`. Both steps are required; the token alone won't work without accepting terms first. The model is downloaded automatically on first use — the UI retries until it's ready.
 
 ### Usage
 
