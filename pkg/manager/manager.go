@@ -270,7 +270,7 @@ func portAvailable(port int) bool {
 	return true
 }
 
-func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceFlags bool, profileEnv map[string]string) (*Instance, error) {
+func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceFlags bool, profileEnv map[string]string, binaryPath ...string) (*Instance, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -329,6 +329,9 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 	}
 
 	llamaBin := llama.FindLlamaServer()
+	if len(binaryPath) > 0 && binaryPath[0] != "" {
+		llamaBin = binaryPath[0]
+	}
 	blob, err := model.ResolveModelBlob(modelName)
 	if err != nil {
 		return nil, fmt.Errorf("resolving model: %w", err)
@@ -413,6 +416,10 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 
 	cmd := exec.Command(llamaBin, args...)
 	binDir := model.BinDir()
+	// If using a custom binary path, use its directory for library resolution
+	if len(binaryPath) > 0 && binaryPath[0] != "" {
+		binDir = filepath.Dir(llamaBin)
+	}
 	libVar := "LD_LIBRARY_PATH"
 	if runtime.GOOS == "darwin" {
 		libVar = "DYLD_LIBRARY_PATH"

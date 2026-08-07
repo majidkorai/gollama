@@ -40,6 +40,7 @@ type Preset struct {
 
 type Profile struct {
 	Model          string            `json:"model,omitempty"`
+	BinaryPath     string            `json:"binary_path,omitempty"`
 	Flags          []string          `json:"flags"`
 	Description    string            `json:"description,omitempty"`
 	StripReasoning *bool             `json:"strip_reasoning,omitempty"`

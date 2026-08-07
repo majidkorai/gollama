@@ -434,6 +434,9 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 						if modelStr, ok := pMap["model"].(string); ok {
 							p.Model = modelStr
 						}
+						if bp, ok := pMap["binary_path"].(string); ok {
+							p.BinaryPath = bp
+						}
 						if desc, ok := pMap["description"].(string); ok {
 							p.Description = desc
 						}
@@ -704,10 +707,11 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 				sentDone = true
 				break
 			}
+			if r.Context().Err() != nil {
+				sentDone = true
+				break
+			}
 			s.mgr.TouchActivity(port)
-			w.Write([]byte(line))
-			flusher.Flush()
-			// Parse complete SSE data line for usage tracking
 			trimmed := strings.TrimSpace(line)
 			if strings.HasPrefix(trimmed, "data: ") {
 				data := strings.TrimPrefix(trimmed, "data: ")
@@ -742,6 +746,13 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 				if json.Unmarshal([]byte(data), &payload) == nil && payload.Usage != nil {
 					s.mgr.AddCompletionTokens(port, payload.Usage.CompletionTokens)
 				}
+			}
+			if !hadFinishReason {
+				if _, werr := w.Write([]byte(line)); werr != nil {
+					sentDone = true
+					break
+				}
+				flusher.Flush()
 			}
 			if err == io.EOF {
 				sentDone = true
@@ -968,13 +979,17 @@ func (s *Server) handleV1ImageGenerations(w http.ResponseWriter, r *http.Request
 	}
 
 	// Stop text instances to free VRAM for image generation.
-	// Only preempt if text has been idle for 10s — avoids toggling war
-	// when text is actively being used (e.g. agent cron turns).
+	// Only preempt if text has been idle for 30s — avoids toggling war
+	// when an agent workflow is actively using the text model (e.g. cron turns).
+	// A wide window means image generation waits for genuinely idle text
+	// rather than killing an in-flight agent call that still needs the GPU.
+	const imageTextIdleThreshold = 30 * time.Second
 	for _, inst := range s.mgr.List() {
 		if inst.Status == "running" && inst.Type != "image" {
 			sinceActivity := time.Since(inst.LastActivity)
-			if sinceActivity < 10*time.Second && sinceActivity >= 0 {
+			if sinceActivity < imageTextIdleThreshold && sinceActivity >= 0 {
 				log.Printf("text instance %q (port %d) active %v ago — deferring image", inst.Model, inst.Port, sinceActivity.Round(time.Second))
+				w.Header().Set("Retry-After", "30")
 				jsonError(w, fmt.Sprintf("text model %q is busy, retry image generation later", inst.Model), 503)
 				return
 			}
@@ -1261,12 +1276,14 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 		blob, err := model.ResolveModelBlob(modelName)
 		if err == nil && blob != "" {
 			var profileEnv map[string]string
+			var profileBinary string
 			if profileName != "" {
 				if p, ok := cfg.Profiles[profileName]; ok {
 					profileEnv = p.Env
+					profileBinary = p.BinaryPath
 				}
 			}
-			inst, err = s.mgr.Start(modelName, 0, launchFlags, false, profileEnv)
+			inst, err = s.mgr.Start(modelName, 0, launchFlags, false, profileEnv, profileBinary)
 			if err != nil {
 				jsonError(w, fmt.Sprintf("starting model %q: %v", modelName, err), 500)
 				return
@@ -1300,11 +1317,11 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 	target := fmt.Sprintf("http://127.0.0.1:%d%s", inst.Port, targetPath)
 
 	var proxyCtx context.Context
-	proxyCtx = r.Context()
+	var cancel context.CancelFunc
 	if isStream {
-		proxyCtx = context.Background()
+		proxyCtx, cancel = context.WithCancel(r.Context())
+		defer cancel()
 	} else {
-		var cancel context.CancelFunc
 		proxyCtx, cancel = context.WithTimeout(r.Context(), 10*time.Minute)
 		defer cancel()
 	}
@@ -1385,6 +1402,10 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 				sentDone = true
 				break
 			}
+			if r.Context().Err() != nil {
+				sentDone = true
+				break
+			}
 			s.mgr.TouchActivity(inst.Port)
 			trimmed := strings.TrimSpace(line)
 			if strings.HasPrefix(trimmed, "data: ") {
@@ -1399,11 +1420,12 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 					flusher.Flush()
 					break
 				}
+				// After finish_reason, skip content chunks (prevents token leak)
+				if hadFinishReason {
+					continue
+				}
 			var cleaned []byte
 			if shouldMerge {
-				// Merge mode: keep <think> content in content field for clients that
-				// don't parse reasoning_content (e.g. opencode's TUI).
-				// Skip extractThinkStream since it strips <think> into reasoning_content.
 				cleaned = []byte(data)
 			} else if shouldStrip {
 				cleaned = stripContentThinkTags([]byte(data))
@@ -1437,7 +1459,10 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 					s.mgr.AddCompletionTokens(inst.Port, usage.Usage.CompletionTokens)
 				}
 			}
-			w.Write([]byte(line))
+			if _, err := w.Write([]byte(line)); err != nil {
+				sentDone = true
+				break
+			}
 			flusher.Flush()
 			if err == io.EOF {
 				sentDone = true

@@ -2202,6 +2202,7 @@ function renderReadOnlyProfiles(profiles) {
   renderReadOnlyProfileList('profiles-readonly', textProfiles, 'No model profiles configured.', function(p) {
     var h = '<div style="font-weight:600;font-size:13px;margin-bottom:2px">' + escHtml(p._name) + '</div>';
     if (p.model) h += '<div style="font-size:11px;color:var(--text-dim);margin-bottom:2px">Model: <code style="font-size:11px">' + escHtml(p.model) + '</code></div>';
+    if (p.binary_path) h += '<div style="font-size:11px;color:var(--text-dim);margin-bottom:2px">Binary: <code style="font-size:11px">' + escHtml(p.binary_path) + '</code></div>';
     if (p.description) h += '<div style="font-size:11px;color:var(--text-dim)">' + escHtml(p.description) + '</div>';
     if (p.flags && p.flags.length) {
       h += '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px">';
@@ -2276,7 +2277,7 @@ async function loadSettings() {
           if (!p.size) p.size = '1024x1024';
           if (!p.n) p.n = 1;
         }
-        var profileData = { name: name, model: p.model || '', desc: p.description || '', flags: p.flags, strip_reasoning: p.strip_reasoning, merge_reasoning: p.merge_reasoning, env: p.env, type: p.type, steps: p.steps, guidance: p.guidance, size: p.size, n: p.n };
+        var profileData = { name: name, model: p.model || '', binary_path: p.binary_path || '', desc: p.description || '', flags: p.flags, strip_reasoning: p.strip_reasoning, merge_reasoning: p.merge_reasoning, env: p.env, type: p.type, steps: p.steps, guidance: p.guidance, size: p.size, n: p.n };
         if (p.type === 'image') {
           renderProfile(profileData, 'img-' + imageIdx);
           imageIdx++;
@@ -2345,6 +2346,7 @@ function addProfile(profileType) {
     '</div>' +
     '<div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">' +
       '<div style="flex:1;min-width:140px"><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Model (optional)</label><input type="text" class="flag-custom" placeholder="e.g. qwen3-coder-next" style="width:100%" id="pm-' + i + '"></div>' +
+      '<div style="flex:1;min-width:140px"><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Binary Path (optional)</label><input type="text" class="flag-custom" placeholder="e.g. /root/.gollama/bin/llama-server" style="width:100%" id="pb-' + i + '"></div>' +
       '<div style="flex:1;min-width:100px"><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Type</label><select style="width:100%;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:12px" id="pt-' + i + '"><option value="text"' + (profileType==='text'?' selected':'') + '>Text</option><option value="image"' + (profileType==='image'?' selected':'') + '>Image</option></select></div>' +
       '<div style="flex:2;min-width:180px"><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Description</label><input type="text" class="flag-custom" placeholder="What is this profile for?" style="width:100%" id="pd-' + i + '"></div>' +
     '</div>' +
@@ -2413,6 +2415,7 @@ function renderProfile(p, i) {
     '</div>' +
     '<div style="display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap">' +
       '<div style="flex:1;min-width:140px"><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Model (optional)</label><input type="text" class="flag-custom" placeholder="e.g. qwen3-coder-next" style="width:100%" id="pm-' + i + '" value="' + escAttr(p.model || '') + '"></div>' +
+      '<div style="flex:1;min-width:140px"><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Binary Path (optional)</label><input type="text" class="flag-custom" placeholder="e.g. /root/.gollama/bin/llama-server" style="width:100%" id="pb-' + i + '" value="' + escAttr(p.binary_path || '') + '"></div>' +
       '<div style="flex:1;min-width:100px"><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Type</label><select style="width:100%;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:12px" id="pt-' + i + '"><option value="text"' + (ptype==='text'?' selected':'') + '>Text</option><option value="image"' + (isImage?' selected':'') + '>Image</option></select></div>' +
       '<div style="flex:2;min-width:180px"><label style="font-size:11px;color:var(--text-dim);display:block;margin-bottom:2px">Description</label><input type="text" class="flag-custom" placeholder="What is this profile for?" style="width:100%" id="pd-' + i + '" value="' + escAttr(p.desc || '') + '"></div>' +
       '<div style="flex:0 0 auto;display:flex;align-items:end;padding-bottom:2px"><label style="font-size:11px;color:var(--text-dim);display:flex;align-items:center;gap:4px;white-space:nowrap;cursor:pointer"><input type="checkbox" id="ps-' + i + '" ' + (p.strip_reasoning ? 'checked' : '') + ' style="accent-color:var(--accent)"> Strip reasoning</label></div>' +
@@ -2504,6 +2507,8 @@ function collectProfilesFromContainer(containerId) {
       }
     }
     var profileObj = { model: model ? model.value : '', description: desc ? desc.value : '', flags: flags };
+    var bpEl = document.getElementById('pb-' + idx);
+    if (bpEl && bpEl.value) profileObj.binary_path = bpEl.value;
     if (isImage) profileObj.type = 'image';
     if (stripEl && stripEl.checked) profileObj.strip_reasoning = true;
     var mergeEl = document.getElementById('pmr-' + idx);
