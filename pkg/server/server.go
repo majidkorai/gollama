@@ -1420,8 +1420,24 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 					flusher.Flush()
 					break
 				}
-				// After finish_reason, skip content chunks (prevents token leak)
+				// After finish_reason, skip content chunks (prevents token leak),
+				// except the trailing usage chunk (choices:[] + usage) that llama.cpp
+				// emits when the client sets stream_options.include_usage. Forward it
+				// so OpenAI clients receive their token usage, matching other providers.
 				if hadFinishReason {
+					var usageOnly struct {
+						Usage struct {
+							CompletionTokens int64 `json:"completion_tokens"`
+						} `json:"usage"`
+					}
+					if json.Unmarshal([]byte(data), &usageOnly) == nil && usageOnly.Usage.CompletionTokens > 0 {
+						s.mgr.AddCompletionTokens(inst.Port, usageOnly.Usage.CompletionTokens)
+						if _, werr := w.Write([]byte("data: " + data + "\n")); werr != nil {
+							sentDone = true
+							break
+						}
+						flusher.Flush()
+					}
 					continue
 				}
 			var cleaned []byte
