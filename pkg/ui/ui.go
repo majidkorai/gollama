@@ -128,7 +128,7 @@ body {
 .sidebar .toggle:hover { color: var(--text); }
 .sidebar nav { flex: 1; padding: 10px 8px; display: flex; flex-direction: column; gap: 2px; overflow-y: auto; }
 .sidebar .nav-item {
-  display: flex; align-items: center; gap: 10px; padding: 9px 12px;
+  display: flex; align-items: center; justify-content: flex-start; gap: 10px; padding: 9px 12px;
   border-radius: var(--radius-sm); color: var(--text-muted);
   text-decoration: none; font-size: 12px; font-weight: 600; cursor: pointer;
   transition: background var(--transition), color var(--transition);
