@@ -18,9 +18,9 @@ iwr -useb https://raw.githubusercontent.com/majidkorai/gollama/main/install.ps1 
 
 The script detects your platform, downloads a pre-built binary (linux/darwin/windows × amd64/arm64), and installs it to `/usr/local/bin`. If no pre-built binary exists, it falls back to building from source.
 
-**Install a specific version** (e.g. release):
+**Install a specific version** (e.g. a release tag):
 ```bash
-VERSION=v3.0.0 curl -fsSL https://raw.githubusercontent.com/majidkorai/gollama/main/install.sh | sh
+VERSION=v3.7.2 curl -fsSL https://raw.githubusercontent.com/majidkorai/gollama/main/install.sh | sh
 ```
 
 **Manual build:**
@@ -80,6 +80,9 @@ The first-run wizard:
 | `gollama list` | List downloaded models with metadata |
 | `gollama ps` | List running instances |
 | `gollama stop <port>` | Stop an instance |
+| `gollama delete <model>` | Delete a downloaded model |
+| `gollama logs <port>` | Print an instance's log to the terminal |
+| `gollama install-service` | Install gollama as a systemd service (Linux) |
 | `gollama restart` | Restart gollama server (stops all instances, uses systemctl if installed as service) |
 | `gollama run <model> [flags]` | Run a model server directly (debug/advanced) |
 
@@ -115,12 +118,15 @@ The capital of France is Paris.
 
 Open **http://<your-ip>:9080** in your browser.
 
-- **Dashboard** — metrics overview (models, instances, tokens/sec), quick launch with searchable flag editor and presets, running instances grid with live status badges
-- **Models** — list all downloaded models with metadata badges (arch, quant, context length, file path), search-as-you-type pull input, refresh button
-- **Chat** — full chat workspace with any running instance (proxied, no CORS), chat history with save/load/rename/delete, copy button, context meter
-- **Settings** — version info, idle TTL, default launch flags and API launch defaults (read-only with Edit button), Model Profiles management with per-profile env vars and strip reasoning toggle
-- **Left sidebar** — gradient-accented navigation, theme toggle, collapsible
-- **Instance cards** — glass-styled cards with gradient accent bar, port, model, tokens/sec, uptime, idle time, total tokens, flags, model profile badge, actions (stop, restart, chat, open, logs)
+The UI is a dark, instrument-panel style console (Archivo + JetBrains Mono, status-LED semantics) with a light theme toggle. A **faceplate** strip across the top shows live status at a glance: status LED (green = running, amber = starting, dim = idle), running instance count, aggregate tokens/sec, model count, gollama version, and a clock. The dashboard auto-refreshes every 5 seconds.
+
+- **Dashboard** — quick launch with searchable flag editor and presets, running instances grid with live status badges (green/amber/red LEDs)
+- **Models** — list all downloaded models with metadata badges (arch, quant, context length, file path), search-as-you-type pull input with live HuggingFace suggestions, refresh button
+- **Chat** — full chat workspace with any running instance (proxied, no CORS), streaming responses with live reasoning display, chat history with save/load/rename/delete, copy button, context usage meter
+- **Image** — generation playground: profile selector, prompt, advanced parameters (n, size, steps, guidance, seed), result cards with download/re-generate, lightbox, and per-browser history
+- **Settings** — version info, idle TTL, default launch flags and API launch defaults (read-only with Edit button), Model Profiles management with per-profile env vars and reasoning toggles, restart button
+- **Left sidebar** — collapsible navigation (60px icon rail) with theme toggle at the bottom
+- **Instance cards** — rack-unit style cards with a colored status stripe: model name, port, tokens/sec, uptime, idle time, total tokens, badges row (type, device split, profile, status), full flag list, actions (stop, restart, logs)
 
 ## OpenAI-Compatible API
 
@@ -146,6 +152,44 @@ response = client.chat.completions.create(
 The `model` field accepts the full name (e.g. `hf.co/unsloth/gemma-4-12b-it-GGUF:Q4_K_M`) or **any substring** like `gemma-4-12b`. If it matches an indexed model, gollama auto-launches it on a free port, waits for it to be ready, then proxies your request.
 
 You can still launch multiple instances manually from the UI — the API will route to an already-running instance if one exists, or auto-start a new one for an unused model.
+
+**Cold starts:** While a model is loading, non-streaming requests get `503` with a `Retry-After` header — retry on that delay (a cold start can take ~40s for a mid-size model, more for large ones). Streaming requests keep the connection alive with SSE heartbeat comments for the whole load, so clients that just wait for the stream won't drop. The load deadline is 5 minutes by default; override with the `GOLLAMA_MODEL_LOAD_TIMEOUT` env var (seconds). If a start fails, you get a 500 with the last lines of the instance log.
+
+### Pre-warm
+
+`POST /api/v1/warmup` starts a model in the background *before* it's needed, so agents don't sit through a cold start:
+
+```bash
+curl -X POST http://localhost:9080/api/v1/warmup -d '{"profile": "deepseek-v4-flash"}'
+```
+
+Returns `200` as soon as the process is spawned (or immediately if it's already running — idempotent). Then either poll `GET /api/v1/instances` for the `ready` flag, or just fire the real request: it will block with heartbeats until the model is up.
+
+### REST API
+
+Beyond the OpenAI-compatible `/v1` routes, gollama exposes a management API under `/api/v1` (all JSON; errors are `{"error": "..."}`):
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/v1/models` | GET | List downloaded models with metadata |
+| `/api/v1/models/search?q=` | GET | Search HuggingFace |
+| `/api/v1/models/pull` | POST | Start a pull (`{"model": "..."}`) |
+| `/api/v1/models/pull/stream` | GET | SSE progress stream for a pull |
+| `/api/v1/models/delete` | POST | Delete a model (`{"name": "..."}`) |
+| `/api/v1/instances` | GET / POST | List instances / launch one (`{"model", "port", "flags", "replace_flags"}`) |
+| `/api/v1/instances/stop?port=` | POST | Stop an instance |
+| `/api/v1/instances/logs?port=` | GET | Instance log tail |
+| `/api/v1/warmup` | POST | Pre-warm a profile/model in the background |
+| `/api/v1/config` | GET / POST | Read / patch config.json |
+| `/api/v1/config/default-flags` | GET | Code defaults + GPU auto-detect |
+| `/api/v1/presets` | GET / POST / DELETE | Flag presets CRUD |
+| `/api/v1/chats` | GET | List saved chat sessions |
+| `/api/v1/chats/{id}` | GET / PUT / DELETE | Single chat CRUD |
+| `/api/v1/image-models` | GET | Configured image profiles + cache status |
+| `/api/v1/image-models/search?q=` | GET | Search HuggingFace for image models |
+| `/api/v1/image-models/install` | POST | Add an image profile |
+| `/api/v1/version` | GET | gollama + llama-server versions, backend |
+| `/api/v1/restart` | POST | Restart the gollama server |
 
 ## Updating
 
@@ -207,6 +251,7 @@ Model Profiles are named presets that bundle model selection, launch flags, envi
 | `model` | string | Model name to auto-select this profile (fuzzy match) |
 | `flags` | string[] | Launch flags for this profile |
 | `strip_reasoning` | bool | Strip `reasoning_content` from API responses |
+| `merge_reasoning` | bool | Merge reasoning into the content field instead of a separate field |
 | `env` | object | Environment variables applied to the llama-server or image process |
 | `type` | string | `"text"` (default) or `"image"` — launches a diffusers process for image gen |
 | `description` | string | Human-readable description (displayed in UI) |
@@ -298,6 +343,10 @@ Image models are configured through **Model Profiles** with `"type": "image"`. M
       "model": "black-forest-labs/FLUX.1-dev",
       "type": "image",
       "description": "FLUX.1-dev (28 steps, high quality)",
+      "steps": 28,
+      "guidance": 3.5,
+      "size": "1024x1024",
+      "n": 1,
       "env": {
         "HF_TOKEN": "hf_..."
       }
@@ -305,7 +354,11 @@ Image models are configured through **Model Profiles** with `"type": "image"`. M
     "flux-schnell": {
       "model": "black-forest-labs/FLUX.1-schnell",
       "type": "image",
-      "description": "FLUX.1-schnell (4 steps, fast)"
+      "description": "FLUX.1-schnell (4 steps, fast)",
+      "steps": 4,
+      "guidance": 0,
+      "size": "1024x1024",
+      "n": 1
     }
   }
 }
@@ -318,6 +371,10 @@ Image models are configured through **Model Profiles** with `"type": "image"`. M
 | `flags` | string[] | Not used for image models (reserved) |
 | `description` | string | Shown in the model selector |
 | `env` | object | Environment variables (e.g. `HF_TOKEN` for gated models) |
+| `steps` | int | Default inference steps, e.g. `28` (schnell: 4, dev: 28) |
+| `guidance` | float | Default CFG scale, e.g. `3.5` (schnell: 0, dev: 3.5) |
+| `size` | string | Default resolution, e.g. `"1024x1024"` |
+| `n` | int | Default number of images (1-8) |
 
 Some models (like FLUX.2, SD3.5) are **gated** — you must visit their HuggingFace page, accept the terms of use, and set `HF_TOKEN` in the profile's `env`. Both steps are required; the token alone won't work without accepting terms first. The model is downloaded automatically on first use — the UI retries until it's ready.
 
@@ -336,13 +393,16 @@ curl -X POST http://localhost:9080/v1/images/generations \
 | `prompt` | string | required | Image description |
 | `profile` | string | auto | Profile name to use |
 | `model` | string | from profile | Override model ID |
-| `n` | int | 1 | Number of images (1-8) |
-| `size` | string | `"1024x1024"` | Resolution, e.g. `"512x512"`, `"1280x720"` |
-| `steps` | int | 4 | Inference steps (more = higher quality, slower) |
-| `guidance` | float | 0 | CFG scale (0 = auto, 3-7 typical) |
+| `n` | int | profile default | Number of images (1-8) |
+| `size` | string | profile default | Resolution, e.g. `"512x512"`, `"1280x720"` |
+| `steps` | int | profile default | Inference steps (more = higher quality, slower) |
+| `guidance` | float | profile default | CFG scale (0 = auto, 3-7 typical) |
 | `seed` | int | random | Set for reproducibility |
+| `response_format` | string | `"url"` | `"b64_json"` returns base64 data instead |
 
-If the image model isn't running, gollama auto-starts it and returns a 503 with `Retry-After: 5`. The client (or UI) retries until ready.
+**Caller guidance:** omit `steps`/`guidance`/`size`/`n` — they fall back to the profile's defaults; only send them to override. If the image model isn't running, gollama auto-starts it and returns `503` with a `Retry-After` header (cold start ≈ 40s load + ~1.2s/step for FLUX.1-dev). Retry on the server's `Retry-After` delay, up to ~30 times.
+
+**Sequential GPU switching:** text instances are stopped before an image model loads, and the image model stops before a text model resumes — no dropped connections, no manual juggling. If a text model was active in the last 30s, image generation defers with `503 + Retry-After: 30` instead.
 
 ### GPU Management
 
@@ -399,6 +459,10 @@ gollama/
     └── release.yml         # Auto-build binaries on tags
 ```
 
+## License
+
+Apache License 2.0 — see [LICENSE](LICENSE).
+
 ## Why gollama?
 
 Ollama hides llama.cpp flags and hardcodes defaults. gollama exposes every parameter while keeping convenience — model management, terminal chat, web UI, multi-instance, and full llama-server control.
@@ -407,6 +471,12 @@ Ollama hides llama.cpp flags and hardcodes defaults. gollama exposes every param
 
 Perfect for multi-GPU setups, MTP testing, or when you need precise control over inference without vendor lock-in.
 
-## User interface
+## Screenshots
 
-<img width="1920" height="927" alt="gollama" src="https://github.com/user-attachments/assets/33c8077c-2fe1-491a-a01c-dac79ec85b7e" />
+| Dark theme | Light theme |
+|---|---|
+| <img src="docs/gollama-dark.png" width="960" alt="gollama dashboard, dark theme" /> | <img src="docs/gollama-light.png" width="960" alt="gollama dashboard, light theme" /> |
+
+| Chat | Image playground |
+|---|---|
+| <img src="docs/gollama-chat.png" width="960" alt="gollama chat view" /> | <img src="docs/gollama-image.png" width="960" alt="gollama image playground" /> |
