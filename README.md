@@ -52,7 +52,7 @@ The first-run wizard:
 
 - **OpenAI-compatible API** — `/v1/chat/completions`, `/v1/completions`, `/v1/models`. Works with any OpenAI SDK or tool (Flowise, Cursor, continue.dev). Auto-routes by model name. **Auto-launches** the model if not running — like Ollama but with multi-instance.
 - **Real-time streaming chat** — tokens arrive as they're generated. Reasoning models show thinking process live.
-- **Web UI** — modern dark-themed interface with dashboard, model management, chat, log viewer, settings. Built-in, no extra setup.
+- **Web UI** — dark instrument-panel console (with light theme) featuring a live faceplate status strip, dashboard with 5s auto-refresh, model management, streaming chat, image playground, log viewer, and settings. Built-in, no extra setup.
 - **Searchable flag dropdown** — type to filter 150+ llama-server flags with real-time suggestions, arrow key navigation, and value hints. No more scrolling through a giant list.
 - **Settings protected mode** — configuration sections are read-only by default with an Edit button to reveal forms. Prevents accidental changes.
 - **Model Profile presets** — named profiles bundling model, flags, env vars, and reasoning strip toggle. Auto-selected by model name in API requests.
