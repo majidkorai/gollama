@@ -249,6 +249,14 @@ All routes registered in `registerRoutes()`. Key ones:
 4. Returns 503 + `Retry-After: 5` while starting (client retries)
 5. On subsequent retry, proxies the request to the running instance
 
+### Seamless Cold Start (v3.4.x)
+
+- `waitForInstanceReady` returns an error (including the instance log tail) instead of silently timing out after 60s. Deadline defaults to 5 min, override with `GOLLAMA_MODEL_LOAD_TIMEOUT` (seconds).
+- Streaming (`stream: true`) requests get SSE headers immediately plus comment heartbeats (`: model loading...`) every ~10s while the model loads, so the connection stays alive past client/proxy idle timeouts during long cold starts.
+- If upstream answers 503 "loading model" after `/health` passes, the proxy retries with heartbeats until the load deadline.
+- Start failures surface as 500 JSON (non-stream) or an OpenAI-style SSE error event (stream), including the last lines of the instance log — and the wait fails fast when the model process exits before serving.
+- A failed start doesn't poison the port: `manager.Start`/`StartImage` reuse stale (non-running) slot entries instead of returning "port already in use".
+
 ## CLI Commands (`main.go`)
 
 | Command | Args | Description |

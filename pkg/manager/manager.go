@@ -298,8 +298,13 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 		m.nextPort++
 	}
 
-	if _, exists := m.instances[port]; exists {
-		return nil, fmt.Errorf("port %d is already in use", port)
+	if existing, exists := m.instances[port]; exists {
+		if existing.Status == "running" {
+			return nil, fmt.Errorf("port %d is already in use", port)
+		}
+		// Stale entry (the process exited or was stopped) — reuse the slot
+		// instead of permanently blocking this port.
+		delete(m.instances, port)
 	}
 
 	if !portAvailable(port) {
@@ -557,8 +562,13 @@ func (m *Manager) StartImage(modelID string, port int, env map[string]string) (*
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if _, exists := m.instances[port]; exists {
-		return nil, fmt.Errorf("port %d is already in use", port)
+	if existing, exists := m.instances[port]; exists {
+		if existing.Status == "running" {
+			return nil, fmt.Errorf("port %d is already in use", port)
+		}
+		// Stale entry (the process exited or was stopped) — reuse the slot
+		// instead of permanently blocking this port.
+		delete(m.instances, port)
 	}
 
 	if !portAvailable(port) {
@@ -727,6 +737,17 @@ func (m *Manager) HasInstance(port int) bool {
 	defer m.mu.Unlock()
 	_, ok := m.instances[port]
 	return ok
+}
+
+// InstanceStatus returns the current status of the instance on the given port,
+// or "" if no such instance is known.
+func (m *Manager) InstanceStatus(port int) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if inst, ok := m.instances[port]; ok {
+		return inst.Status
+	}
+	return ""
 }
 
 func (m *Manager) TouchActivity(port int) {

@@ -2,6 +2,7 @@ package server
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -617,20 +618,106 @@ func (s *Server) handleChatByID(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func (s *Server) waitForInstanceReady(port int) {
+// modelLoadTimeout bounds how long gollama holds a request while a model
+// cold-starts. Override with GOLLAMA_MODEL_LOAD_TIMEOUT (seconds).
+func modelLoadTimeout() time.Duration {
+	const def = 5 * time.Minute
+	if v := os.Getenv("GOLLAMA_MODEL_LOAD_TIMEOUT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return time.Duration(n) * time.Second
+		}
+	}
+	return def
+}
+
+// instanceLogTail returns the last n non-empty lines of an instance's log,
+// used to explain why a model failed to start.
+func instanceLogTail(port int, n int) string {
+	logFile := filepath.Join(model.GollamaDir(), "logs", fmt.Sprintf("port-%d.log", port))
+	data, err := os.ReadFile(logFile)
+	if err != nil {
+		return "no log available"
+	}
+	lines := strings.Split(string(data), "\n")
+	out := make([]string, 0, n)
+	for i := len(lines) - 1; i >= 0 && len(out) < n; i-- {
+		if strings.Contains(lines[i], "\r") {
+			continue // progress bar line
+		}
+		line := strings.TrimSpace(lines[i])
+		if line == "" {
+			continue
+		}
+		out = append([]string{line}, out...)
+	}
+	if len(out) == 0 {
+		return "log is empty"
+	}
+	return strings.Join(out, " | ")
+}
+
+// sseErrorChunk renders an error as an OpenAI-style SSE data event so failures
+// can be delivered after the stream has already started (headers sent).
+func sseErrorChunk(message string) []byte {
+	payload, _ := json.Marshal(map[string]interface{}{
+		"error": map[string]string{
+			"message": message,
+			"type":    "server_error",
+			"code":    "gollama_proxy_error",
+		},
+	})
+	return append(append([]byte("data: "), payload...), '\n', '\n')
+}
+
+// proxyFail reports a proxy failure: as an SSE error event when the response
+// has already started streaming, otherwise as a JSON error.
+func proxyFail(w http.ResponseWriter, streamed bool, msg string) {
+	if streamed {
+		flusher := w.(http.Flusher)
+		w.Write(sseErrorChunk(msg))
+		w.Write([]byte("data: [DONE]\n\n"))
+		flusher.Flush()
+		return
+	}
+	jsonError(w, msg, 502)
+}
+
+// waitForInstanceReady polls the instance's /health endpoint until the model
+// is loaded (HTTP 200) or the load timeout expires. On failure the returned
+// error includes a tail of the instance log so callers can tell *why* the
+// model did not come up, not just that it didn't.
+func (s *Server) waitForInstanceReady(port int) error {
+	return s.waitForReady(port, modelLoadTimeout(), nil, nil)
+}
+
+// waitForReady is the core of waitForInstanceReady with hooks: beat is called
+// at every poll interval (used to emit SSE heartbeats during the wait), and
+// abort returns true to stop waiting early (e.g. client disconnected).
+func (s *Server) waitForReady(port int, timeout time.Duration, beat func(), abort func() bool) error {
 	healthClient := &http.Client{Timeout: 2 * time.Second}
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
-	deadline := time.Now().Add(60 * time.Second)
+	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
+		if abort != nil && abort() {
+			return fmt.Errorf("client disconnected while model was loading")
+		}
 		resp, err := healthClient.Get(baseURL + "/health")
 		if err == nil {
 			resp.Body.Close()
-			if resp.StatusCode == 200 {
-				return
+			if resp.StatusCode == http.StatusOK {
+				return nil
 			}
+		} else if status := s.mgr.InstanceStatus(port); status != "" && status != "running" {
+			// The process exited before serving — fail fast instead of
+			// polling a dead port for the full timeout.
+			return fmt.Errorf("model process exited before becoming ready: %s", instanceLogTail(port, 5))
+		}
+		if beat != nil {
+			beat()
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
+	return fmt.Errorf("model did not become ready within %s: %s", timeout.Round(time.Second), instanceLogTail(port, 5))
 }
 
 func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
@@ -658,7 +745,10 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	s.mgr.TouchActivity(port)
 
 	// Wait for instance to be ready (model loaded, health check passing)
-	s.waitForInstanceReady(port)
+	if err := s.waitForInstanceReady(port); err != nil {
+		jsonError(w, err.Error(), 500)
+		return
+	}
 
 	target := fmt.Sprintf("http://127.0.0.1:%d/v1/chat/completions", port)
 
@@ -1030,7 +1120,10 @@ func (s *Server) handleV1ImageGenerations(w http.ResponseWriter, r *http.Request
 		return
 	}
 	s.mgr.TouchActivity(inst.Port)
-	s.waitForInstanceReady(inst.Port)
+	if err := s.waitForInstanceReady(inst.Port); err != nil {
+		jsonError(w, err.Error(), 500)
+		return
+	}
 
 	target := fmt.Sprintf("http://127.0.0.1:%d/v1/images/generations", inst.Port)
 
@@ -1292,8 +1385,6 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 			if profileName != "" {
 				s.mgr.SetProfile(inst.Port, profileName)
 			}
-			// Wait synchronously — client connection stays alive, no 503
-			s.waitForInstanceReady(inst.Port)
 		} else {
 			available := s.mgr.List()
 			names := make([]string, 0, len(available))
@@ -1311,38 +1402,105 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 		}
 	}
 	s.mgr.TouchActivity(inst.Port)
-	s.waitForInstanceReady(inst.Port)
 
 	isStream, _ := reqMap["stream"].(bool)
 	target := fmt.Sprintf("http://127.0.0.1:%d%s", inst.Port, targetPath)
+
+	// For streaming requests, begin the SSE response immediately so the
+	// client receives bytes (comment heartbeats) while a cold model loads.
+	// Heartbeats keep idle/read timers alive on the client and any
+	// intermediate proxies, so a multi-minute model load doesn't look like a
+	// dead connection. SSE comments are ignored by OpenAI-compatible clients.
+	var streamFlusher http.Flusher
+	heartbeat := func() {}
+	if isStream {
+		if f, ok := w.(http.Flusher); ok {
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("Cache-Control", "no-cache")
+			w.Header().Set("Connection", "keep-alive")
+			w.WriteHeader(http.StatusOK)
+			streamFlusher = f
+			w.Write([]byte(": model loading...\n\n"))
+			f.Flush()
+			lastBeat := time.Now()
+			heartbeat = func() {
+				if time.Since(lastBeat) < 10*time.Second {
+					return
+				}
+				lastBeat = time.Now()
+				w.Write([]byte(": still loading, model starting...\n\n"))
+				f.Flush()
+			}
+		}
+	}
+	if err := s.waitForReady(inst.Port, modelLoadTimeout(), heartbeat, func() bool {
+		return r.Context().Err() != nil
+	}); err != nil {
+		if streamFlusher != nil {
+			w.Write(sseErrorChunk(err.Error()))
+			w.Write([]byte("data: [DONE]\n\n"))
+			streamFlusher.Flush()
+			return
+		}
+		jsonError(w, err.Error(), 500)
+		return
+	}
 
 	var proxyCtx context.Context
 	var cancel context.CancelFunc
 	if isStream {
 		proxyCtx, cancel = context.WithCancel(r.Context())
-		defer cancel()
 	} else {
 		proxyCtx, cancel = context.WithTimeout(r.Context(), 10*time.Minute)
-		defer cancel()
 	}
+	defer cancel()
 
-	proxyReq, err := http.NewRequestWithContext(proxyCtx, "POST", target, strings.NewReader(string(body)))
-	if err != nil {
-		jsonError(w, fmt.Sprintf("proxy error: %v", err), 502)
-		return
-	}
-	proxyReq.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(proxyReq)
-	if err != nil {
-		jsonError(w, fmt.Sprintf("proxy error: %v", err), 502)
-		return
+	// llama.cpp can still answer 503 "loading model" for a short window
+	// after /health flips to 200. Keep retrying (with heartbeats for
+	// streaming clients) until the model actually accepts the request.
+	var resp *http.Response
+	loadDeadline := time.Now().Add(modelLoadTimeout())
+	for {
+		proxyReq, err := http.NewRequestWithContext(proxyCtx, "POST", target, strings.NewReader(string(body)))
+		if err != nil {
+			proxyFail(w, streamFlusher != nil, fmt.Sprintf("proxy error: %v", err))
+			return
+		}
+		proxyReq.Header.Set("Content-Type", "application/json")
+		resp, err = http.DefaultClient.Do(proxyReq)
+		if err != nil {
+			proxyFail(w, streamFlusher != nil, fmt.Sprintf("proxy error: %v", err))
+			return
+		}
+		if resp.StatusCode != http.StatusServiceUnavailable {
+			break
+		}
+		loadingBody, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if !strings.Contains(strings.ToLower(string(loadingBody)), "loading") {
+			resp.Body = io.NopCloser(bytes.NewReader(loadingBody))
+			break // genuine 503 error — fall through to pass-through below
+		}
+		if time.Now().After(loadDeadline) || r.Context().Err() != nil {
+			resp.Body = io.NopCloser(bytes.NewReader(loadingBody))
+			break
+		}
+		log.Printf("instance on port %d still loading model, retrying", inst.Port)
+		heartbeat()
+		time.Sleep(2 * time.Second)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {
 		bodyBytes, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
+		if streamFlusher != nil {
+			// SSE 200 headers were already flushed during the model-load wait,
+			// so the upstream error can't be returned as a JSON status —
+			// deliver it as an SSE error event instead.
+			proxyFail(w, streamFlusher != nil, fmt.Sprintf("upstream error %d: %s", resp.StatusCode, string(bodyBytes)))
+			return
+		}
 		errMsg := strings.ToLower(string(bodyBytes))
 		// If grammar parsing failed, retry with simplified tool schemas to avoid GBNF complexity limits
 		if (strings.Contains(errMsg, "grammar") || strings.Contains(errMsg, "parse error")) && reqMap["tools"] != nil {
@@ -1381,11 +1539,10 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 	}
 
 	if isStream {
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Connection", "keep-alive")
-		flusher, ok := w.(http.Flusher)
-		if !ok {
+		// Headers were already written when streaming was started above
+		// (SSE + heartbeats during model load).
+		flusher := streamFlusher
+		if flusher == nil {
 			jsonError(w, "streaming not supported", 500)
 			return
 		}
