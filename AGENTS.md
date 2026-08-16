@@ -227,6 +227,7 @@ All routes registered in `registerRoutes()`. Key ones:
 | `/api/v1/instances` | GET/POST | List/launch instances |
 | `/api/v1/instances/stop` | POST | Stop by `?port=` |
 | `/api/v1/instances/logs` | GET | Logs by `?port=` |
+| `/api/v1/warmup` | POST | Pre-warm a model in background (`{"profile":...}` or `{"model":...}`) |
 | `/api/v1/config` | GET/POST | Read/write config.json |
 | `/api/v1/config/default-flags` | GET | Code defaults + GPU auto-detect |
 | `/api/v1/presets` | GET/POST/DELETE | Flag presets CRUD |
@@ -249,13 +250,27 @@ All routes registered in `registerRoutes()`. Key ones:
 4. Returns 503 + `Retry-After: 5` while starting (client retries)
 5. On subsequent retry, proxies the request to the running instance
 
-### Seamless Cold Start (v3.4.x)
+### Seamless Cold Start (v3.5.0)
 
 - `waitForInstanceReady` returns an error (including the instance log tail) instead of silently timing out after 60s. Deadline defaults to 5 min, override with `GOLLAMA_MODEL_LOAD_TIMEOUT` (seconds).
 - Streaming (`stream: true`) requests get SSE headers immediately plus comment heartbeats (`: model loading...`) every ~10s while the model loads, so the connection stays alive past client/proxy idle timeouts during long cold starts.
 - If upstream answers 503 "loading model" after `/health` passes, the proxy retries with heartbeats until the load deadline.
 - Start failures surface as 500 JSON (non-stream) or an OpenAI-style SSE error event (stream), including the last lines of the instance log — and the wait fails fast when the model process exits before serving.
 - A failed start doesn't poison the port: `manager.Start`/`StartImage` reuse stale (non-running) slot entries instead of returning "port already in use".
+
+### Pre-Warm (v3.6.0)
+
+`POST /api/v1/warmup` — start a model (text or image profile) in the background before it's needed, so agents don't sit through a cold start. Body: `{"profile": "name"}` or `{"model": "model-id"}` (profile auto-detected by model name, same rules as the chat proxy).
+
+- Returns immediately: `200 {"status":"starting","port":N,...}` once the process has spawned, or `200 {"status":"running",...}` if the model is already up (idempotent — no restart).
+- Text warmup applies the same switching rules as the chat path (`switchToModel`: stops other text instances, image grace period, 2s GPU cooldown). Image warmup applies the image-generation rule: defers with `503 + Retry-After: 30` while a text model has been active <30s.
+- Readiness: poll `GET /api/v1/instances` for the `ready` flag, or just fire the real request — v3.5.0 guarantees it blocks (with heartbeats) until the model is up. Warmup therefore never costs anything; worst case it saves nothing.
+- 404 for unknown model/profile, 400 for an empty body.
+
+Usage (e.g. re-warm the text model after image gen in the blog pipeline):
+```bash
+curl -s -X POST http://192.168.1.36:9080/api/v1/warmup -d '{"profile":"deepseek-v4-flash"}'
+```
 
 ## CLI Commands (`main.go`)
 

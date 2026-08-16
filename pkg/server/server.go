@@ -54,6 +54,7 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/v1/instances", s.handleInstances)
 	s.mux.HandleFunc("/api/v1/instances/stop", s.handleInstanceStop)
 	s.mux.HandleFunc("/api/v1/instances/logs", s.handleInstanceLogs)
+	s.mux.HandleFunc("/api/v1/warmup", s.handleWarmup)
 	s.mux.HandleFunc("/api/v1/config/default-flags", s.handleDefaultFlags)
 	s.mux.HandleFunc("/api/v1/presets", s.handlePresets)
 	s.mux.HandleFunc("/api/v1/chats", s.handleChats)
@@ -1151,6 +1152,215 @@ func (s *Server) handleV1ImageGenerations(w http.ResponseWriter, r *http.Request
 	io.Copy(w, resp.Body)
 }
 
+// resolveProfile finds the model profile for a request: the explicit profile
+// name if given, otherwise auto-detection by model name.
+func resolveProfile(cfg *model.Config, profileName, modelName string) string {
+	if profileName != "" {
+		return profileName
+	}
+	if modelName == "" {
+		return ""
+	}
+	for name, p := range cfg.Profiles {
+		if p.Model != "" && strings.EqualFold(modelName, p.Model) {
+			return name
+		}
+	}
+	return ""
+}
+
+// switchToModel frees the GPU for modelName: stops other running text
+// instances, and gives running image instances a grace period to finish
+// generating before preempting stale ones. Include the 2s GPU cooldown after
+// stopping a text instance. Call this only when a new model process is about
+// to be launched — it blocks up to ~62s while an image finishes generating.
+func (s *Server) switchToModel(modelName string) {
+	// Stop other text models when switching. Don't stop image instances —
+	// give them a grace period to finish generating (avoids cutting off the
+	// response mid-flight). Image can be preempted if it's been running for
+	// more than 30 seconds or has been idle for 10+ seconds.
+	var stoppedText bool
+	if running := s.mgr.List(); len(running) > 0 {
+		for _, inst := range running {
+			if inst.Status == "running" && inst.Type != "image" && inst.Model != modelName {
+				log.Printf("stopping existing text instance %q (port %d) for new model %q", inst.Model, inst.Port, modelName)
+				s.mgr.Stop(inst.Port)
+				stoppedText = true
+				continue
+			}
+			if inst.Status == "running" && inst.Type == "image" {
+				sinceStart := time.Since(inst.StartedAt)
+				sinceActivity := time.Since(inst.LastActivity)
+				if sinceStart < 30*time.Second || sinceActivity < 10*time.Second {
+					log.Printf("image instance %q (port %d) running for %v — deferring text until image finishes", inst.Model, inst.Port, sinceStart.Round(time.Second))
+					// Wait for image to complete (up to 60s)
+					deadline := time.Now().Add(60 * time.Second)
+					for time.Now().Before(deadline) {
+						if !s.mgr.HasInstance(inst.Port) {
+							log.Printf("image instance completed, proceeding with text model %q", modelName)
+							break
+						}
+						time.Sleep(1 * time.Second)
+					}
+					if s.mgr.HasInstance(inst.Port) {
+						log.Printf("image instance timed out — forcefully preempting")
+						s.mgr.Stop(inst.Port)
+					}
+				} else {
+					log.Printf("stopping stale image instance %q (port %d) for new model %q", inst.Model, inst.Port, modelName)
+					s.mgr.Stop(inst.Port)
+				}
+			}
+		}
+	}
+
+	// GPU cooldown: wait for CUDA to release VRAM from the stopped process
+	// before starting a new model on the same GPU(s).
+	if stoppedText {
+		log.Printf("waiting 2s for GPU memory release")
+		time.Sleep(2 * time.Second)
+	}
+}
+
+// handleWarmup starts a model (text or image profile) in the background so
+// agents can pre-warm a model before they need it. Idempotent: a model that
+// is already running is returned as-is. The request returns as soon as the
+// process has been spawned — poll /api/v1/instances for the ready flag, or
+// just fire the real request (it blocks until the model is up).
+func (s *Server) handleWarmup(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	var req struct {
+		Profile string `json:"profile"`
+		Model   string `json:"model"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, err.Error(), 400)
+		return
+	}
+
+	cfg := model.LoadConfig()
+	profileName := req.Profile
+	modelName := req.Model
+
+	// Explicit profile: fill in its model. No profile given: auto-detect.
+	if profileName != "" {
+		p, ok := cfg.Profiles[profileName]
+		if !ok {
+			jsonError(w, fmt.Sprintf("profile %q not found", profileName), 404)
+			return
+		}
+		if modelName == "" {
+			modelName = p.Model
+		}
+	} else {
+		profileName = resolveProfile(cfg, "", modelName)
+		if profileName != "" && modelName == "" {
+			modelName = cfg.Profiles[profileName].Model
+		}
+	}
+	if modelName == "" {
+		jsonError(w, "model or profile is required", 400)
+		return
+	}
+
+	profile := cfg.Profiles[profileName] // zero value if none
+
+	// Image profiles: same switching rules as /v1/images/generations —
+	// only preempt text that has been idle for 30s.
+	if profile.Type == "image" {
+		const imageTextIdleThreshold = 30 * time.Second
+		for _, inst := range s.mgr.List() {
+			if inst.Status == "running" && inst.Type != "image" {
+				sinceActivity := time.Since(inst.LastActivity)
+				if sinceActivity < imageTextIdleThreshold && sinceActivity >= 0 {
+					log.Printf("warmup: text instance %q (port %d) active %v ago — deferring image warmup", inst.Model, inst.Port, sinceActivity.Round(time.Second))
+					w.Header().Set("Retry-After", "30")
+					jsonError(w, fmt.Sprintf("text model %q is busy, retry image warmup later", inst.Model), 503)
+					return
+				}
+				log.Printf("warmup: stopping idle text instance %q (port %d) for image warmup", inst.Model, inst.Port)
+				s.mgr.Stop(inst.Port)
+			}
+		}
+		if inst := s.mgr.FindInstanceByModel(modelName); inst != nil {
+			jsonResponse(w, map[string]interface{}{
+				"status": "running", "port": inst.Port, "model": inst.Model,
+				"profile": profileName, "type": "image", "ready": inst.Ready,
+			})
+			return
+		}
+		startPort := 9081
+		for _, existing := range s.mgr.List() {
+			if existing.Type == "image" && existing.Port >= startPort {
+				startPort = existing.Port + 1
+			}
+		}
+		inst, err := s.mgr.StartImage(modelName, startPort, profile.Env)
+		if err != nil {
+			jsonError(w, fmt.Sprintf("starting image model %q: %v", modelName, err), 500)
+			return
+		}
+		if profileName != "" {
+			s.mgr.SetProfile(inst.Port, profileName)
+		}
+		go s.waitForInstanceReady(inst.Port)
+		log.Printf("warmup: image model %q starting on port %d", modelName, inst.Port)
+		jsonResponse(w, map[string]interface{}{
+			"status": "starting", "port": inst.Port, "model": inst.Model,
+			"profile": profileName, "type": "image",
+		})
+		return
+	}
+
+	// Text: idempotent if an instance for this model is already running.
+	if inst := s.mgr.FindInstanceByModel(modelName); inst != nil {
+		jsonResponse(w, map[string]interface{}{
+			"status": "running", "port": inst.Port, "model": inst.Model,
+			"profile": inst.Profile, "type": "text", "ready": inst.Ready,
+		})
+		return
+	}
+
+	blob, err := model.ResolveModelBlob(modelName)
+	if err != nil || blob == "" {
+		names := make([]string, 0)
+		for _, a := range s.mgr.List() {
+			if a.Status == "running" {
+				names = append(names, a.Model)
+			}
+		}
+		if len(names) == 0 {
+			jsonError(w, fmt.Sprintf("model %q not found in index and no instances running. Pull it from the gollama UI first.", modelName), 404)
+		} else {
+			jsonError(w, fmt.Sprintf("model %q not found in index. running instances: %s", modelName, strings.Join(names, ", ")), 404)
+		}
+		return
+	}
+
+	launchFlags := cfg.ProxyFlags()
+	if profileName != "" {
+		launchFlags = cfg.ProfileFlags(profileName)
+		log.Printf("warmup: using model profile %q for model %q", profileName, modelName)
+	}
+	s.switchToModel(modelName)
+	inst, err := s.mgr.Start(modelName, 0, launchFlags, false, profile.Env, profile.BinaryPath)
+	if err != nil {
+		jsonError(w, fmt.Sprintf("starting model %q: %v", modelName, err), 500)
+		return
+	}
+	if profileName != "" {
+		s.mgr.SetProfile(inst.Port, profileName)
+	}
+	log.Printf("warmup: model %q starting on port %d", modelName, inst.Port)
+	jsonResponse(w, map[string]interface{}{
+		"status": "starting", "port": inst.Port, "model": inst.Model,
+		"profile": profileName, "type": "text",
+	})
+}
+
 // ── Image Model Management ──────────────────────────
 
 func (s *Server) handleImageModels(w http.ResponseWriter, r *http.Request) {
@@ -1301,15 +1511,7 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 
 	// Resolve flags: explicit profile, auto-detect from model name, or proxy defaults
 	cfg := model.LoadConfig()
-	if profileName == "" {
-		// Auto-detect profile by model name
-		for name, p := range cfg.Profiles {
-			if p.Model != "" && strings.EqualFold(modelName, p.Model) {
-				profileName = name
-				break
-			}
-		}
-	}
+	profileName = resolveProfile(cfg, profileName, modelName)
 	var launchFlags []string
 	if profileName != "" {
 		launchFlags = cfg.ProfileFlags(profileName)
@@ -1318,51 +1520,7 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 		launchFlags = cfg.ProxyFlags()
 	}
 
-	// Stop other text models when switching. Don't stop image instances —
-	// give them a grace period to finish generating (avoids cutting off the
-	// response mid-flight). Image can be preempted if it's been running for
-	// more than 30 seconds or has been idle for 10+ seconds.
-	var stoppedText bool
-	if running := s.mgr.List(); len(running) > 0 {
-		for _, inst := range running {
-			if inst.Status == "running" && inst.Type != "image" && inst.Model != modelName {
-				log.Printf("stopping existing text instance %q (port %d) for new model %q", inst.Model, inst.Port, modelName)
-				s.mgr.Stop(inst.Port)
-				stoppedText = true
-				continue
-			}
-			if inst.Status == "running" && inst.Type == "image" {
-				sinceStart := time.Since(inst.StartedAt)
-				sinceActivity := time.Since(inst.LastActivity)
-				if sinceStart < 30*time.Second || sinceActivity < 10*time.Second {
-					log.Printf("image instance %q (port %d) running for %v — deferring text until image finishes", inst.Model, inst.Port, sinceStart.Round(time.Second))
-					// Wait for image to complete (up to 60s)
-					deadline := time.Now().Add(60 * time.Second)
-					for time.Now().Before(deadline) {
-						if !s.mgr.HasInstance(inst.Port) {
-							log.Printf("image instance completed, proceeding with text model %q", modelName)
-							break
-						}
-						time.Sleep(1 * time.Second)
-					}
-					if s.mgr.HasInstance(inst.Port) {
-						log.Printf("image instance timed out — forcefully preempting")
-						s.mgr.Stop(inst.Port)
-					}
-				} else {
-					log.Printf("stopping stale image instance %q (port %d) for new model %q", inst.Model, inst.Port, modelName)
-					s.mgr.Stop(inst.Port)
-				}
-			}
-		}
-	}
-
-	// GPU cooldown: wait for CUDA to release VRAM from the stopped process
-	// before starting a new model on the same GPU(s).
-	if stoppedText {
-		log.Printf("waiting 2s for GPU memory release")
-		time.Sleep(2 * time.Second)
-	}
+	s.switchToModel(modelName)
 
 	inst := s.mgr.FindInstanceByModel(modelName)
 	if inst == nil {
