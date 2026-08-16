@@ -242,6 +242,7 @@ body {
 .inst-card:hover { border-color: var(--border-hover); }
 .inst-card .title { font-family: var(--font-mono); font-size: 12.5px; font-weight: 600; word-break: break-all; padding-left: 10px; }
 .inst-card .meta { font-family: var(--font-mono); font-size: 11px; color: var(--text-dim); margin-top: 8px; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; padding-left: 10px; }
+.inst-card .meta-badges { flex-wrap: wrap; gap: 6px; margin-top: 10px; padding-left: 10px; }
 .inst-card .actions { margin-top: 12px; display: flex; gap: 6px; flex-wrap: wrap; padding-left: 10px; }
 
 /* ── Quick launch ────────────────────────────────────── */
@@ -1125,7 +1126,8 @@ var metrics = typeLabel + (i.device_split ? '<span title="Model split">📊 ' + 
       var flagsHtml = flags ? '<div style="font-size: 11px; color: var(--text-dim); margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); word-break: break-all; font-family: var(--font-mono)">' + escHtml(flags) + '</div>' : '';
       var errDiv = i.status != 'running' ? '<div class="error-line" id="err-' + i.port + '"></div>' : '';
       return '<div class="inst-card' + cls + '"><div class="title">' + escHtml(mn.length > 40 ? mn.slice(0, 40) + '…' : mn) + '</div>' +
-        '<div class="meta"><span>Port ' + i.port + '</span>' + tps + uptime + idle + tokens + metrics + '<span class="badge ' + bc + '">' + statusLabel + '</span></div>' +
+        '<div class="meta"><span>Port ' + i.port + '</span>' + tps + uptime + idle + tokens + '</div>' +
+        '<div class="meta meta-badges">' + metrics + '<span class="badge ' + bc + '">' + statusLabel + '</span></div>' +
         errDiv + flagsHtml +
         '<div class="actions"><button class="small danger" onclick="stopInstance(' + i.port + ')" aria-label="Stop instance on port ' + i.port + '">⏹ Stop</button>' +
         '<button class="small secondary" onclick="restartInstance(' + i.port + ')" aria-label="Restart instance on port ' + i.port + '">🔄 Restart</button>' +

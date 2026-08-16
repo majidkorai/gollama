@@ -25,7 +25,7 @@ import (
 
 // version is set at build time via -ldflags=-X main.version=v0.x.x
 // local builds fall back to this default
-var version = "3.7.0"
+var version = "3.7.1"
 
 func main() {
 	if len(os.Args) < 2 || os.Args[1] == "--version" || os.Args[1] == "-v" {
