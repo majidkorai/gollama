@@ -37,11 +37,13 @@ jobs:
             ext: ".exe"
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.23"
+          # Zero external dependencies — there is no go.sum to cache.
+          cache: false
 
       - name: test
         run: go test ./...
@@ -50,7 +52,7 @@ jobs:
         run: go build -o gollama-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }} -ldflags="-s -w -X main.version=${{ github.ref_name }}" .
 
       - name: upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: gollama-${{ matrix.os }}-${{ matrix.arch }}
           path: gollama-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.ext }}
@@ -60,7 +62,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: gollama-*
           merge-multiple: true
@@ -68,7 +70,7 @@ jobs:
       - name: checksums
         run: sha256sum gollama-* > checksums.txt
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           prerelease: ${{ contains(github.ref_name, '-rc') }}
           files: |
