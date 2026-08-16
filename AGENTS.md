@@ -4,7 +4,7 @@
 
 Go binary that manages llama.cpp instances. Single-file CLI + web UI + OpenAI-compatible API proxy. Zero external dependencies.
 
-**Version:** v3.0.0
+**Version:** v3.7.0
 **Module:** `github.com/majidkorai/gollama`
 **Go:** 1.23
 **Dependencies:** None (stdlib only)
@@ -53,7 +53,7 @@ gollama/
 │   ├── server/
 │   │   └── server.go          # HTTP server: web UI + REST API + OpenAI proxy
 │   └── ui/
-│       └── ui.go              # Embedded web UI (2170-line const string: HTML/CSS/JS)
+│       └── ui.go              # Embedded web UI (3100-line const string: HTML/CSS/JS)
 ```
 
 ## Architecture
@@ -293,27 +293,33 @@ curl -s -X POST http://192.168.1.36:9080/api/v1/warmup -d '{"profile":"deepseek-
 
 ## UI Architecture (`pkg/ui/ui.go`)
 
-Single `const Page` string (~2170 lines) containing the entire web app: HTML template + CSS + JS. No framework, no build step.
+Single `const Page` string (~3100 lines) containing the entire web app: HTML template + CSS + JS. No framework, no build step.
 
 ### Views (JS SPA with `switchView()`):
-- **Dashboard** (`#view-dashboard`): Metrics cards + Quick Launch form + Running Instances grid
+- **Dashboard** (`#view-dashboard`): Quick Launch form + Running Instances grid; polls `loadInstances()` every 5s while visible
 - **Models** (`#view-models`): Model list with badges + Pull model with HF search + details modal
 - **Chat** (`#view-chat`): SSE streaming chat with reasoning display + history management
+- **Image** (`#view-image`): Image generation playground (profile select, prompt, params, results, history)
 - **Settings** (`#view-settings`): Version info + idle TTL + default flags + API defaults + Model Profiles + restart
 
 ### JS Patterns:
-- Navigation: `switchView(name)` — hides all `.view`, shows target, calls `loadInstances()`/`loadModels()`/`loadChats()`/`loadSettings()` depending on view
+- Navigation: `switchView(name)` — hides all `.view`, shows target, calls `loadInstances()`/`loadModels()`/`loadChats()`/`loadSettings()` depending on view; starts/stops the 5s dashboard poll
 - Sidebar: Collapsible (60px), expanded (220px), state in localStorage
-- Theme: Dark/light toggle, persisted in localStorage, CSS custom properties
+- Theme: Dark/light toggle, persisted in localStorage, CSS custom properties; syncs `meta[theme-color]`
+- Faceplate: top strip (`#faceLed`, `#faceInst`, `#faceTps`, `#faceModels`, `#faceVersion`, `#faceClock`) updated by `updateFaceplate()` from the instance list + a 1s clock
 - Flags: Searchable dropdown of 150+ llama-server flags with auto-complete, hints, standalone flag detection
-- Dialogs: Model details, chat history, logs modal, pull progress bar
+- Dialogs: Model details, chat history, logs modal, pull progress bar; Escape closes any open modal/lightbox
+- Clipboard: `fallbackCopy()` falls back to `execCommand('copy')` when `navigator.clipboard` is unavailable (LAN/non-HTTPS access)
 
-### CSS Design System (v3.0):
-- Dark theme with CSS custom properties
-- Accent gradient (`#00e5bf → #00b8ff`) used for buttons, headings, card accents
-- Glass effects (`backdrop-filter: blur()`), glow shadows, gradient borders
-- Smooth transitions (200ms cubic-bezier)
-- Responsive breakpoint at 768px (collapsed sidebar, single column)
+### CSS Design System (v3.7.0 — instrument panel / GPU-rack console):
+- Direction A from the 2026-08 UI refresh: dark charcoal (`--bg #0f1115`), no glass/glow, subtle 28px grid texture on `.content`
+- Typography: Archivo (body/UI) + JetBrains Mono (labels, values, data) — Google Fonts; mono uppercase micro-labels throughout
+- Sharp 3–4px radii, 1px hairline borders, status LED semantics: green = running, amber = starting/warning, red = error, dim = off
+- Flat accent `--accent #45d483` (buttons) instead of the old teal→blue gradient; gradients kept only as unused `--accent-gradient` fallback
+- Badges are square with a 4px LED dot (`::before`); instance cards are "rack units" with a 2px status stripe (`.inst-card.starting/.stopped/.error`)
+- Both dark and light themes via `.light` on `<html>` + `<body>` (JS sets both); keep that pairing
+- Responsive breakpoint at 768px (force-collapsed sidebar, single column, faceplate trimmed)
+- Gotcha: `switchView` finds nav items by `onclick*="<name>"` substring — nav buttons must keep inline `onclick="switchView('x')"`
 
 ## Code Conventions
 
