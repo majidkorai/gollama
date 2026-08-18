@@ -1,6 +1,32 @@
 # Gollama Robustness Plan
 
-**Status:** Phase 0 complete (2026-08-18) — test safety net in place, `go build`/`go vet`/`go test -race` green.
+**Status:** Phase 0 complete (2026-08-18, commit `59ac3c7`). **Next: Phase 1 — Security (→ v3.8.0).**
+
+## ▶ Resume here (read this first)
+
+**Where we are:** Phase 0 (test safety net) is done and committed. No production code has been changed yet — everything after this is behavior work.
+
+**How to resume:**
+1. Read this file top-to-bottom (phase checkboxes are the source of truth).
+2. Confirm green baseline: `go build ./... && go vet ./... && go test ./...` (add `-race` for the server package; proxy tests spawn a dummy `llama-server` shell script and take ~20–35s).
+3. Start Phase 1, task P1-T1. Work the tasks in order within a phase; each phase ends with a tag.
+
+**Key context for the next session:**
+- Architecture review (what/where all the issues are) lives in the conversation that produced this plan; the plan itself is self-contained for execution. The full issue list maps 1:1 to tasks.
+- **Test conventions** (follow them for new tests): `t.Setenv("HOME", t.TempDir())` for isolation; dummy `llama-server` = `#!/bin/sh\nsleep 30` script in `$HOME/.gollama/bin/`; fixed ports for warmup tests, ephemeral reserved ports for proxy tests (`startProxyFixture` in `pkg/server/proxy_test.go`); `fakeUpstream` (`pkg/server/fakeupstream_test.go`) simulates the model.
+- **Session tooling quirk (important!):** the file-writing pipeline strips angle-bracket pairs from written content. In `pkg/server/transforms_test.go` the think-tag constants are therefore built from hex escapes (`0x3c`/`0x3e`) — keep it that way, and after writing any file containing `think`-style literals, verify on disk with `sed -n`/`grep` before compiling.
+- **Behavior quirks pinned by Phase 0 tests** (do not "fix" incidentally — they are scoped to later phases):
+  - `/api/v1/chat` drops the `[DONE]` marker → fixed in P5-T1 (UI already tolerates `[DONE]`, `ui.go:2074`).
+  - `ScanModels` normalizes underscores→hyphens before the quant-strip regex → scanned short names keep the quant suffix → fixed in P5-T2.
+  - `FindInstanceByModel` fuzzy match is map-iteration-nondeterministic → fixed in P2-T5 (test asserts "a valid candidate", not which one).
+  - `merge_reasoning` is dead code (toggle does nothing) → wired in P2-T1 (tests in `transforms_test.go` pin intended behavior; note: current `mergeReasoningContent` appends reasoning AFTER existing content in the same chunk, "c"+"r"→"cr").
+  - `ProfileFlags` keeps both `--verbose` and `--no-verbose` (standalone flags aren't key-overridden; llama-server takes the last) → snapshot in `flags_test.go`, replaced by typed flag model in P5-T3.
+
+**Phase 1 deploy notes (when we ship v3.8.0):**
+- `gollama.service` on 192.168.1.36 needs `ExecStart=/usr/local/bin/gollama serve --listen 0.0.0.0` (LAN UI access; token is the gate).
+- hermes consumers of the gollama API need the token: `ghost_post_creator.js` image-gen call (`POST /v1/images/generations`) and any warmup calls — add `?token=…` or `Authorization: Bearer`. Search hermes scripts for `9080`.
+- Grab the generated token from Web UI → Settings after first start.
+
 **Baseline:** v3.7.3, `main.go` + `pkg/{server,manager,model,llama,chat,ui}`, stdlib-only, `go build`/`go vet`/`go test` all green.
 
 ## Goals

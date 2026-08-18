@@ -2,12 +2,21 @@
 
 ## Project Overview
 
-Go binary that manages llama.cpp instances. Single-file CLI + web UI + OpenAI-compatible API proxy. Zero external dependencies.
+Go binary that manages llama.cpp instances. CLI + embedded web UI + OpenAI-compatible API proxy. Zero external dependencies.
 
 **Version:** v3.7.3
 **Module:** `github.com/majidkorai/gollama`
 **Go:** 1.23
 **Dependencies:** None (stdlib only)
+
+## Robustness Plan (in progress)
+
+**`docs/ROBUSTNESS_PLAN.md` is the source of truth for ongoing work** — phased fixes for security, correctness, concurrency, and code-quality issues found in the 2026-08-18 architecture review. It starts with a "Resume here" block (current phase, conventions, deploy notes, pinned behavior quirks).
+
+- Phase 0 (test safety net) is complete and committed; Phases 1–5 are pending.
+- When working on planned fixes, check the plan's task list and update its checkboxes.
+- Tests pin several current behavior quirks on purpose (e.g. `/api/v1/chat` drops `[DONE]`, fuzzy model-match nondeterminism) — don't change them incidentally; they are scoped to specific later tasks.
+- Tooling note: the session file-write pipeline strips angle-bracket pairs from content; think-tag literals in `pkg/server/transforms_test.go` are built from hex escapes for this reason.
 
 ## Key Commands
 
