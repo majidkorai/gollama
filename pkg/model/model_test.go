@@ -160,8 +160,19 @@ func TestGenerateAPIToken(t *testing.T) {
 	}
 }
 
+// setTestHome isolates the gollama dir for a test on every platform.
+// os.UserHomeDir reads HOME on Unix but USERPROFILE on Windows, so we set
+// both — otherwise Windows tests share one real dir and the
+// api-token-generated marker leaks between tests.
+func setTestHome(t *testing.T) {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+}
+
 func TestEnsureAPITokenFreshInstall(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t)
 	tok, generated := EnsureAPIToken()
 	if !generated {
 		t.Fatal("fresh install should generate a token")
@@ -181,7 +192,7 @@ func TestEnsureAPITokenFreshInstall(t *testing.T) {
 }
 
 func TestEnsureAPITokenUpgradedConfig(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t)
 	// A pre-v3.8 config has no api_token key at all.
 	raw := `{"default_flags":["--ctx-size","512"],"proxy_defaults":[],"profiles":{},"idle_ttl":0}`
 	if err := os.MkdirAll(GollamaDir(), 0755); err != nil {
@@ -197,7 +208,7 @@ func TestEnsureAPITokenUpgradedConfig(t *testing.T) {
 }
 
 func TestEnsureAPITokenExplicitlyCleared(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t)
 	// A token was generated here (marker written), then the user cleared it.
 	tok, generated := EnsureAPIToken()
 	if !generated || len(tok) != 64 {

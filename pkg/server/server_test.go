@@ -20,10 +20,14 @@ import (
 )
 
 // newTestServer returns a Server backed by a manager isolated under a
-// temporary HOME so no real config/instances are touched.
+// temporary HOME so no real config/instances are touched. Both HOME and
+// USERPROFILE are set so isolation holds on Windows too (os.UserHomeDir
+// reads USERPROFILE there).
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	return New(manager.NewManager(), "8080")
 }
 
@@ -288,6 +292,7 @@ func TestChatIDTraversal(t *testing.T) {
 func TestModelDeleteRejectsPathsOutsideModelsDir(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 	modelsDir := filepath.Join(home, ".gollama", "models")
 	if err := os.MkdirAll(modelsDir, 0755); err != nil {
 		t.Fatal(err)

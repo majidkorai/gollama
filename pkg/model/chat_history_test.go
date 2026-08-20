@@ -114,7 +114,9 @@ func TestDeleteChat(t *testing.T) {
 }
 
 func TestChatPathTraversal(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // isolate on Windows too
 	base := ChatsDir()
 	if p := chatPath("normal-id"); p != filepath.Join(base, "normal-id.json") {
 		t.Errorf("chatPath(normal-id) = %q, want %q", p, filepath.Join(base, "normal-id.json"))
