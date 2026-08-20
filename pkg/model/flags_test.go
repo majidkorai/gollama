@@ -109,7 +109,7 @@ func TestProxyFlagsFallback(t *testing.T) {
 }
 
 func TestLoadConfigSanitizesFlags(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t)
 	// Simulate a hand-edited config containing orphaned values.
 	raw := `{"default_flags":["4096","--ctx-size","4096","--verbose","true"],"profiles":{},"idle_ttl":0}`
 	EnsureDir(GollamaDir())

@@ -8,7 +8,7 @@ import (
 )
 
 func TestChatRoundTrip(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t)
 	session := &ChatSession{
 		Model: "fake-1b",
 		Messages: []ChatMessage{
@@ -39,7 +39,7 @@ func TestChatRoundTrip(t *testing.T) {
 }
 
 func TestChatTitleTruncation(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t)
 	long := strings.Repeat("a", 100)
 	session := &ChatSession{Messages: []ChatMessage{{Role: "user", Content: long}}}
 	if err := SaveChat(session); err != nil {
@@ -51,7 +51,7 @@ func TestChatTitleTruncation(t *testing.T) {
 }
 
 func TestListChatsSkipsCorruptFiles(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t)
 	if err := SaveChat(&ChatSession{ID: "1", Title: "one", Messages: []ChatMessage{{Role: "user", Content: "first"}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +80,7 @@ func TestListChatsSkipsCorruptFiles(t *testing.T) {
 }
 
 func TestListChatsPreviewTruncation(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t)
 	long := strings.Repeat("b", 100)
 	if err := SaveChat(&ChatSession{ID: "p", Messages: []ChatMessage{{Role: "user", Content: long}}}); err != nil {
 		t.Fatal(err)
@@ -98,7 +98,7 @@ func TestListChatsPreviewTruncation(t *testing.T) {
 }
 
 func TestDeleteChat(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t)
 	if err := SaveChat(&ChatSession{ID: "d", Messages: []ChatMessage{{Role: "user", Content: "x"}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -114,9 +114,7 @@ func TestDeleteChat(t *testing.T) {
 }
 
 func TestChatPathTraversal(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home) // isolate on Windows too
+	setTestHome(t)
 	base := ChatsDir()
 	if p := chatPath("normal-id"); p != filepath.Join(base, "normal-id.json") {
 		t.Errorf("chatPath(normal-id) = %q, want %q", p, filepath.Join(base, "normal-id.json"))

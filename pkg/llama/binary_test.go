@@ -49,6 +49,7 @@ func newLocalChecksumServer(t *testing.T, tag, content string) string {
 func TestVerifyChecksumMismatch(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // os.UserHomeDir reads USERPROFILE on Windows
 
 	binPath := filepath.Join(home, "gollama-linux-amd64")
 	if err := os.WriteFile(binPath, []byte("gollama-binary-bytes"), 0644); err != nil {
@@ -74,6 +75,7 @@ func TestVerifyChecksumMismatch(t *testing.T) {
 func TestVerifyChecksumMatch(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // os.UserHomeDir reads USERPROFILE on Windows
 	binPath := filepath.Join(home, "gollama-linux-amd64")
 	payload := []byte("gollama-binary-bytes")
 	if err := os.WriteFile(binPath, payload, 0644); err != nil {

@@ -1,7 +1,6 @@
 package model
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 )
@@ -67,9 +66,7 @@ func TestPresetsPersistence(t *testing.T) {
 }
 
 func TestPresetsFile(t *testing.T) {
-	orig := os.Getenv("HOME")
-	defer os.Setenv("HOME", orig)
-	os.Setenv("HOME", "/tmp/test-home")
+	setTestHome(t)
 
 	path := PresetsFile()
 	if !filepath.IsAbs(path) {

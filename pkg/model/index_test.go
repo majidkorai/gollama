@@ -22,7 +22,7 @@ func writeModelFile(t *testing.T, name string, size int) string {
 }
 
 func TestScanModelsIndexesNewFiles(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t)
 	writeModelFile(t, "My-Model-Q4_K_M.gguf", 100)
 	ScanModels()
 
@@ -49,7 +49,7 @@ func TestScanModelsIndexesNewFiles(t *testing.T) {
 }
 
 func TestScanModelsIdempotent(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t)
 	writeModelFile(t, "A-B-Q4_K_M.gguf", 10)
 	ScanModels()
 	first := LoadIndex()
@@ -64,7 +64,7 @@ func TestScanModelsIdempotent(t *testing.T) {
 }
 
 func TestScanModelsSplitFiles(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t)
 	for i := 1; i <= 4; i++ {
 		writeModelFile(t, fmt.Sprintf("Big-Model-Q4_K_M-%05d-of-00004.gguf", i), 10)
 	}
@@ -92,7 +92,7 @@ func TestScanModelsSplitFiles(t *testing.T) {
 }
 
 func TestScanModelsSplitWithoutFirstPart(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t)
 	writeModelFile(t, "Big-Model-Q4_K_M-00002-of-00004.gguf", 10)
 	ScanModels()
 	if idx := LoadIndex(); len(idx) != 0 {
@@ -101,7 +101,7 @@ func TestScanModelsSplitWithoutFirstPart(t *testing.T) {
 }
 
 func TestListModelsSkipsMissingBlobs(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t)
 	p := writeModelFile(t, "real.gguf", 10)
 	SaveIndex(map[string]ModelInfo{
 		"real":  {Name: "real", ShortName: "real", BlobPath: p},
@@ -117,7 +117,7 @@ func TestListModelsSkipsMissingBlobs(t *testing.T) {
 }
 
 func TestResolveModelBlob(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t)
 	pA := writeModelFile(t, "alpha.gguf", 10)
 	pB := writeModelFile(t, "beta.gguf", 10)
 	SaveIndex(map[string]ModelInfo{
@@ -142,7 +142,7 @@ func TestResolveModelBlob(t *testing.T) {
 // that it returns a valid candidate (not which one) — P2-T5 makes the choice
 // deterministic and this test can then assert the exact winner.
 func TestResolveModelBlobFuzzyDocumentsNondeterminism(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
+	setTestHome(t)
 	pA := writeModelFile(t, "qwen-a.gguf", 10)
 	pB := writeModelFile(t, "qwen-b.gguf", 10)
 	SaveIndex(map[string]ModelInfo{
