@@ -4,7 +4,7 @@
 
 ## ▶ Resume here (read this first)
 
-**Where we are:** Phase 0 (test safety net) and Phase 1 (security) are done. Phase 1 shipped: loopback-default bind, shared-secret API token, chat-id + model-delete traversal fixes, self-update checksum verification, no silent package installs, systemd unit fixes, bounded API client. Phase 1 deploy notes (gollama VM) are in the cross-cutting section — the VM still runs v3.7.3 until deployed. No Phase 2 behavior work has started.
+**Where we are:** Phase 0 (test safety net) and Phase 1 (security) are done, and **Phase 1 is deployed** (v3.8.0 live on the gollama VM 2026-08-20, hermes pipeline updated with the token — see deploy notes below). Phase 1 shipped: loopback-default bind, shared-secret API token, chat-id + model-delete traversal fixes, self-update checksum verification, no silent package installs, systemd unit fixes, bounded API client. No Phase 2 behavior work has started.
 
 **How to resume:**
 1. Read this file top-to-bottom (phase checkboxes are the source of truth).
@@ -22,10 +22,14 @@
   - `merge_reasoning` is dead code (toggle does nothing) → wired in P2-T1 (tests in `transforms_test.go` pin intended behavior; note: current `mergeReasoningContent` appends reasoning AFTER existing content in the same chunk, "c"+"r"→"cr").
   - `ProfileFlags` keeps both `--verbose` and `--no-verbose` (standalone flags aren't key-overridden; llama-server takes the last) → snapshot in `flags_test.go`, replaced by typed flag model in P5-T3.
 
-**Phase 1 deploy notes (when we ship v3.8.0):**
-- `gollama.service` on 192.168.1.36 needs `ExecStart=/usr/local/bin/gollama serve --listen 0.0.0.0` (LAN UI access; token is the gate).
-- hermes consumers of the gollama API need the token: `ghost_post_creator.js` image-gen call (`POST /v1/images/generations`) and any warmup calls — add `?token=…` or `Authorization: Bearer`. Search hermes scripts for `9080`.
-- Grab the generated token from Web UI → Settings after first start.
+**Phase 1 deploy (DONE 2026-08-20):** v3.8.0 is live on the gollama VM.
+- VM 192.168.1.36: `/usr/local/bin/gollama` is v3.8.0 (v3.7.3 backed up as `gollama.bak-v373-*`); `gollama.service` runs `serve --listen 0.0.0.0`.
+- Token: a 64-hex `api_token` was pre-written into `/root/.gollama/config.json` **before** the binary swap (no 401 window for the hermes pipeline); the old config is backed up as `config.json.bak-v380-*`. The token is visible in Web UI → Settings and in hermes as `GOLLAMA_API_KEY` in `~/.hermes/.env`.
+- hermes 192.168.1.17 patched (backups `*.bak-v380-*`):
+  - `ghost_post_creator.js` — `gollamaToken` in CONFIG + `Authorization: Bearer` header on the image-gen call.
+  - `post_watcher.sh` — warmup curl now sends `?token=`.
+  - `~/.hermes/config.yaml` — the agent's gollama endpoint is a **named custom provider** (`providers.gollama` with `api:` + `key_env: GOLLAMA_API_KEY`, `model.provider: gollama`). Note: a `key_env` in the `model:` block is NOT honored by hermes (v0.20.0) — inline `provider: custom` resolves to a `no-key-required` placeholder and 401s; the named-provider block is the supported path.
+- Smoke test passed: no-token → 401, Bearer / `?token=` → 200, UI open on LAN, `hermes chat` round-trip OK, image gen (flux-klein) 200 with token, text model re-warmed after image gen.
 
 **Baseline:** v3.8.0 (Phase 1), `main.go` + `pkg/{server,manager,model,llama,chat,ui}`, stdlib-only, `go build`/`go vet`/`go test` all green.
 
@@ -123,7 +127,7 @@ No behavior changes. This makes Phases 3–5 safe.
 
 **Exit:** unauthenticated LAN access closed (token + loopback default), traversal closed, self-update verified.
 **Smoke test (done on macOS, 2026-08-20):** fresh `serve` → token generated + printed once, `curl` without token → 401, Bearer + `?token=` → 200, UI open; upgraded config (no `api_token` key) → token added, existing flags preserved; `--listen 0.0.0.0` → LAN IP banner + reachable.
-**New in v3.8.0 (deploy checklist):** see cross-cutting section — VM unit needs `--listen 0.0.0.0`, hermes consumers need `?token=`.
+**Deployed to gollama VM 192.168.1.36 (2026-08-20):** token pre-written to config before the binary swap (no 401 window), unit now `serve --listen 0.0.0.0`, hermes consumers patched (see Phase 1 deploy notes above). VM smoke: no-token → 401, Bearer/`?token=` → 200, UI open on LAN, `hermes chat` round-trip OK, flux-klein image gen 200 with token, text model re-warmed after image gen.
 
 ---
 
