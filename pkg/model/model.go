@@ -2,6 +2,8 @@ package model
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -60,6 +62,10 @@ type Config struct {
 	ProxyDefaults []string          `json:"proxy_defaults"` // flags for auto-launched instances; falls back to default_flags
 	Profiles      map[string]Profile `json:"profiles,omitempty"`
 	IdleTTL       int               `json:"idle_ttl"` // minutes; 0 = disabled
+	// APIToken guards all /api/v1/* and /v1/* routes when non-empty
+	// (Authorization: Bearer <token> or ?token=<token>). No omitempty on
+	// purpose: an explicitly cleared token ("") must persist as disabled.
+	APIToken string `json:"api_token"`
 }
 
 func ConfigFile() string {
@@ -92,7 +98,7 @@ var standaloneFlags = map[string]bool{
 }
 
 func DefaultConfig() *Config {
-	flags := []string{"--host", "0.0.0.0", "--ctx-size", "2048", "--flash-attn", "on", "--temp", "0.7"}
+	flags := []string{"--host", "127.0.0.1", "--ctx-size", "2048", "--flash-attn", "on", "--temp", "0.7"}
 	return &Config{DefaultFlags: flags, IdleTTL: 30, Profiles: make(map[string]Profile)}
 }
 
@@ -206,6 +212,50 @@ func SaveConfig(cfg *Config) {
 	tmp := path + ".tmp"
 	os.WriteFile(tmp, data, 0644)
 	os.Rename(tmp, path)
+}
+
+// GenerateAPIToken returns a fresh 32-byte random token as 64 hex chars.
+func GenerateAPIToken() (string, error) {
+	buf := make([]byte, 32)
+	if _, err := rand.Read(buf); err != nil {
+		return "", fmt.Errorf("generating API token: %w", err)
+	}
+	return hex.EncodeToString(buf), nil
+}
+
+// tokenMarkerFile records that a token has been generated on this install.
+// It lets EnsureAPIToken tell "never had a token" (generate one) from
+// "user cleared the token" (auth disabled — respect it), regardless of
+// which code path created config.json first.
+func tokenMarkerFile() string {
+	return filepath.Join(GollamaDir(), "api-token-generated")
+}
+
+// EnsureAPIToken returns the configured API token. If this install never
+// had a token (fresh install, or a pre-v3.8 config without api_token), a
+// token is generated, saved, and (token, true) is returned so the caller
+// can print it once. A cleared token (marker present, token empty) is
+// respected: auth stays disabled and ("", false) is returned.
+func EnsureAPIToken() (string, bool) {
+	cfg := LoadConfig()
+	if cfg.APIToken != "" {
+		return cfg.APIToken, false
+	}
+	if _, err := os.Stat(tokenMarkerFile()); err == nil {
+		// A token was generated here before and then cleared — the user
+		// disabled auth on purpose.
+		return "", false
+	}
+	token, err := GenerateAPIToken()
+	if err != nil {
+		return "", false
+	}
+	cfg.APIToken = token
+	SaveConfig(cfg)
+	if err := os.WriteFile(tokenMarkerFile(), []byte(time.Now().UTC().Format(time.RFC3339)), 0600); err != nil {
+		log.Printf("warning: could not write token marker: %v", err)
+	}
+	return token, true
 }
 
 func GollamaDir() string {
@@ -349,7 +399,17 @@ var (
 )
 
 // HTTPClient is a shared HTTP client with a custom User-Agent.
+// No timeout: it carries long model downloads.
 var HTTPClient = &http.Client{
+	Transport: &userAgentTransport{
+		next: http.DefaultTransport,
+	},
+}
+
+// APIClient is for short JSON API calls (HF search, GitHub releases).
+// It must never hang a UI request — bounded to 30s.
+var APIClient = &http.Client{
+	Timeout: 30 * time.Second,
 	Transport: &userAgentTransport{
 		next: http.DefaultTransport,
 	},
@@ -437,7 +497,7 @@ func SearchModels(query string) ([]SearchResult, error) {
 		searchQuery = query + " GGUF"
 	}
 	apiURL := fmt.Sprintf("https://huggingface.co/api/models?search=%s&sort=likes&direction=-1&limit=20&full=true", url.QueryEscape(searchQuery))
-	resp, err := HTTPClient.Get(apiURL)
+	resp, err := APIClient.Get(apiURL)
 	if err != nil {
 		return nil, fmt.Errorf("searching models: %w", err)
 	}
@@ -504,7 +564,7 @@ func SearchModels(query string) ([]SearchResult, error) {
 		go func(idx int, modelID string) {
 			var total int64
 			u := fmt.Sprintf("https://huggingface.co/api/models/%s", modelID)
-			if resp, err := HTTPClient.Get(u); err == nil {
+			if resp, err := APIClient.Get(u); err == nil {
 				defer resp.Body.Close()
 				if resp.StatusCode == 200 {
 					var detail struct {
@@ -553,7 +613,7 @@ var knownQuantSuffixes = []string{
 // with parsed quantization, sizes, and multi-part grouping.
 func ListRepoGGUFFiles(repo string) ([]RepoGGUFFile, error) {
 	apiURL := fmt.Sprintf("https://huggingface.co/api/models/%s", repo)
-	resp, err := HTTPClient.Get(apiURL)
+	resp, err := APIClient.Get(apiURL)
 	if err != nil {
 		return nil, fmt.Errorf("fetching repo %s: %w", repo, err)
 	}
@@ -883,7 +943,7 @@ func SearchImageModels(query string) ([]ImageModelSearchResult, error) {
 		query = "text-to-image"
 	}
 	apiURL := fmt.Sprintf("https://huggingface.co/api/models?search=%s&sort=likes&direction=-1&limit=20&full=true", url.QueryEscape(query))
-	resp, err := HTTPClient.Get(apiURL)
+	resp, err := APIClient.Get(apiURL)
 	if err != nil {
 		return nil, fmt.Errorf("searching models: %w", err)
 	}
@@ -997,7 +1057,7 @@ func pullModelInternal(ctx context.Context, ref string, fn ProgressFn, progress 
 	}
 
 	apiURL := fmt.Sprintf("https://huggingface.co/api/models/%s", modelID)
-	resp, err := HTTPClient.Get(apiURL)
+	resp, err := APIClient.Get(apiURL)
 	if err != nil {
 		return fmt.Errorf("fetching model info: %w", err)
 	}

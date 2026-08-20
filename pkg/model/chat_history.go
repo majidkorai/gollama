@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -39,7 +40,21 @@ func ChatsDir() string {
 	return filepath.Join(GollamaDir(), "chats")
 }
 
+// ValidChatID reports whether id is a safe chat session identifier.
+// Chat ids are filesystem names under ~/.gollama/chats/, so anything
+// beyond [A-Za-z0-9_-] (up to 64 chars) is rejected.
+var chatIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
+
+func ValidChatID(id string) bool {
+	return chatIDRe.MatchString(id)
+}
+
 func chatPath(id string) string {
+	// Defense in depth: reject any id that could escape the chats dir,
+	// even if a caller bypasses ValidChatID.
+	if strings.ContainsAny(id, `/\`) || strings.Contains(id, "..") || !ValidChatID(id) {
+		return filepath.Join(ChatsDir(), ".invalid")
+	}
 	return filepath.Join(ChatsDir(), id+".json")
 }
 

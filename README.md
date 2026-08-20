@@ -66,6 +66,17 @@ The first-run wizard:
 - **Live log tail** — view llama-server logs in the UI with auto-refresh.
 - **Disk space check** — warns before downloading if insufficient space.
 - **CLI & Web UI** — use `gollama chat <model>` in the terminal or open `http://localhost:9080`.
+- **Secure by default** — `gollama serve` binds to `127.0.0.1` only, and all API routes require a shared-secret token (generated on first start, shown in Settings). Expose on the LAN only with `--listen 0.0.0.0` — the token is the gate.
+
+## Security (v3.8.0+)
+
+- **Loopback by default** — `gollama serve` listens on `127.0.0.1` only. For LAN/browser access use `gollama serve --listen 0.0.0.0` (or `GOLLAMA_LISTEN=0.0.0.0` in the systemd unit). New installs also default llama-server to `--host 127.0.0.1`; existing configs keep their values.
+- **API token** — on first start gollama generates a 32-byte random token, prints it once, and saves it to `~/.gollama/config.json` (`api_token`). While a token is set, every `/api/v1/*` and `/v1/*` route requires either:
+  - `Authorization: Bearer <token>` (header), or
+  - `?token=<token>` (query string — handy for curl/cron).
+
+  The web UI itself stays open (it's a viewer) and prompts for the token on first use; Settings shows it with Copy / Regenerate / Disable buttons. An empty token disables auth (a warning is logged at startup).
+- **Self-update is checksum-verified** — `gollama self-update` verifies the downloaded binary against the release's `checksums.txt` and aborts on mismatch.
 
 ## Commands
 
@@ -75,7 +86,7 @@ The first-run wizard:
 | `gollama update` | Download/update llama-server binary (re-select GPU backend) |
 | `gollama self-update` | Update gollama itself to the latest version |
 | `gollama pull <model>` | Download a GGUF model from HuggingFace |
-| `gollama serve [port]` | Web UI + REST API on :9080 (main workflow) |
+| `gollama serve [port] [--listen ADDR]` | Web UI + REST API on :9080 (main workflow; binds 127.0.0.1 by default) |
 | `gollama chat <model> [flags]` | Start a terminal chat session (streaming) |
 | `gollama list` | List downloaded models with metadata |
 | `gollama ps` | List running instances |
@@ -88,7 +99,8 @@ The first-run wizard:
 
 **Examples:**
 ```bash
-gollama serve                                    # Web UI on http://<ip>:9080
+gollama serve                                    # Web UI on http://127.0.0.1:9080 (loopback)
+gollama serve --listen 0.0.0.0                   # Expose on the LAN (token-protected)
 gollama pull hf.co/unsloth/Qwen3.5-0.8B-GGUF:Q4_K_M
 gollama chat gemma-4-E2B-it-Q4_K_M.gguf          # Terminal chat
 gollama run Qwopus3.6-27B-v2-Q4_K_M.gguf         # Debug/advanced
@@ -134,7 +146,10 @@ gollama exposes an OpenAI-compatible API at `/v1`. **If the model isn't running,
 
 ```python
 from openai import OpenAI
-client = OpenAI(base_url="http://<host>:9080/v1", api_key="not-needed")
+# api_key is sent as the Authorization header — pass your gollama API token
+# (Settings page, or the value printed on first start). "not-needed" still
+# works while no token is configured.
+client = OpenAI(base_url="http://<host>:9080/v1", api_key="<gollama-api-token>")
 response = client.chat.completions.create(
     model="gemma-4-12b",    # auto-starts if not running
     messages=[{"role": "user", "content": "Hello!"}]
@@ -160,14 +175,14 @@ You can still launch multiple instances manually from the UI — the API will ro
 `POST /api/v1/warmup` starts a model in the background *before* it's needed, so agents don't sit through a cold start:
 
 ```bash
-curl -X POST http://localhost:9080/api/v1/warmup -d '{"profile": "deepseek-v4-flash"}'
+curl -X POST "http://localhost:9080/api/v1/warmup?token=<api-token>" -d '{"profile": "deepseek-v4-flash"}'
 ```
 
 Returns `200` as soon as the process is spawned (or immediately if it's already running — idempotent). Then either poll `GET /api/v1/instances` for the `ready` flag, or just fire the real request: it will block with heartbeats until the model is up.
 
 ### REST API
 
-Beyond the OpenAI-compatible `/v1` routes, gollama exposes a management API under `/api/v1` (all JSON; errors are `{"error": "..."}`):
+Beyond the OpenAI-compatible `/v1` routes, gollama exposes a management API under `/api/v1` (all JSON; errors are `{"error": "..."}`). **All of these routes require the API token** (see Security) when one is set:
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
@@ -181,6 +196,7 @@ Beyond the OpenAI-compatible `/v1` routes, gollama exposes a management API unde
 | `/api/v1/instances/logs?port=` | GET | Instance log tail |
 | `/api/v1/warmup` | POST | Pre-warm a profile/model in the background |
 | `/api/v1/config` | GET / POST | Read / patch config.json |
+| `/api/v1/config/token` | POST | Regenerate / clear the API token (`{"action": "regenerate"|"clear"}`) |
 | `/api/v1/config/default-flags` | GET | Code defaults + GPU auto-detect |
 | `/api/v1/presets` | GET / POST / DELETE | Flag presets CRUD |
 | `/api/v1/chats` | GET | List saved chat sessions |
@@ -381,7 +397,7 @@ Some models (like FLUX.2, SD3.5) are **gated** — you must visit their HuggingF
 ### Usage
 
 ```bash
-curl -X POST http://localhost:9080/v1/images/generations \
+curl -X POST "http://localhost:9080/v1/images/generations?token=<api-token>" \
   -H "Content-Type: application/json" \
   -d '{"prompt": "A cat", "profile": "flux-dev", "steps": 28, "size": "1024x1024"}'
 ```
@@ -400,7 +416,7 @@ curl -X POST http://localhost:9080/v1/images/generations \
 | `seed` | int | random | Set for reproducibility |
 | `response_format` | string | `"url"` | `"b64_json"` returns base64 data instead |
 
-**Caller guidance:** omit `steps`/`guidance`/`size`/`n` — they fall back to the profile's defaults; only send them to override. If the image model isn't running, gollama auto-starts it and returns `503` with a `Retry-After` header (cold start ≈ 40s load + ~1.2s/step for FLUX.1-dev). Retry on the server's `Retry-After` delay, up to ~30 times.
+**Caller guidance:** omit `steps`/`guidance`/`size`/`n` — they fall back to the profile's defaults; only send them to override. Send the API token as `?token=…` or `Authorization: Bearer …` (required since v3.8.0 while a token is set). If the image model isn't running, gollama auto-starts it and returns `503` with a `Retry-After` header (cold start ≈ 40s load + ~1.2s/step for FLUX.1-dev). Retry on the server's `Retry-After` delay, up to ~30 times.
 
 **Sequential GPU switching:** text instances are stopped before an image model loads, and the image model stops before a text model resumes — no dropped connections, no manual juggling. If a text model was active in the last 30s, image generation defers with `503 + Retry-After: 30` instead.
 

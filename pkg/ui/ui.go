@@ -559,6 +559,18 @@ code.path { font-size: 12px; color: var(--text-muted); font-family: var(--font-m
   .image-prompt-area { flex: none; width: 100%; overflow: visible; }
   .image-results { overflow: visible; }
 }
+
+/* ── API token (v3.8.0 auth) ─────────────────────────── */
+.token-gate { position: fixed; inset: 0; z-index: 1000; background: rgba(5, 7, 10, 0.82); display: flex; align-items: center; justify-content: center; }
+.token-gate-box { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 26px 28px; width: min(460px, 92vw); display: flex; flex-direction: column; gap: 12px; box-shadow: var(--shadow-lg); }
+.token-gate-title { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--text); }
+.token-gate-box p { font-size: 13px; color: var(--text-muted); line-height: 1.55; }
+.token-gate-box p code { font-family: var(--font-mono); font-size: 11px; background: var(--surface-2); padding: 1px 5px; border-radius: var(--radius-sm); }
+.token-gate-box input { width: 100%; font-family: var(--font-mono); font-size: 12px; }
+.token-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.token-value { font-family: var(--font-mono); font-size: 11px; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 5px 9px; max-width: 100%; overflow-x: auto; white-space: nowrap; }
+.token-hint { font-size: 11px; color: var(--text-dim); margin-top: 6px; line-height: 1.5; }
+.token-hint code { font-family: var(--font-mono); font-size: 10px; }
 </style>
 </head>
 <body>
@@ -854,6 +866,18 @@ code.path { font-size: 12px; color: var(--text-muted); font-family: var(--font-m
       <span class="detail-label">Models dir</span>
       <span class="detail-value"><code class="path">~/.gollama/models/</code></span>
     </div>
+    <div class="detail-row" style="align-items:flex-start">
+      <span class="detail-label">API token</span>
+      <span class="detail-value" style="flex:1;min-width:0">
+        <div class="token-row">
+          <code class="token-value" id="apiTokenValue">—</code>
+          <button class="ghost small" onclick="copyToken()">Copy</button>
+          <button class="secondary small" onclick="regenerateToken()">Regenerate</button>
+          <button class="ghost small" onclick="clearToken()">Disable auth</button>
+        </div>
+        <div class="token-hint">Required on all <code>/api/v1/*</code> and <code>/v1/*</code> routes — <code>Authorization: Bearer &lt;token&gt;</code> or <code>?token=&lt;token&gt;</code>. Empty token = unauthenticated.</div>
+      </span>
+    </div>
   </div></div>
   <div class="card" style="margin-top:12px"><div class="card-body">
     <div class="ttl-row">
@@ -970,6 +994,16 @@ code.path { font-size: 12px; color: var(--text-muted); font-family: var(--font-m
     <pre id="logContent" aria-live="polite"></pre>
   </div>
 </div>
+
+<!-- ── Token gate (v3.8.0 auth) ──────────────────────── -->
+<div class="token-gate" id="tokenGate" style="display:none" role="dialog" aria-modal="true" aria-label="API token required">
+  <div class="token-gate-box">
+    <div class="token-gate-title">🔒 API token required</div>
+    <p>This gollama instance requires an API token. Get it from the <code>gollama serve</code> startup output, from <code>~/.gollama/config.json</code> (<code>api_token</code>), or from Settings on a browser that already has one.</p>
+    <input type="password" id="tokenGateInput" placeholder="Paste API token" autocomplete="off" onkeydown="if(event.key==='Enter')submitTokenGate()">
+    <button class="primary" onclick="submitTokenGate()">Unlock</button>
+  </div>
+</div>
 <script>
 var chatPort = 0, chatHistory = [], chatSessionId = null;
 var currentView = 'dashboard';
@@ -977,6 +1011,64 @@ var cachedModelCount = 0;
 var cachedModels = [];
 var imageHistory = [];
 var imageGenerating = false;
+
+// ── API auth (v3.8.0) ─────────────────────────────────
+// All API calls go through apiFetch, which attaches the stored token as
+// Authorization: Bearer. A 401 raises the token gate. UI assets are open;
+// only /api/v1/* and /v1/* require the token.
+function getToken() {
+  try { return localStorage.getItem('gollama_token') || ''; } catch (e) { return ''; }
+}
+function setToken(tok) {
+  try {
+    if (tok) localStorage.setItem('gollama_token', tok);
+    else localStorage.removeItem('gollama_token');
+  } catch (e) {}
+}
+async function apiFetch(url, opts) {
+  opts = opts || {};
+  opts.headers = Object.assign({}, opts.headers || {});
+  var tok = getToken();
+  if (tok) opts.headers['Authorization'] = 'Bearer ' + tok;
+  var res = await fetch(url, opts);
+  if (res.status === 401) showTokenGate();
+  return res;
+}
+function showTokenGate() {
+  var g = document.getElementById('tokenGate');
+  if (g) g.style.display = 'flex';
+}
+function submitTokenGate() {
+  var input = document.getElementById('tokenGateInput');
+  var tok = (input.value || '').trim();
+  if (!tok) return;
+  setToken(tok);
+  location.reload();
+}
+function copyToken() {
+  var el = document.getElementById('apiTokenValue');
+  if (!el || el.textContent === '—') return;
+  fallbackCopy(el.textContent);
+}
+async function regenerateToken() {
+  if (!confirm('Regenerate the API token? Existing clients (cron jobs, agents) will need the new token.')) return;
+  var r = await apiFetch('/api/v1/config/token', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'regenerate' }) });
+  if (r.ok) {
+    var d = await r.json();
+    setToken(d.api_token);
+    var el = document.getElementById('apiTokenValue');
+    if (el) el.textContent = d.api_token;
+  }
+}
+async function clearToken() {
+  if (!confirm('Disable API authentication? Anyone who can reach this port can then control gollama.')) return;
+  var r = await apiFetch('/api/v1/config/token', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'clear' }) });
+  if (r.ok) {
+    setToken('');
+    var el = document.getElementById('apiTokenValue');
+    if (el) el.textContent = '—';
+  }
+}
 
 // ── Navigation ──────────────────────────────────────
 function switchView(name) {
@@ -1006,7 +1098,7 @@ async function loadModels() {
   if (mc) mc.innerHTML = '<span class="spinner"></span> Loading…';
   ml.classList.add('refreshing');
   try {
-    var r = await fetch('/api/v1/models'), m = await r.json();
+    var r = await apiFetch('/api/v1/models'), m = await r.json();
     cachedModelCount = m.length;
     var fmc = document.getElementById('faceModels'); if (fmc) fmc.textContent = String(m.length);
     mc.innerHTML = m.length + ' downloaded';
@@ -1041,7 +1133,7 @@ async function loadModels() {
 async function deleteModel(name) {
   if (!confirm('Delete model "' + name + '"?')) return;
   try {
-    await fetch('/api/v1/models/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name }) });
+    await apiFetch('/api/v1/models/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name }) });
     loadModels();
   } catch (e) { alert('Error deleting model: ' + e); }
 }
@@ -1095,7 +1187,7 @@ function updateFaceplate(list) {
 async function loadInstances() {
   var ic = document.getElementById('instanceCount'), c = document.getElementById('instances'), cs = document.getElementById('chatInstanceSelect');
   try {
-    var r = await fetch('/api/v1/instances'), list = await r.json();
+    var r = await apiFetch('/api/v1/instances'), list = await r.json();
     ic.textContent = '(' + list.length + ')';
     updateFaceplate(list);
     var running = list.filter(function(i) { return i.status == 'running'; });
@@ -1154,7 +1246,7 @@ async function launchInstance() {
   if (!m) { alert('Select a model'); return; }
   var orig = btn.textContent; btn.disabled = true; btn.textContent = 'Launching…';
   try {
-    var r = await fetch('/api/v1/instances', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: m, port: p, flags: f, replace_flags: true }) });
+    var r = await apiFetch('/api/v1/instances', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: m, port: p, flags: f, replace_flags: true }) });
     if (!r.ok) { var e = await r.text(); alert('Error: ' + e); return; }
     var inst = await r.json();
     document.getElementById('portInput').value = (inst.port || 0) + 1;
@@ -1166,7 +1258,7 @@ async function launchInstance() {
 async function stopInstance(p) {
   if (!confirm('Stop instance on port ' + p + '?')) return;
   try {
-    await fetch('/api/v1/instances/stop?port=' + p, { method: 'POST' });
+    await apiFetch('/api/v1/instances/stop?port=' + p, { method: 'POST' });
     loadInstances();
     if (chatPort == p) { chatPort = 0; document.getElementById('chatPanel').style.display = 'none'; document.getElementById('chatEmpty').style.display = 'flex'; }
   } catch (e) { alert('Error: ' + e); }
@@ -1179,13 +1271,13 @@ async function restartInstance(port) {
   for (var i = 0; i < list.length; i++) { if (list[i].port == port) { inst = list[i]; break; } }
   if (!inst) return;
 
-  await fetch('/api/v1/instances/stop?port=' + port, { method: 'POST' });
+  await apiFetch('/api/v1/instances/stop?port=' + port, { method: 'POST' });
 
   var userFlags = (inst.flags || []).slice();
   for (var k = 0; k < userFlags.length; k++) { if (userFlags[k] === '-m' || userFlags[k] === '--port') { userFlags.splice(k, 2); k--; } }
 
   try {
-    var r = await fetch('/api/v1/instances', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: inst.model, port: inst.port, flags: userFlags, replace_flags: true }) });
+    var r = await apiFetch('/api/v1/instances', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: inst.model, port: inst.port, flags: userFlags, replace_flags: true }) });
     if (r.ok) { loadInstances(); }
   } catch (e) {}
 }
@@ -1193,7 +1285,7 @@ async function restartInstance(port) {
 // ── Error Log ──────────────────────────────────────────
 async function fetchErrorLog(port) {
   try {
-    var r = await fetch('/api/v1/instances/logs?port=' + port), d = await r.json();
+    var r = await apiFetch('/api/v1/instances/logs?port=' + port), d = await r.json();
     if (d.error || !d.lines || !d.lines.length) return;
     var el = document.getElementById('err-' + port);
     if (!el) return;
@@ -1691,7 +1783,7 @@ function collectFlags(container) {
 // ── Presets ────────────────────────────────────────────
 async function loadPresets() {
   try {
-    var r = await fetch('/api/v1/presets'), presets = await r.json();
+    var r = await apiFetch('/api/v1/presets'), presets = await r.json();
     var sel = document.getElementById('presetSelect');
     sel.innerHTML = '<option value="">— Presets —</option>';
     var hasPresets = false;
@@ -1703,7 +1795,7 @@ async function loadPresets() {
 function applyPreset() {
   var sel = document.getElementById('presetSelect'), name = sel.value;
   if (!name) return;
-  fetch('/api/v1/presets').then(function(r) { return r.json(); }).then(function(presets) {
+  apiFetch('/api/v1/presets').then(function(r) { return r.json(); }).then(function(presets) {
     var flags = presets[name];
     if (!flags) return;
     renderFlags(document.getElementById('flagsContainer'), flags);
@@ -1717,7 +1809,7 @@ async function savePreset() {
   var flags = collectFlags(document.getElementById('flagsContainer'));
   if (!flags.length) { alert('No flags to save'); return; }
   try {
-    await fetch('/api/v1/presets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, flags: flags }) });
+    await apiFetch('/api/v1/presets', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, flags: flags }) });
     loadPresets();
   } catch (e) { alert('Error: ' + e); }
 }
@@ -1727,7 +1819,7 @@ async function deletePreset() {
   if (!name) { alert('Select a preset first'); return; }
   if (!confirm('Delete preset "' + name + '"?')) return;
   try {
-    await fetch('/api/v1/presets?name=' + encodeURIComponent(name), { method: 'DELETE' });
+    await apiFetch('/api/v1/presets?name=' + encodeURIComponent(name), { method: 'DELETE' });
     loadPresets();
     sel.value = '';
   } catch (e) { alert('Error: ' + e); }
@@ -1770,7 +1862,7 @@ async function startPull(ref, btn) {
   _pullAbort = new AbortController();
 
   try {
-    var r = await fetch('/api/v1/models/pull/stream?model=' + encodeURIComponent(ref), { signal: _pullAbort.signal });
+    var r = await apiFetch('/api/v1/models/pull/stream?model=' + encodeURIComponent(ref), { signal: _pullAbort.signal });
     if (!r.ok) {
       if (_pullAbort) _pullAbort = null;
       document.getElementById('pullStatus').textContent = 'HTTP ' + r.status;
@@ -1853,7 +1945,7 @@ function onPullInputChange(val) {
 async function doSearch(q) {
   var sg = document.getElementById('pullSuggestions');
   try {
-    var r = await fetch('/api/v1/models/search?q=' + encodeURIComponent(q));
+    var r = await apiFetch('/api/v1/models/search?q=' + encodeURIComponent(q));
     if (!r.ok) { sg.style.display = 'none'; return; }
     var results = await r.json();
     if (!results || !results.length) { sg.style.display = 'none'; return; }
@@ -1876,7 +1968,7 @@ async function showRepoFiles(repo) {
   sg.innerHTML = '<div style="padding:12px;text-align:center"><span class="spinner"></span> Loading quants…</div>';
   sg.style.display = 'block';
   try {
-    var r = await fetch('/api/v1/models/repo-files?repo=' + encodeURIComponent(repo));
+    var r = await apiFetch('/api/v1/models/repo-files?repo=' + encodeURIComponent(repo));
     if (!r.ok) { sg.innerHTML = '<div class="suggestion" style="cursor:pointer" onclick="doSearch(\'' + escAttr(document.getElementById('pullInput').value) + '\')">← Back to search. Error loading quants.</div>'; return; }
     var files = await r.json();
     _cachedRepoFiles[repo] = files;
@@ -1906,7 +1998,7 @@ function pullQuant(repo, quant, btn) {
 // ── Default Flags ─────────────────────────────────────
 async function loadDefaultFlags() {
   try {
-    var r = await fetch('/api/v1/config/default-flags'), flags = await r.json();
+    var r = await apiFetch('/api/v1/config/default-flags'), flags = await r.json();
     renderFlags(document.getElementById('flagsContainer'), flags);
   } catch (e) {}
 }
@@ -2054,7 +2146,7 @@ async function sendChat() {
   updateContextMeter();
   var content = '', reasoning = '', msgEl = null, reasoningEl = null, thinking = false, chatPanel = document.getElementById('chatPanel');
   try {
-    var r = await fetch('/api/v1/chat?port=' + chatPort, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'default', messages: chatHistory.slice(-20), max_tokens: 4096, stream: true }) });
+    var r = await apiFetch('/api/v1/chat?port=' + chatPort, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'default', messages: chatHistory.slice(-20), max_tokens: 4096, stream: true }) });
     if (!r.ok) {
       var errText = await r.text();
       var msg;
@@ -2166,7 +2258,7 @@ async function saveChatHistory() {
   try {
     var payload = { id: chatSessionId, model: model, messages: chatHistory };
     if (title) payload.title = title;
-    var r = await fetch('/api/v1/chats/' + (chatSessionId || ''), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    var r = await apiFetch('/api/v1/chats/' + (chatSessionId || ''), { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     if (r.ok) {
       var d = await r.json();
       if (d.id) chatSessionId = d.id;
@@ -2178,11 +2270,11 @@ async function renameChat(id, currentTitle) {
   var newTitle = prompt('Rename chat:', currentTitle);
   if (!newTitle || newTitle === currentTitle) return;
   try {
-    var r = await fetch('/api/v1/chats/' + id);
+    var r = await apiFetch('/api/v1/chats/' + id);
     if (!r.ok) return;
     var session = await r.json();
     session.title = newTitle;
-    await fetch('/api/v1/chats/' + id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(session) });
+    await apiFetch('/api/v1/chats/' + id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(session) });
     showChatHistory();
   } catch (e) {}
 }
@@ -2191,7 +2283,7 @@ async function showChatHistory() {
   document.getElementById('chatHistoryModal').style.display = 'block';
   var list = document.getElementById('chatHistoryList');
   try {
-    var r = await fetch('/api/v1/chats'), chats = await r.json();
+    var r = await apiFetch('/api/v1/chats'), chats = await r.json();
     if (!chats || !chats.length) { list.innerHTML = '<div class="empty-state"><div class="icon">💬</div><div class="title">No saved chats</div></div>'; return; }
     list.innerHTML = chats.map(function(c) {
       var title = c.title || c.preview || '(empty)';
@@ -2207,7 +2299,7 @@ document.getElementById('chatHistoryModal').addEventListener('click', closeChatH
 async function loadChat(id) {
   closeChatHistory();
   try {
-    var r = await fetch('/api/v1/chats/' + id), session = await r.json();
+    var r = await apiFetch('/api/v1/chats/' + id), session = await r.json();
     if (!session || !session.messages) return;
     chatHistory = session.messages;
     chatSessionId = session.id;
@@ -2230,7 +2322,7 @@ async function loadChat(id) {
 async function deleteChat(id) {
   if (!confirm('Delete this chat?')) return;
   try {
-    await fetch('/api/v1/chats/' + id, { method: 'DELETE' });
+    await apiFetch('/api/v1/chats/' + id, { method: 'DELETE' });
     showChatHistory();
   } catch (e) { alert('Error: ' + e); }
 }
@@ -2245,7 +2337,7 @@ async function viewLogs(port) {
     var header = document.querySelector('#logModal h2');
     if (header) header.textContent = '\uD83D\uDCCB Logs (port ' + port + ')';
     async function refresh() {
-    var r = await fetch('/api/v1/instances/logs?port=' + port), d = await r.json();
+    var r = await apiFetch('/api/v1/instances/logs?port=' + port), d = await r.json();
     if (d.error) { content.textContent = 'No logs'; if (logPollInterval) clearInterval(logPollInterval); }
     else { content.textContent = d.lines && d.lines.length ? d.lines.slice(-50).join('\n') : '(empty)'; content.scrollTop = content.scrollHeight; }
   }
@@ -2397,13 +2489,18 @@ function renderReadOnlyProfileList(containerId, items, emptyMsg, renderFn) {
 
 async function loadSettings() {
   try {
-    var vr = await fetch('/api/v1/version'), vd = await vr.json();
+    var vr = await apiFetch('/api/v1/version'), vd = await vr.json();
     if (vd.version) { document.getElementById('s-version').textContent = vd.version; var fv = document.getElementById('faceVersion'); if (fv) fv.textContent = vd.version; }
     if (vd.llama_server) document.getElementById('s-llama-version').textContent = vd.llama_server;
     if (vd.backend) document.getElementById('s-backend').textContent = vd.backend;
   } catch (e) {}
   try {
-    var r = await fetch('/api/v1/config'), cfg = await r.json();
+    var r = await apiFetch('/api/v1/config'), cfg = await r.json();
+    // API token: show it and keep this browser's stored copy in sync
+    // (the config GET already required the token, so storing it is safe).
+    var tv = document.getElementById('apiTokenValue');
+    if (tv) tv.textContent = cfg.api_token || '—';
+    if (cfg.api_token) setToken(cfg.api_token);
     document.getElementById('idleTtlInput').value = cfg.idle_ttl || 0;
     renderFlags(document.getElementById('settingsFlagsContainer'), cfg.default_flags);
     renderFlags(document.getElementById('proxyFlagsContainer'), cfg.proxy_defaults);
@@ -2455,7 +2552,7 @@ async function saveIdleTTL() {
   var val = parseInt(document.getElementById('idleTtlInput').value) || 0;
   var st = document.getElementById('idleTtlStatus');
   try {
-    var r = await fetch('/api/v1/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idle_ttl: val }) });
+    var r = await apiFetch('/api/v1/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idle_ttl: val }) });
     if (r.ok) { st.textContent = 'Saved'; setTimeout(function() { st.textContent = ''; }, 2000); }
     else { st.textContent = 'Error saving'; }
   } catch (e) { st.textContent = 'Error: ' + e.message; }
@@ -2464,7 +2561,7 @@ async function saveIdleTTL() {
 async function saveSettingsFlags() {
   var st = document.getElementById('settingsFlagsStatus');
   try {
-    var r = await fetch('/api/v1/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ default_flags: collectFlags(document.getElementById('settingsFlagsContainer')) }) });
+    var r = await apiFetch('/api/v1/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ default_flags: collectFlags(document.getElementById('settingsFlagsContainer')) }) });
     if (r.ok) { st.textContent = 'Saved'; setTimeout(function() { st.textContent = ''; }, 2000); loadSettings(); document.getElementById('settings-ql').classList.remove('editing'); }
     else { st.textContent = 'Error saving'; }
   } catch (e) { st.textContent = 'Error: ' + e.message; }
@@ -2473,7 +2570,7 @@ async function saveSettingsFlags() {
 async function saveProxyFlags() {
   var st = document.getElementById('proxyFlagsStatus');
   try {
-    var r = await fetch('/api/v1/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ proxy_defaults: collectFlags(document.getElementById('proxyFlagsContainer')) }) });
+    var r = await apiFetch('/api/v1/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ proxy_defaults: collectFlags(document.getElementById('proxyFlagsContainer')) }) });
     if (r.ok) { st.textContent = 'Saved'; setTimeout(function() { st.textContent = ''; }, 2000); loadSettings(); document.getElementById('settings-api').classList.remove('editing'); }
     else { st.textContent = 'Error saving'; }
   } catch (e) { st.textContent = 'Error: ' + e.message; }
@@ -2700,7 +2797,7 @@ async function saveProfiles() {
   var profiles = Object.assign({}, textProfiles, imageProfiles);
   var st = document.getElementById('profilesStatus');
   try {
-    var r = await fetch('/api/v1/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profiles: profiles }) });
+    var r = await apiFetch('/api/v1/config', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profiles: profiles }) });
     if (r.ok) { st.textContent = 'Saved'; setTimeout(function() { st.textContent = ''; }, 2000); loadSettings(); document.getElementById('settings-profiles').classList.remove('editing'); document.getElementById('settings-image-profiles').classList.remove('editing'); }
     else { st.textContent = 'Error saving'; }
   } catch (e) { st.textContent = 'Error: ' + e.message; }
@@ -2709,7 +2806,7 @@ async function saveProfiles() {
 async function restartGollama() {
   if (!confirm('Restart gollama? The web UI will be unavailable for a few seconds.')) return;
   try {
-    await fetch('/api/v1/restart', { method: 'POST' });
+    await apiFetch('/api/v1/restart', { method: 'POST' });
     setTimeout(function() { location.reload(); }, 2000);
   } catch (e) { alert('Restart failed: ' + e.message); }
 }
@@ -2721,7 +2818,7 @@ async function loadImageProfiles() {
   var sel = document.getElementById('imageProfileSelect');
   if (!sel) return;
   try {
-    var r = await fetch('/api/v1/config'), cfg = await r.json();
+    var r = await apiFetch('/api/v1/config'), cfg = await r.json();
     _cachedImageProfiles = {};
     for (var name in cfg.profiles) {
       if (cfg.profiles[name].type === 'image') {
@@ -2788,7 +2885,7 @@ async function loadImageModels() {
   var list = document.getElementById('imgModelList');
   if (!list) return;
   try {
-    var r = await fetch('/api/v1/image-models'), models = await r.json();
+    var r = await apiFetch('/api/v1/image-models'), models = await r.json();
     if (!models || !models.length) { list.style.display = 'none'; return; }
     list.style.display = 'block';
     list.innerHTML = models.map(function(m) {
@@ -2820,7 +2917,7 @@ function onImageModelSearch(query) {
   results.style.display = 'block';
   _imgModelSearchTimer = setTimeout(async function() {
     try {
-      var r = await fetch('/api/v1/image-models/search?q=' + encodeURIComponent(query));
+      var r = await apiFetch('/api/v1/image-models/search?q=' + encodeURIComponent(query));
       if (!r.ok) { results.innerHTML = '<div style="padding:10px;text-align:center;color:var(--text-dim)">Search failed</div>'; return; }
       var items = await r.json();
       if (!items || !items.length) { results.innerHTML = '<div style="padding:10px;text-align:center;color:var(--text-dim)">No models found</div>'; return; }
@@ -2846,7 +2943,7 @@ async function installImageModel(modelId) {
   var name = prompt('Profile name for "' + modelId.split('/').pop() + '":', modelId.split('/').pop().replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 30));
   if (!name) return;
   try {
-    var r = await fetch('/api/v1/image-models/install', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, model_id: modelId }) });
+    var r = await apiFetch('/api/v1/image-models/install', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name, model_id: modelId }) });
     if (!r.ok) { var e = await r.text(); try { var j = JSON.parse(e); alert(j.error || e); } catch (x) { alert(e); } return; }
     document.getElementById('imgModelSearchWrap').style.display = 'none';
     document.getElementById('imgModelSearchResults').style.display = 'none';
@@ -2891,13 +2988,13 @@ async function generateImage() {
   if (guidance > 0) body.guidance = guidance;
   if (seed !== undefined) body.seed = seed;
   try {
-    var r = await fetch('/v1/images/generations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    var r = await apiFetch('/v1/images/generations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     var retries = 0;
     while (r.status == 503 && retries < 20) {
       var retryAfter = parseInt(r.headers.get('Retry-After')) || 5;
       loadingCard.innerHTML = '<div class="spinner"></div><div>Loading model… (attempt ' + (retries + 1) + ')</div>';
       await new Promise(function(res) { setTimeout(res, retryAfter * 1000); });
-      r = await fetch('/v1/images/generations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      r = await apiFetch('/v1/images/generations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       retries++;
     }
     loadingCard.remove();

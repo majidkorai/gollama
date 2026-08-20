@@ -1,15 +1,15 @@
 # Gollama Robustness Plan
 
-**Status:** Phase 0 complete (2026-08-18, commit `59ac3c7`). **Next: Phase 1 — Security (→ v3.8.0).**
+**Status:** Phase 1 (Security) complete, `v3.8.0`. **Next: Phase 2 — Correctness (→ v3.9.0).**
 
 ## ▶ Resume here (read this first)
 
-**Where we are:** Phase 0 (test safety net) is done and committed. No production code has been changed yet — everything after this is behavior work.
+**Where we are:** Phase 0 (test safety net) and Phase 1 (security) are done. Phase 1 shipped: loopback-default bind, shared-secret API token, chat-id + model-delete traversal fixes, self-update checksum verification, no silent package installs, systemd unit fixes, bounded API client. Phase 1 deploy notes (gollama VM) are in the cross-cutting section — the VM still runs v3.7.3 until deployed. No Phase 2 behavior work has started.
 
 **How to resume:**
 1. Read this file top-to-bottom (phase checkboxes are the source of truth).
 2. Confirm green baseline: `go build ./... && go vet ./... && go test ./...` (add `-race` for the server package; proxy tests spawn a dummy `llama-server` shell script and take ~20–35s).
-3. Start Phase 1, task P1-T1. Work the tasks in order within a phase; each phase ends with a tag.
+3. Start Phase 2, task P2-T1. Work the tasks in order within a phase; each phase ends with a tag.
 
 **Key context for the next session:**
 - Architecture review (what/where all the issues are) lives in the conversation that produced this plan; the plan itself is self-contained for execution. The full issue list maps 1:1 to tasks.
@@ -27,7 +27,7 @@
 - hermes consumers of the gollama API need the token: `ghost_post_creator.js` image-gen call (`POST /v1/images/generations`) and any warmup calls — add `?token=…` or `Authorization: Bearer`. Search hermes scripts for `9080`.
 - Grab the generated token from Web UI → Settings after first start.
 
-**Baseline:** v3.7.3, `main.go` + `pkg/{server,manager,model,llama,chat,ui}`, stdlib-only, `go build`/`go vet`/`go test` all green.
+**Baseline:** v3.8.0 (Phase 1), `main.go` + `pkg/{server,manager,model,llama,chat,ui}`, stdlib-only, `go build`/`go vet`/`go test` all green.
 
 ## Goals
 
@@ -92,36 +92,38 @@ No behavior changes. This makes Phases 3–5 safe.
 
 ## Phase 1 — Security hardening → `v3.8.0`
 
-- [ ] **P1-T1: Bind to loopback by default** (`pkg/server/server.go:77-82`, `main.go` `serve`)
+- [x] **P1-T1: Bind to loopback by default** (`pkg/server/server.go`, `main.go` `serve`)
   - `Server` gains `listen string`; `gollama serve [port]` binds `127.0.0.1` by default.
   - Opt out: `--listen 0.0.0.0` flag (and `GOLLAMA_LISTEN` env for the systemd unit).
-  - Update `DefaultConfig` default flags: `--host 127.0.0.1` (existing on-disk configs keep their values — no migration).
-  - Update `printUsage` + README; the startup banner prints the actual bind address.
-- [ ] **P1-T2: Shared-secret API token**
-  - `Config` gains `APIToken string`. On first `LoadConfig`, if empty → generate 32 random bytes (hex), save, and the CLI prints it once: `gollama: API token generated — <token> (shown again in Web UI → Settings)`.
-  - New middleware in `registerRoutes`: if `cfg.APIToken != ""`, require `Authorization: Bearer <token>` **or** `?token=<token>` (query form for curl/cron simplicity) on all `/api/v1/*` and `/v1/*` routes. UI assets (`/`, `/logo.svg`) stay open — the UI is a viewer; its fetches carry the token.
-  - UI: Settings page shows/generates the token; stores it in `localStorage`; attaches header to all `fetch` calls.
-  - **Backward compat:** empty token = auth disabled (logs a warning at startup: "no API token — gollama is unauthenticated").
-  - `handleRestart` and `handleModelDelete` are the highest-value protected routes; protect all uniformly.
-  - Update AGENTS.md "Caller guidance" (hermes/gollama API section) with token usage.
-- [ ] **P1-T3: Fix chat-history path traversal** (`pkg/server/server.go:583`, `pkg/model/chat_history.go`)
-  - Validate id: `^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$` → 400 on mismatch. Applies to GET/PUT/DELETE `/api/v1/chats/{id}`.
-  - Defense in depth: `chatPath` also rejects ids containing `/`, `\`, `..`.
-- [ ] **P1-T4: Fix model-delete path check** (`pkg/server/server.go:175-180`)
-  - Replace `strings.HasPrefix(absPath, modelsDir)` with `rel, err := filepath.Rel(modelsDir, absPath); err == nil && !strings.HasPrefix(rel, "..")`.
-- [ ] **P1-T5: Verify `self-update` against release checksums** (`pkg/llama/binary.go:176-290`)
-  - After downloading the binary, fetch `https://github.com/majidkorai/gollama/releases/download/<tag>/checksums.txt`, find the sha256 line for our asset name, verify. Abort on mismatch. (CI already ships `checksums.txt`.)
-- [ ] **P1-T6: No silent package installs** (`pkg/llama/binary.go:522`)
-  - `checkDependencies` asks `Install missing packages: libgomp1, libatomic1? [y/N]` unless `GOLLAMA_AUTO_INSTALL_DEPS=1` or `--yes`-style flag is set. Non-interactive (no TTY) → warn and list the apt command instead of installing.
-- [ ] **P1-T7: systemd unit fixes** (`main.go:259-289`, wizard copy at 450-481 — dedupe into one helper)
-  - Drop hardcoded `Environment=HOME=/root` (inherit HOME).
-  - If uid != 0: install a **user** unit to `~/.config/systemd/user/gollama.service` via `systemctl --user` instead of failing.
-  - Document the phase-1 deploy: `gollama.service` needs `ExecStart=%s serve --listen 0.0.0.0` (LAN access) — the token is then the protection.
-- [ ] **P1-T8: HTTP client timeout for API calls** (`pkg/model/model.go:352-356`)
-  - `model.HTTPClient` stays timeout-free (it carries long downloads); add `model.APIClient` with `Timeout: 30s` and use it for HF search / GitHub release calls (`SearchModels`, `SearchImageModels`, `ListRepoGGUFFiles`, `pullModelInternal` metadata fetch, `GetReleaseData`, `SelfUpdate` release listing).
+  - Updated `DefaultConfig` default flags: `--host 127.0.0.1` (existing on-disk configs keep their values — no migration).
+  - Updated `printUsage` + README; the startup banner prints the actual bind address.
+- [x] **P1-T2: Shared-secret API token**
+  - `Config` gains `APIToken string` (no `omitempty` — a cleared token persists as `""`). `model.EnsureAPIToken()` generates 32 random bytes (hex) on first start and the CLI prints it once: `gollama: API token generated — <token> (shown again in Web UI → Settings)`.
+    - **Design note (marker file):** `EnsureAPIToken` uses a `~/.gollama/api-token-generated` marker to distinguish "never had a token" (generate) from "user cleared it" (disabled — respect). Plain key-presence in config.json can't tell them apart because `LoadConfig` (called by `NewManager`/`EnsureLlamaServer` before serve) writes `api_token: ""` on fresh installs.
+  - Middleware in `registerRoutes`: if `cfg.APIToken != ""`, require `Authorization: Bearer <token>` **or** `?token=<token>` (query form for curl/cron simplicity) on all `/api/v1/*` and `/v1/*` routes (constant-time compare). UI assets (`/`, `/logo.svg`) stay open — the UI is a viewer; all its fetches go through a central `apiFetch()` that attaches the stored token, and a 401 raises a token-entry gate.
+  - UI: Settings shows the token with Copy / Regenerate / Disable-auth buttons; stores it in `localStorage` (kept in sync from the config GET); `POST /api/v1/config/token` (`regenerate`/`clear`).
+  - **Backward compat:** empty token = auth disabled (warns at startup: "no API token — gollama is unauthenticated").
+  - All routes protected uniformly, including `handleRestart` and `handleModelDelete`.
+  - Updated AGENTS.md "Caller guidance" with token usage.
+- [x] **P1-T3: Fix chat-history path traversal** (`pkg/server/server.go`, `pkg/model/chat_history.go`)
+  - `model.ValidChatID`: `^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$` → 400 on mismatch for GET/PUT/DELETE `/api/v1/chats/{id}`.
+  - Defense in depth: `chatPath` maps any invalid id to an inert `.invalid` path.
+- [x] **P1-T4: Fix model-delete path check** (`pkg/server/server.go`)
+  - `filepath.Rel(modelsDir, absPath)` instead of `HasPrefix` (which admitted sibling dirs like `models-evil` sharing the path prefix).
+- [x] **P1-T5: Verify `self-update` against release checksums** (`pkg/llama/binary.go`)
+  - After download, fetches `checksums.txt` from the release, matches the asset name, verifies sha256, aborts on mismatch. Missing/unlisted checksum (older releases) → warning, not failure. `expectedChecksum` is a pure function (unit-tested offline; `verifyChecksum` tested against a local server via `checksumURLBase`).
+- [x] **P1-T6: No silent package installs** (`pkg/llama/binary.go`)
+  - `checkDependencies` asks `Install missing packages: …? [y/N]` unless `GOLLAMA_AUTO_INSTALL_DEPS=1`. Non-interactive (no TTY, stdlib `os.ModeCharDevice` check) → warn + print the apt command instead of installing.
+- [x] **P1-T7: systemd unit fixes** (`main.go` — deduped into `installSystemdService`, used by `install-service` and the wizard)
+  - Dropped hardcoded `Environment=HOME=/root` (HOME inherited).
+  - uid != 0 → **user** unit at `~/.config/systemd/user/gollama.service` via `systemctl --user` (+ `loginctl enable-linger` hint). `restart` and `handleRestart` recognize both unit locations.
+  - Phase-1 deploy documented: `gollama.service` needs `ExecStart=… serve --listen 0.0.0.0` for LAN access — the token is the gate.
+- [x] **P1-T8: HTTP client timeout for API calls** (`pkg/model/model.go`)
+  - `model.HTTPClient` stays timeout-free (long downloads); `model.APIClient` (`Timeout: 30s`) used for `SearchModels`, `SearchImageModels`, `ListRepoGGUFFiles`, `pullModelInternal` metadata fetch, `GetReleaseData`, `SelfUpdate` release listing + checksum fetch.
 
 **Exit:** unauthenticated LAN access closed (token + loopback default), traversal closed, self-update verified.
-**Smoke test:** `gollama serve` on the VM → UI reachable via LAN with token in Settings; `curl` without token → 401; hermes image-gen call updated with `?token=` works.
+**Smoke test (done on macOS, 2026-08-20):** fresh `serve` → token generated + printed once, `curl` without token → 401, Bearer + `?token=` → 200, UI open; upgraded config (no `api_token` key) → token added, existing flags preserved; `--listen 0.0.0.0` → LAN IP banner + reachable.
+**New in v3.8.0 (deploy checklist):** see cross-cutting section — VM unit needs `--listen 0.0.0.0`, hermes consumers need `?token=`.
 
 ---
 

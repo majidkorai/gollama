@@ -4,7 +4,7 @@
 
 Go binary that manages llama.cpp instances. CLI + embedded web UI + OpenAI-compatible API proxy. Zero external dependencies.
 
-**Version:** v3.7.3
+**Version:** v3.8.0
 **Module:** `github.com/majidkorai/gollama`
 **Go:** 1.23
 **Dependencies:** None (stdlib only)
@@ -13,7 +13,8 @@ Go binary that manages llama.cpp instances. CLI + embedded web UI + OpenAI-compa
 
 **`docs/ROBUSTNESS_PLAN.md` is the source of truth for ongoing work** — phased fixes for security, correctness, concurrency, and code-quality issues found in the 2026-08-18 architecture review. It starts with a "Resume here" block (current phase, conventions, deploy notes, pinned behavior quirks).
 
-- Phase 0 (test safety net) is complete and committed; Phases 1–5 are pending.
+- Phase 0 (test safety net) and Phase 1 (security, v3.8.0) are complete; Phases 2–5 are pending.
+- Phase 1 behavior changes: `serve` binds `127.0.0.1` by default (`--listen`/`GOLLAMA_LISTEN` to opt out), all `/api/v1/*` + `/v1/*` routes require the config's `api_token` when set, chat ids are validated, model-delete path check hardened, self-update verifies release checksums, dep installs are no longer silent.
 - When working on planned fixes, check the plan's task list and update its checkboxes.
 - Tests pin several current behavior quirks on purpose (e.g. `/api/v1/chat` drops `[DONE]`, fuzzy model-match nondeterminism) — don't change them incidentally; they are scoped to specific later tasks.
 - Tooling note: the session file-write pipeline strips angle-bracket pairs from content; think-tag literals in `pkg/server/transforms_test.go` are built from hex escapes for this reason.
@@ -84,6 +85,7 @@ type Config struct {
     ProxyDefaults []string            `json:"proxy_defaults"`
     Profiles      map[string]Profile  `json:"profiles,omitempty"`
     IdleTTL       int                 `json:"idle_ttl"`
+    APIToken      string              `json:"api_token"` // guards /api/v1/* + /v1/* when non-empty (no omitempty on purpose)
 }
 ```
 
@@ -159,6 +161,7 @@ Gollama supports image generation via Python diffusers subprocesses. Configured 
 **API params:** `prompt` (required), `profile`, `model`, `n` (1-8), `size` (e.g. `"1024x1024"`), `steps`, `guidance`, `seed`, `response_format`. If not set in the request, values from the profile's `steps`/`guidance`/`size`/`n` fields are used as defaults.
 
 **Caller guidance (for agents/cron):**
+- **API token (v3.8.0+):** every `/api/v1/*` and `/v1/*` call needs `?token=<api-token>` or `Authorization: Bearer <api-token>` while a token is set (it is, by default). Token lives in Web UI → Settings or `~/.gollama/config.json` (`api_token`).
 - **Omit `steps`/`guidance`/`size`/`n`** — they fall back to profile defaults. Only send them if you need to override.
 - **503 handling:** Model loads ~40s from cold start. Returned with `Retry-After: 5` header. Retry with that delay (5s) — ~8-10 retries should be enough.
 - **Image generation time:** ~1.2s per step for FLUX.1-dev (28 steps ≈ 34s).
@@ -210,10 +213,11 @@ Auto-created on first `LoadConfig()` call. Defaults from `DefaultConfig()`:
 
 ```json
 {
-  "default_flags": ["--host","0.0.0.0","--ctx-size","2048","--flash-attn","on","--temp","0.7"],
+  "default_flags": ["--host","127.0.0.1","--ctx-size","2048","--flash-attn","on","--temp","0.7"],
   "proxy_defaults": [],
   "profiles": {},
-  "idle_ttl": 30
+  "idle_ttl": 30,
+  "api_token": "<64-hex, generated on first start>"
 }
 ```
 
@@ -221,6 +225,16 @@ Auto-created on first `LoadConfig()` call. Defaults from `DefaultConfig()`:
 - `proxy_defaults`: used by API auto-launch; falls back to `default_flags` if empty
 - `profiles`: map of named Model Profiles, each bundling model, flags, env vars, type, strip_reasoning
 - `idle_ttl`: auto-stop idle instances after N minutes (0=disable)
+- `api_token`: shared-secret for all API routes (v3.8.0). Generated once by `model.EnsureAPIToken()` on first start (printed once by `serve`, visible in Web UI → Settings). A `~/.gollama/api-token-generated` marker distinguishes "never had a token" (generate) from "user cleared it" (auth disabled — respected, not regenerated). Empty token = unauthenticated (startup warning).
+
+## Security Model (v3.8.0)
+
+- **Bind:** `gollama serve` listens on `127.0.0.1` by default. `--listen 0.0.0.0` (or `GOLLAMA_LISTEN=0.0.0.0` in systemd) exposes it on the LAN.
+- **Auth:** `requireAuth` middleware wraps every `/api/v1/*` and `/v1/*` route. Accepts `Authorization: Bearer <token>` or `?token=<token>`, constant-time compared. Token is read from disk per request (regenerations apply without restart). UI assets (`/`, `/logo.svg`) stay open; the UI routes all fetches through `apiFetch()` (attaches the localStorage token) and shows a token-entry gate on 401.
+- **Traversal:** chat ids must match `^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$` (400 otherwise); `chatPath` maps invalid ids to an inert path; model delete requires `filepath.Rel(modelsDir, path)` to stay inside the models dir.
+- **Self-update:** verifies the downloaded binary against the release `checksums.txt` (`verifyChecksum`); mismatch aborts, missing file warns.
+- **Dep installs:** `checkDependencies` prompts `[y/N]` (TTY) or prints the apt command (non-interactive) unless `GOLLAMA_AUTO_INSTALL_DEPS=1`.
+- **systemd:** no hardcoded `HOME`; non-root installs a user unit (`~/.config/systemd/user/gollama.service` + `systemctl --user`); `install-service`, the wizard, `restart`, and `handleRestart` all share the unit-location logic.
 
 ## API Endpoints (`pkg/server/server.go`)
 
@@ -278,7 +292,7 @@ All routes registered in `registerRoutes()`. Key ones:
 
 Usage (e.g. re-warm the text model after image gen in the blog pipeline):
 ```bash
-curl -s -X POST http://192.168.1.36:9080/api/v1/warmup -d '{"profile":"deepseek-v4-flash"}'
+curl -s -X POST "http://192.168.1.36:9080/api/v1/warmup?token=<api-token>" -d '{"profile":"deepseek-v4-flash"}'
 ```
 
 ## CLI Commands (`main.go`)
@@ -286,7 +300,7 @@ curl -s -X POST http://192.168.1.36:9080/api/v1/warmup -d '{"profile":"deepseek-
 | Command | Args | Description |
 |---------|------|-------------|
 | `gollama` | — | First-run wizard or usage |
-| `serve` | `[port]` | Web UI + API server (default :9080) |
+| `serve` | `[port] [--listen ADDR]` | Web UI + API server (default :9080, binds 127.0.0.1; `--listen 0.0.0.0` / `GOLLAMA_LISTEN` for LAN) |
 | `chat` | `<model> [flags...]` | Terminal streaming chat |
 | `run` | `<model> [flags...]` | Run model server directly |
 | `pull` | `<model>` | Download GGUF from HF |
@@ -309,7 +323,7 @@ Single `const Page` string (~3100 lines) containing the entire web app: HTML tem
 - **Models** (`#view-models`): Model list with badges + Pull model with HF search + details modal
 - **Chat** (`#view-chat`): SSE streaming chat with reasoning display + history management
 - **Image** (`#view-image`): Image generation playground (profile select, prompt, params, results, history)
-- **Settings** (`#view-settings`): Version info + idle TTL + default flags + API defaults + Model Profiles + restart
+- **Settings** (`#view-settings`): Version info + API token (copy/regenerate/disable) + idle TTL + default flags + API defaults + Model Profiles + restart
 
 ### JS Patterns:
 - Navigation: `switchView(name)` — hides all `.view`, shows target, calls `loadInstances()`/`loadModels()`/`loadChats()`/`loadSettings()` depending on view; starts/stops the 5s dashboard poll
@@ -343,11 +357,13 @@ Single `const Page` string (~3100 lines) containing the entire web app: HTML tem
 ## Testing
 
 ```bash
-go test ./pkg/model      # FormatSize, DefaultConfig, Config paths, ProgressReader, Presets, GGUF metadata
+go test ./...            # everything (server proxy tests spawn dummy llama-server, ~20-35s; -race on pkg/server for concurrency)
+go test ./pkg/model      # FormatSize, DefaultConfig, API token, chat-id validation, Presets, GGUF metadata
 go test ./pkg/manager    # NewManager, List, Stop, UpdateTokens
+go test ./pkg/llama      # self-update checksum verification (local HTTP server, no network)
 ```
 
-Tests use temp dirs (no real config). No test fixtures on disk.
+Tests use temp dirs (`t.Setenv("HOME", t.TempDir())`, no real config). No test fixtures on disk.
 
 ## Important Files
 

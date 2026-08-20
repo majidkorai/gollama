@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -24,18 +25,27 @@ import (
 type Server struct {
 	mgr     *manager.Manager
 	port    string
+	listen  string // bind address; "127.0.0.1" by default (v3.8.0)
 	version string
 	mux     *http.ServeMux
 }
 
 func New(mgr *manager.Manager, port string) *Server {
-	return NewWithVersion(mgr, port, "")
+	return NewWithListen(mgr, port, "", "127.0.0.1")
 }
 
 func NewWithVersion(mgr *manager.Manager, port, version string) *Server {
+	return NewWithListen(mgr, port, version, "127.0.0.1")
+}
+
+func NewWithListen(mgr *manager.Manager, port, version, listen string) *Server {
+	if listen == "" {
+		listen = "127.0.0.1"
+	}
 	s := &Server{
 		mgr:     mgr,
 		port:    port,
+		listen:  listen,
 		version: version,
 		mux:     http.NewServeMux(),
 	}
@@ -45,39 +55,81 @@ func NewWithVersion(mgr *manager.Manager, port, version string) *Server {
 
 func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/logo.svg", s.handleLogo)
-	s.mux.HandleFunc("/api/v1/models", s.handleModels)
-	s.mux.HandleFunc("/api/v1/models/search", s.handleModelSearch)
-	s.mux.HandleFunc("/api/v1/models/delete", s.handleModelDelete)
-	s.mux.HandleFunc("/api/v1/models/pull", s.handleModelPull)
-	s.mux.HandleFunc("/api/v1/models/repo-files", s.handleRepoFiles)
-	s.mux.HandleFunc("/api/v1/models/pull/stream", s.handleModelPullStream)
-	s.mux.HandleFunc("/api/v1/instances", s.handleInstances)
-	s.mux.HandleFunc("/api/v1/instances/stop", s.handleInstanceStop)
-	s.mux.HandleFunc("/api/v1/instances/logs", s.handleInstanceLogs)
-	s.mux.HandleFunc("/api/v1/warmup", s.handleWarmup)
-	s.mux.HandleFunc("/api/v1/config/default-flags", s.handleDefaultFlags)
-	s.mux.HandleFunc("/api/v1/presets", s.handlePresets)
-	s.mux.HandleFunc("/api/v1/chats", s.handleChats)
-	s.mux.HandleFunc("/api/v1/chats/", s.handleChatByID)
-	s.mux.HandleFunc("/api/v1/chat", s.handleChat)
-	s.mux.HandleFunc("/api/v1/config", s.handleConfig)
-	s.mux.HandleFunc("/api/v1/version", s.handleVersion)
-	s.mux.HandleFunc("/api/v1/restart", s.handleRestart)
-	s.mux.HandleFunc("/v1/models", s.handleV1Models)
-	s.mux.HandleFunc("/v1/models/", s.handleV1ModelsByID)
-	s.mux.HandleFunc("/v1/chat/completions", s.handleV1ChatCompletions)
-	s.mux.HandleFunc("/v1/completions", s.handleV1Completions)
-	s.mux.HandleFunc("/v1/images/generations", s.handleV1ImageGenerations)
-	s.mux.HandleFunc("/api/v1/image-models", s.handleImageModels)
-	s.mux.HandleFunc("/api/v1/image-models/search", s.handleImageModelSearch)
-	s.mux.HandleFunc("/api/v1/image-models/install", s.handleImageModelInstall)
+	// All API + OpenAI-proxy routes are behind the shared-secret token
+	// (no-op while the config has no token). UI assets stay open — the UI
+	// is a viewer and attaches the token to its own fetches.
+	s.mux.HandleFunc("/api/v1/models", s.requireAuth(s.handleModels))
+	s.mux.HandleFunc("/api/v1/models/search", s.requireAuth(s.handleModelSearch))
+	s.mux.HandleFunc("/api/v1/models/delete", s.requireAuth(s.handleModelDelete))
+	s.mux.HandleFunc("/api/v1/models/pull", s.requireAuth(s.handleModelPull))
+	s.mux.HandleFunc("/api/v1/models/repo-files", s.requireAuth(s.handleRepoFiles))
+	s.mux.HandleFunc("/api/v1/models/pull/stream", s.requireAuth(s.handleModelPullStream))
+	s.mux.HandleFunc("/api/v1/instances", s.requireAuth(s.handleInstances))
+	s.mux.HandleFunc("/api/v1/instances/stop", s.requireAuth(s.handleInstanceStop))
+	s.mux.HandleFunc("/api/v1/instances/logs", s.requireAuth(s.handleInstanceLogs))
+	s.mux.HandleFunc("/api/v1/warmup", s.requireAuth(s.handleWarmup))
+	s.mux.HandleFunc("/api/v1/config/default-flags", s.requireAuth(s.handleDefaultFlags))
+	s.mux.HandleFunc("/api/v1/presets", s.requireAuth(s.handlePresets))
+	s.mux.HandleFunc("/api/v1/chats", s.requireAuth(s.handleChats))
+	s.mux.HandleFunc("/api/v1/chats/", s.requireAuth(s.handleChatByID))
+	s.mux.HandleFunc("/api/v1/chat", s.requireAuth(s.handleChat))
+	s.mux.HandleFunc("/api/v1/config", s.requireAuth(s.handleConfig))
+	s.mux.HandleFunc("/api/v1/config/token", s.requireAuth(s.handleConfigToken))
+	s.mux.HandleFunc("/api/v1/version", s.requireAuth(s.handleVersion))
+	s.mux.HandleFunc("/api/v1/restart", s.requireAuth(s.handleRestart))
+	s.mux.HandleFunc("/v1/models", s.requireAuth(s.handleV1Models))
+	s.mux.HandleFunc("/v1/models/", s.requireAuth(s.handleV1ModelsByID))
+	s.mux.HandleFunc("/v1/chat/completions", s.requireAuth(s.handleV1ChatCompletions))
+	s.mux.HandleFunc("/v1/completions", s.requireAuth(s.handleV1Completions))
+	s.mux.HandleFunc("/v1/images/generations", s.requireAuth(s.handleV1ImageGenerations))
+	s.mux.HandleFunc("/api/v1/image-models", s.requireAuth(s.handleImageModels))
+	s.mux.HandleFunc("/api/v1/image-models/search", s.requireAuth(s.handleImageModelSearch))
+	s.mux.HandleFunc("/api/v1/image-models/install", s.requireAuth(s.handleImageModelInstall))
 	s.mux.HandleFunc("/", s.handleUI)
 }
 
+// requireAuth guards API routes with the shared-secret token from the
+// config. An empty token disables auth (legacy behavior) — the warning
+// about that is logged once at startup. The token is read from disk per
+// request, matching the codebase's LoadConfig-per-request convention, so
+// a token regenerated in Settings takes effect immediately.
+func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if token := model.LoadConfig().APIToken; token != "" {
+			if !tokenMatches(r, token) {
+				w.Header().Set("WWW-Authenticate", "Bearer")
+				jsonError(w, "unauthorized: missing or invalid API token", 401)
+				return
+			}
+		}
+		next(w, r)
+	}
+}
+
+// tokenMatches accepts either Authorization: Bearer <token> or ?token=<token>
+// (query form for curl/cron simplicity). Comparison is constant-time.
+func tokenMatches(r *http.Request, token string) bool {
+	cand := ""
+	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
+		cand = strings.TrimSpace(strings.TrimPrefix(h, "Bearer "))
+	}
+	if cand == "" {
+		cand = r.URL.Query().Get("token")
+	}
+	return cand != "" && subtle.ConstantTimeCompare([]byte(cand), []byte(token)) == 1
+}
+
 func (s *Server) Start() error {
-	addr := fmt.Sprintf(":%s", s.port)
+	addr := fmt.Sprintf("%s:%s", s.listen, s.port)
 	log.Printf("gollama listening on %s", addr)
-	log.Printf("Web UI: http://localhost%s", addr)
+	if s.listen == "127.0.0.1" || s.listen == "localhost" {
+		log.Printf("Web UI: http://%s:%s (loopback only — use --listen 0.0.0.0 for LAN access)", s.listen, s.port)
+	} else {
+		log.Printf("Web UI: http://%s:%s", s.listen, s.port)
+	}
+	if model.LoadConfig().APIToken == "" {
+		log.Printf("warning: no API token — gollama is unauthenticated")
+	}
 	return http.ListenAndServe(addr, s.mux)
 }
 
@@ -172,9 +224,16 @@ func (s *Server) handleModelDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	absPath, _ := filepath.Abs(blobPath)
-	modelsDir, _ := filepath.Abs(model.ModelsDir())
-	if !strings.HasPrefix(absPath, modelsDir) {
+	absPath, err := filepath.Abs(blobPath)
+	modelsDir, err2 := filepath.Abs(model.ModelsDir())
+	if err != nil || err2 != nil {
+		jsonError(w, "invalid model path", 400)
+		return
+	}
+	// filepath.Rel (not HasPrefix): a prefix check would also admit
+	// sibling dirs like <modelsDir>-evil when they share a path prefix.
+	rel, relErr := filepath.Rel(modelsDir, absPath)
+	if relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
 		jsonError(w, "invalid model path", 400)
 		return
 	}
@@ -362,11 +421,12 @@ func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 		flusher.Flush()
 	}
 
-	// If running under systemd, use systemctl for a clean restart
-	if _, err := os.Stat("/etc/systemd/system/gollama.service"); err == nil {
+	// If running under systemd (system or user unit), use systemctl for a
+	// clean restart
+	if args := systemdRestartArgs(); args != nil {
 		go func() {
 			time.Sleep(500 * time.Millisecond)
-			exec.Command("systemctl", "restart", "gollama").Run()
+			exec.Command("systemctl", args...).Run()
 		}()
 		return
 	}
@@ -387,6 +447,26 @@ func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 	}()
 }
 
+// systemdRestartArgs returns the systemctl arguments for a clean gollama
+// restart if a gollama unit is installed (system unit first, then user
+// unit), else nil (caller falls back to re-exec).
+func systemdRestartArgs() []string {
+	if _, err := os.Stat("/etc/systemd/system/gollama.service"); err == nil {
+		return []string{"restart", "gollama"}
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		if p := filepath.Join(home, ".config", "systemd", "user", "gollama.service"); fileExists(p) {
+			return []string{"--user", "restart", "gollama.service"}
+		}
+	}
+	return nil
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
@@ -401,6 +481,13 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		if v, ok := incoming["idle_ttl"]; ok {
 			if n, ok := v.(float64); ok {
 				cfg.IdleTTL = int(n)
+			}
+		}
+		// api_token: present + non-empty sets it, present + empty disables
+		// auth (the empty value persists in config.json on purpose).
+		if v, ok := incoming["api_token"]; ok {
+			if s, ok := v.(string); ok {
+				cfg.APIToken = s
 			}
 		}
 		if v, ok := incoming["default_flags"]; ok {
@@ -510,6 +597,41 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleConfigToken regenerates (POST {"action":"regenerate"}) or clears
+// (POST {"action":"clear"}) the API token. Used by the Settings page.
+func (s *Server) handleConfigToken(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	var req struct {
+		Action string `json:"action"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		jsonError(w, err.Error(), 400)
+		return
+	}
+	cfg := model.LoadConfig()
+	switch req.Action {
+	case "regenerate":
+		token, err := model.GenerateAPIToken()
+		if err != nil {
+			jsonError(w, err.Error(), 500)
+			return
+		}
+		cfg.APIToken = token
+		model.SaveConfig(cfg)
+		jsonResponse(w, map[string]string{"status": "regenerated", "api_token": token})
+	case "clear":
+		cfg.APIToken = ""
+		model.SaveConfig(cfg)
+		log.Printf("API token cleared — gollama is now unauthenticated")
+		jsonResponse(w, map[string]string{"status": "cleared"})
+	default:
+		jsonError(w, "action must be 'regenerate' or 'clear'", 400)
+	}
+}
+
 func (s *Server) handleDefaultFlags(w http.ResponseWriter, r *http.Request) {
 	cfg := model.DefaultConfig()
 	flags := cfg.DefaultFlags
@@ -582,6 +704,12 @@ func (s *Server) handleChats(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleChatByID(w http.ResponseWriter, r *http.Request) {
 	id := strings.TrimPrefix(r.URL.Path, "/api/v1/chats/")
+	// Chat ids become filenames — reject anything that isn't a plain id
+	// (blocks ../, absolute paths, embedded separators).
+	if !model.ValidChatID(id) {
+		jsonError(w, "invalid chat ID", 400)
+		return
+	}
 	switch r.Method {
 	case http.MethodGet:
 		if id == "" {

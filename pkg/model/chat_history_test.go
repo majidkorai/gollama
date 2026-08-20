@@ -112,3 +112,18 @@ func TestDeleteChat(t *testing.T) {
 		t.Fatal("expected error deleting a missing chat")
 	}
 }
+
+func TestChatPathTraversal(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	base := ChatsDir()
+	if p := chatPath("normal-id"); p != filepath.Join(base, "normal-id.json") {
+		t.Errorf("chatPath(normal-id) = %q, want %q", p, filepath.Join(base, "normal-id.json"))
+	}
+	// Defense in depth: any id that could escape the chats dir maps to an
+	// inert path, never outside ChatsDir().
+	for _, id := range []string{"../etc/passwd", "..\\evil", "a/b", "a..b", "", ".x", "a b"} {
+		if p := chatPath(id); p != filepath.Join(base, ".invalid") {
+			t.Errorf("chatPath(%q) = %q, want %q", id, p, filepath.Join(base, ".invalid"))
+		}
+	}
+}

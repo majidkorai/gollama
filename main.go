@@ -25,7 +25,7 @@ import (
 
 // version is set at build time via -ldflags=-X main.version=v0.x.x
 // local builds fall back to this default
-var version = "3.7.3"
+var version = "3.8.0"
 
 func main() {
 	if len(os.Args) < 2 || os.Args[1] == "--version" || os.Args[1] == "-v" {
@@ -127,9 +127,27 @@ func main() {
 			}
 		}()
 
+		// Parse: serve [port] [--listen ADDR]. Precedence: flag > GOLLAMA_LISTEN > 127.0.0.1
 		port := "9080"
-		if len(os.Args) > 2 {
-			port = os.Args[2]
+		listen := "127.0.0.1"
+		if env := os.Getenv("GOLLAMA_LISTEN"); env != "" {
+			listen = env
+		}
+		var positional []string
+		for i := 2; i < len(os.Args); i++ {
+			a := os.Args[i]
+			switch {
+			case a == "--listen" && i+1 < len(os.Args):
+				i++
+				listen = os.Args[i]
+			case strings.HasPrefix(a, "--listen="):
+				listen = strings.TrimPrefix(a, "--listen=")
+			default:
+				positional = append(positional, a)
+			}
+		}
+		if len(positional) > 0 {
+			port = positional[0]
 		}
 		portNum, _ := strconv.Atoi(port)
 		if portNum > 0 && !func() bool {
@@ -142,12 +160,30 @@ func main() {
 		}() {
 			fmt.Fprintf(os.Stderr, "Warning: port %s is busy, try a different port\n", port)
 		}
-		fmt.Printf("Web UI: http://%s:%s\n", localIP(), port)
+		switch {
+		case listen == "0.0.0.0":
+			fmt.Printf("Web UI: http://%s:%s (all interfaces — protected by API token)\n", localIP(), port)
+		case listen == "127.0.0.1" || listen == "localhost":
+			fmt.Printf("Web UI: http://%s:%s (loopback only — use --listen 0.0.0.0 for LAN access)\n", listen, port)
+		default:
+			fmt.Printf("Web UI: http://%s:%s\n", listen, port)
+		}
+
+		// API token: generated once on first start (fresh install or
+		// upgraded config without a token). An explicitly cleared token
+		// stays cleared — auth disabled.
+		token, generated := model.EnsureAPIToken()
+		if generated {
+			fmt.Printf("gollama: API token generated — %s (shown again in Web UI → Settings)\n", token)
+		}
+		if token == "" {
+			fmt.Fprintln(os.Stderr, "gollama: warning — no API token, server is unauthenticated (set one in Web UI → Settings)")
+		}
 
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
-		srv := server.NewWithVersion(mgr, port, version)
+		srv := server.NewWithListen(mgr, port, version, listen)
 		go func() {
 			if err := srv.Start(); err != nil {
 				fmt.Fprintf(os.Stderr, "Server error: %v\n", err)
@@ -262,31 +298,18 @@ func main() {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
-		unit := fmt.Sprintf(`[Unit]
-Description=gollama — model manager (text + image generation)
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-ExecStart=%s serve
-Restart=on-failure
-RestartSec=5
-Environment=HOME=/root
-
-[Install]
-WantedBy=multi-user.target
-`, bin)
-		path := "/etc/systemd/system/gollama.service"
-		if err := os.WriteFile(path, []byte(unit), 0644); err != nil {
+		path, userUnit, err := installSystemdService(bin)
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error writing service file: %v\n", err)
 			os.Exit(1)
 		}
-		exec.Command("systemctl", "daemon-reload").Run()
-		exec.Command("systemctl", "enable", "gollama").Run()
-		exec.Command("systemctl", "start", "gollama").Run()
 		fmt.Printf("gollama service installed at %s and started.\n", path)
-		fmt.Println("Manage with: systemctl status gollama | stop | restart | logs")
+		if userUnit {
+			fmt.Println("Manage with: systemctl --user status gollama | stop | restart | logs")
+			fmt.Println("For boot-start without a login session: sudo loginctl enable-linger $USER")
+		} else {
+			fmt.Println("Manage with: systemctl status gollama | stop | restart | logs")
+		}
 
 	case "ps":
 		instances := mgr.List()
@@ -318,9 +341,15 @@ WantedBy=multi-user.target
 		fmt.Printf("Stopped instance on port %d\n", port)
 
 	case "restart":
-		// If installed as a systemd service, use systemctl for a clean restart
-		if _, err := os.Stat("/etc/systemd/system/gollama.service"); err == nil {
-			cmd := exec.Command("systemctl", "restart", "gollama")
+		// If installed as a systemd service (system or user unit), use
+		// systemctl for a clean restart
+		unitPath, userUnit := findGollamaUnit()
+		if unitPath != "" {
+			args := []string{"restart"}
+			if userUnit {
+				args = append(args, "--user")
+			}
+			cmd := exec.Command("systemctl", append(args, "gollama.service")...)
 			cmd.Stdout = os.Stdout
 			cmd.Stderr = os.Stderr
 			if err := cmd.Run(); err != nil {
@@ -381,6 +410,82 @@ WantedBy=multi-user.target
 		printUsage()
 		os.Exit(1)
 	}
+}
+
+// installSystemdService writes and activates the gollama systemd unit.
+// As root (or with write access) it installs a system unit; otherwise a
+// user unit under ~/.config/systemd/user. HOME is inherited — never
+// hardcoded. LAN access note: the unit runs `serve` (loopback default);
+// add `--listen 0.0.0.0` to ExecStart for LAN UI access (the API token
+// is the gate).
+func installSystemdService(bin string) (path string, userUnit bool, err error) {
+	userUnit = os.Geteuid() != 0
+	wantedBy := "multi-user.target"
+	if userUnit {
+		wantedBy = "default.target"
+	}
+	unit := fmt.Sprintf(`[Unit]
+Description=gollama — model manager (text + image generation)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%s serve
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=%s
+`, bin, wantedBy)
+
+	if userUnit {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", false, err
+		}
+		dir := filepath.Join(home, ".config", "systemd", "user")
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return "", false, err
+		}
+		path = filepath.Join(dir, "gollama.service")
+	} else {
+		path = "/etc/systemd/system/gollama.service"
+	}
+	if err := os.WriteFile(path, []byte(unit), 0644); err != nil {
+		return "", userUnit, err
+	}
+
+	reload := func(args ...string) {
+		if userUnit {
+			args = append([]string{"--user"}, args...)
+		}
+		exec.Command("systemctl", args...).Run()
+	}
+	reload("daemon-reload")
+	reload("enable", "gollama.service")
+	reload("start", "gollama.service")
+	return path, userUnit, nil
+}
+
+// findGollamaUnit returns the installed gollama systemd unit path
+// (system unit first, then user unit) and whether it is a user unit.
+func findGollamaUnit() (string, bool) {
+	const systemUnit = "/etc/systemd/system/gollama.service"
+	if _, err := os.Stat(systemUnit); err == nil {
+		return systemUnit, false
+	}
+	if home, err := os.UserHomeDir(); err == nil {
+		if p := filepath.Join(home, ".config", "systemd", "user", "gollama.service"); fileExists(p) {
+			return p, true
+		}
+	}
+	return "", false
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func isFreshInstall() bool {
@@ -454,27 +559,12 @@ func runWizard() {
 		if installSvc != "n" && installSvc != "N" {
 			bin, err := os.Executable()
 			if err == nil {
-				unit := fmt.Sprintf(`[Unit]
-Description=gollama — model manager (text + image generation)
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-ExecStart=%s serve
-Restart=on-failure
-RestartSec=5
-Environment=HOME=/root
-
-[Install]
-WantedBy=multi-user.target
-`, bin)
-				path := "/etc/systemd/system/gollama.service"
-				if err := os.WriteFile(path, []byte(unit), 0644); err == nil {
-					exec.Command("systemctl", "daemon-reload").Run()
-					exec.Command("systemctl", "enable", "gollama").Run()
-					exec.Command("systemctl", "start", "gollama").Run()
-					fmt.Println("  ✓ gollama service installed and started")
+				path, userUnit, err := installSystemdService(bin)
+				if err == nil {
+					fmt.Println("  ✓ gollama service installed and started (" + path + ")")
+					if userUnit {
+						fmt.Println("    user unit — for boot-start without a login: sudo loginctl enable-linger $USER")
+					}
 				}
 			}
 		}
@@ -530,7 +620,11 @@ Usage:
   gollama update                 Download/update llama-server binary
   gollama self-update [version]  Update gollama (default: latest stable, e.g. v0.2.13)
   gollama pull <model>           Download model from HuggingFace
-  gollama serve [port]           Web UI + REST API on :9080 (main workflow)
+  gollama serve [port] [--listen ADDR]
+                                 Web UI + REST API on :9080 (main workflow)
+                                 Binds 127.0.0.1 by default; --listen 0.0.0.0
+                                 (or GOLLAMA_LISTEN env) exposes it on the LAN.
+                                 API routes require the token from Settings.
   gollama chat <model> [flags]   Start a terminal chat session
   gollama list                   List available models
   gollama delete <model>         Delete a downloaded model

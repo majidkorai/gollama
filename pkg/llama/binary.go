@@ -4,6 +4,8 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -97,7 +99,7 @@ func GetReleaseData() (string, map[string]string, error) {
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "gollama")
 
-	resp, err := model.HTTPClient.Do(req)
+	resp, err := model.APIClient.Do(req)
 	if err != nil {
 		return "", nil, fmt.Errorf("fetching latest release: %w", err)
 	}
@@ -198,7 +200,7 @@ func SelfUpdate(version string) error {
 	tag := version
 	if tag == "" {
 		// List recent releases and find the latest non-prerelease
-		resp, err := model.HTTPClient.Get("https://api.github.com/repos/majidkorai/gollama/releases?per_page=10")
+		resp, err := model.APIClient.Get("https://api.github.com/repos/majidkorai/gollama/releases?per_page=10")
 		if err != nil {
 			return fmt.Errorf("fetching releases: %w", err)
 		}
@@ -260,6 +262,14 @@ func SelfUpdate(version string) error {
 		return fmt.Errorf("setting permissions: %w", err)
 	}
 
+	// Verify the download against the release's checksums.txt before it
+	// replaces the running binary.
+	assetName := fmt.Sprintf("gollama-%s-%s%s", osName, archName, exe)
+	if err := verifyChecksum(tag, assetName, tmpFile); err != nil {
+		os.Remove(tmpFile)
+		return err
+	}
+
 	_ = written
 
 	backup := self + ".old"
@@ -287,6 +297,70 @@ func SelfUpdate(version string) error {
 	fmt.Printf("Updated gollama to %s (%d bytes)\n", verStr, written)
 	fmt.Println("Restart gollama to apply the update (gollama restart)")
 	return nil
+}
+
+// checksumURLBase is the release download base for checksums.txt; a
+// variable so tests can point it at a local server.
+var checksumURLBase = "https://github.com/majidkorai/gollama/releases/download"
+
+// verifyChecksum fetches checksums.txt from the release (shipped by CI)
+// and verifies the sha256 of the downloaded binary. A missing or
+// unlisted checksum (older releases) is a warning; a mismatch is fatal —
+// the update is aborted before the binary is replaced.
+func verifyChecksum(tag, assetName, path string) error {
+	url := fmt.Sprintf("%s/%s/checksums.txt", checksumURLBase, tag)
+	resp, err := model.APIClient.Get(url)
+	if err != nil {
+		fmt.Printf("Warning: could not fetch checksums.txt for %s: %v (skipping verification)\n", tag, err)
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		fmt.Printf("Warning: checksums.txt not found for %s (HTTP %d) — skipping verification\n", tag, resp.StatusCode)
+		return nil
+	}
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("reading checksums: %w", err)
+	}
+	expected := expectedChecksum(string(data), assetName)
+	if expected == "" {
+		fmt.Printf("Warning: %s not listed in checksums.txt — skipping verification\n", assetName)
+		return nil
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return fmt.Errorf("opening downloaded binary: %w", err)
+	}
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		f.Close()
+		return fmt.Errorf("hashing downloaded binary: %w", err)
+	}
+	f.Close()
+	actual := hex.EncodeToString(h.Sum(nil))
+	if !strings.EqualFold(actual, expected) {
+		return fmt.Errorf("checksum mismatch for %s (expected %s, got %s) — aborting update", assetName, expected, actual)
+	}
+	fmt.Printf("Checksum verified: %s\n", actual)
+	return nil
+}
+
+// expectedChecksum parses a sha256sum-style checksums.txt (as shipped by CI)
+// and returns the lowercase hash recorded for assetName, or "" if the asset
+// is not listed.
+func expectedChecksum(checksumsContent, assetName string) string {
+	for _, line := range strings.Split(checksumsContent, "\n") {
+		fields := strings.Fields(line)
+		// sha256sum output: "<hash>  <name>" (two spaces) or "<hash> *<name>".
+		if len(fields) >= 2 {
+			name := strings.TrimPrefix(fields[1], "*")
+			if name == assetName {
+				return strings.ToLower(fields[0])
+			}
+		}
+	}
+	return ""
 }
 
 func FindLlamaServer() string {
@@ -518,6 +592,25 @@ func checkDependencies(binary string) {
 		return
 	}
 
+	// No silent package installs: explicit opt-in (GOLLAMA_AUTO_INSTALL_DEPS=1)
+	// or an interactive yes. Non-interactive sessions without the env var
+	// only get the command to run.
+	autoInstall := os.Getenv("GOLLAMA_AUTO_INSTALL_DEPS") == "1"
+	if !autoInstall {
+		fmt.Printf("Install missing packages: %s? [y/N] ", strings.Join(pkgList, " "))
+		if !isTerminal(os.Stdin) {
+			fmt.Println("(non-interactive — not installing)")
+			fmt.Printf("Install manually: sudo apt-get install %s\n", strings.Join(pkgList, " "))
+			return
+		}
+		var ans string
+		fmt.Scanln(&ans)
+		if a := strings.ToLower(strings.TrimSpace(ans)); a != "y" && a != "yes" {
+			fmt.Printf("Install manually: sudo apt-get install %s\n", strings.Join(pkgList, " "))
+			return
+		}
+	}
+
 	fmt.Printf("Installing missing dependencies: %s ...\n", strings.Join(pkgList, " "))
 	cmd = exec.Command("apt-get", append([]string{"install", "-y", "-qq"}, pkgList...)...)
 	cmd.Stdout = os.Stdout
@@ -525,6 +618,15 @@ func checkDependencies(binary string) {
 	if err := cmd.Run(); err != nil {
 		fmt.Printf("Warning: failed to install dependencies: %v\n", err)
 	}
+}
+
+// isTerminal reports whether f is connected to a TTY (stdlib-only check).
+func isTerminal(f *os.File) bool {
+	info, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice != 0
 }
 
 func checkWindowsDependencies() {
