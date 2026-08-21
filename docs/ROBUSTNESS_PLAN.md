@@ -9,7 +9,7 @@
 **How to resume:**
 1. Read this file top-to-bottom (phase checkboxes are the source of truth).
 2. Confirm green baseline: `go build ./... && go vet ./... && go test ./...` (add `-race` for the server package; proxy tests spawn a dummy `llama-server` shell script and take ~20–35s).
-3. Start Phase 3, task P3-T2 (P3-T1 coordinator is done; P3-T3's `Cmd`/`WaitDone` half landed in P2-T3 — only the orphan health-poll confirmation remains). Work the tasks in order within a phase; each phase ends with a tag.
+3. Start Phase 3, task P3-T3 (P3-T1 coordinator + P3-T2 no-lock-while-sleeping are done; P3-T3's `Cmd`/`WaitDone` half landed in P2-T3 — only the orphan health-poll confirmation remains). Work the tasks in order within a phase; each phase ends with a tag.
 
 **Key context for the next session:**
 - Architecture review (what/where all the issues are) lives in the conversation that produced this plan; the plan itself is self-contained for execution. The full issue list maps 1:1 to tasks.
@@ -190,7 +190,7 @@ No behavior changes. This makes Phases 3–5 safe.
   - Entry points rewired: `proxyToInstance`, `handleWarmup`, `handleInstances` (POST), `handleV1ImageGenerations` (text-stop part), CLI `chat`/`run`.
   - `switchToModel`'s up-to-62s image grace wait moves *inside* the lock (it already blocks; making it explicit is the point).
   - Guard: a switch that waits > N seconds (e.g. 90s) logs loudly.
-- [ ] **P3-T2: Don't hold `m.mu` while sleeping** (`pkg/manager/manager.go:310-334, 574-596, 690-709`)
+- [x] **P3-T2: Don't hold `m.mu` while sleeping** (`pkg/manager/manager.go:310-334, 574-596, 690-709`) — **done**: candidate port picked + reserved in a new `reserved map[int]bool` under the lock, availability scan/retries (`allocateAvailablePort`/`claimPort`) and `cmd.Start` run outside it, commit + unreserve re-acquire it; ready-metrics snapshot (`queryProcessStats`/`queryGpuUtil`) sampled before the lock; `RecoverOrphans` ps/tasklist/wmic scan runs outside the lock (registration under it). Regression `TestStartParallelNoSamePortNoSerialization`: two parallel blocked Starts get unique ports in ~3.05s (one retry window) not ~6s (two).
   - Port allocation: pick candidate port under lock, **reserve** it in a `reserved map[int]bool`, release lock, do the availability scan/retries outside, then re-acquire and commit (or unreserve on failure).
   - `Start` process spawn: build everything (args, env, log file) under lock is fine, but move `cmd.Start` + the 2s GPU cooldown + health polling outside the lock.
   - `Stop`: signal the process outside the lock (the 500ms sleep is the worst offender); mutate state under lock.
