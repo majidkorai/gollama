@@ -4,7 +4,7 @@
 
 ## ▶ Resume here (read this first)
 
-**Where we are:** Phase 0 (test safety net) and Phase 1 (security) are done, and **Phase 1 is deployed** (v3.8.0 live on the gollama VM 2026-08-20, hermes pipeline updated with the token — see deploy notes below). Phase 1 shipped: loopback-default bind, shared-secret API token, chat-id + model-delete traversal fixes, self-update checksum verification, no silent package installs, systemd unit fixes, bounded API client. No Phase 2 behavior work has started.
+**Where we are:** Phase 0 (test safety net) and Phase 1 (security) are done, and **Phase 1 is deployed** (v3.8.0 live on the gollama VM 2026-08-20, hermes pipeline updated with the token — see deploy notes below). Phase 1 shipped: loopback-default bind, shared-secret API token, chat-id + model-delete traversal fixes, self-update checksum verification, no silent package installs, systemd unit fixes, bounded API client. Phase 2 is underway: **P2-T1 (merge_reasoning) done** — next is P2-T2 (`gollama run` no-op).
 
 **How to resume:**
 1. Read this file top-to-bottom (phase checkboxes are the source of truth).
@@ -19,7 +19,7 @@
   - `/api/v1/chat` drops the `[DONE]` marker → fixed in P5-T1 (UI already tolerates `[DONE]`, `ui.go:2074`).
   - `ScanModels` normalizes underscores→hyphens before the quant-strip regex → scanned short names keep the quant suffix → fixed in P5-T2.
   - `FindInstanceByModel` fuzzy match is map-iteration-nondeterministic → fixed in P2-T5 (test asserts "a valid candidate", not which one).
-  - `merge_reasoning` is dead code (toggle does nothing) → wired in P2-T1 (tests in `transforms_test.go` pin intended behavior; note: current `mergeReasoningContent` appends reasoning AFTER existing content in the same chunk, "c"+"r"→"cr").
+  - ~~`merge_reasoning` is dead code (toggle does nothing)~~ → **wired in P2-T1 (done)** (tests in `transforms_test.go` pin intended behavior; note: `mergeReasoningContent` appends reasoning AFTER existing content in the same chunk, "c"+"r"→"cr" — preserved).
   - `ProfileFlags` keeps both `--verbose` and `--no-verbose` (standalone flags aren't key-overridden; llama-server takes the last) → snapshot in `flags_test.go`, replaced by typed flag model in P5-T3.
 
 **Phase 1 deploy (DONE 2026-08-20):** v3.8.0 is live on the gollama VM.
@@ -134,10 +134,11 @@ No behavior changes. This makes Phases 3–5 safe.
 
 ## Phase 2 — Correctness → `v3.9.0`
 
-- [ ] **P2-T1: Make `merge_reasoning` actually work** (`pkg/server/server.go:1759-1760, 1832-1837`)
+- [x] **P2-T1: Make `merge_reasoning` actually work** (`pkg/server/server.go`)
   - Stream path: when `shouldMerge`, call `mergeReasoningContent(data)` instead of pass-through.
-  - Non-stream path: after `convertCompleteThink`, if merge → move `reasoning_content` into `content`.
-  - P0-T3 tests now assert the *wired* behavior.
+  - Non-stream path: merge branch runs `convertCompleteThink` then `mergeReasoningContent` (merge takes precedence over strip on both paths, matching the stream path's check order).
+  - `mergeReasoningContent` generalized to handle both `delta` (stream) and `message` (non-stream) shapes, mirroring `stripReasoningContent`.
+  - Pinned tests updated: the dead-code NOTE in `transforms_test.go` now says wired; new `TestMergeReasoningContentMessage` covers the message shape; new e2e `TestProxyStreamMergeReasoning` / `TestProxyNonStreamMergeReasoning` (with a `nonStream` override added to `fakeUpstream`) assert reasoning never leaks and lands in `content`.
 - [ ] **P2-T2: `gollama run` no longer a silent no-op** (`main.go:213`)
   - Remove the `len(mgr.List()) == 0` guard; always start (auto-port assignment already handles collisions). If the caller passes an explicit port in use → clear error.
 - [ ] **P2-T3: Clean shutdown** (`main.go` `serve`, `pkg/manager`)

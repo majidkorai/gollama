@@ -36,6 +36,8 @@ type fakeUpstream struct {
 	streamScript []string
 	// noDone suppresses the trailing [DONE] marker.
 	noDone bool
+	// nonStream replaces the default non-streaming response when non-nil.
+	nonStream map[string]interface{}
 
 	completions int
 	bodies      []map[string]interface{}
@@ -96,17 +98,21 @@ func (f *fakeUpstream) handleCompletions(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"id":     "cmpl-fake",
-		"object": "chat.completion",
-		"choices": []map[string]interface{}{{
-			"index":         0,
-			"message":       map[string]interface{}{"role": "assistant", "content": "Hello!"},
-			"finish_reason": "stop",
-		}},
-		"usage":   map[string]interface{}{"prompt_tokens": 10, "completion_tokens": 42, "total_tokens": 52},
-		"timings": map[string]interface{}{"predicted_per_second": 21.5},
-	})
+	resp := f.nonStream
+	if resp == nil {
+		resp = map[string]interface{}{
+			"id":     "cmpl-fake",
+			"object": "chat.completion",
+			"choices": []map[string]interface{}{{
+				"index":         0,
+				"message":       map[string]interface{}{"role": "assistant", "content": "Hello!"},
+				"finish_reason": "stop",
+			}},
+			"usage":   map[string]interface{}{"prompt_tokens": 10, "completion_tokens": 42, "total_tokens": 52},
+			"timings": map[string]interface{}{"predicted_per_second": 21.5},
+		}
+	}
+	json.NewEncoder(w).Encode(resp)
 }
 
 // requestCount returns how many completion requests the fake has seen

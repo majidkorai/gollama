@@ -1885,7 +1885,7 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 				}
 			var cleaned []byte
 			if shouldMerge {
-				cleaned = []byte(data)
+				cleaned = mergeReasoningContent([]byte(data))
 			} else if shouldStrip {
 				cleaned = stripContentThinkTags([]byte(data))
 				cleaned = stripReasoningContent(cleaned)
@@ -1957,7 +1957,13 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 		}
 	}
 
-	if shouldStripReasoning(cfg, profileName) {
+	if shouldMergeReasoning(cfg, profileName) {
+		// merge_reasoning: reasoning becomes visible content. Convert think
+		// tags to reasoning_content first, then fold that into content —
+		// mirrors the stream path, where merge takes precedence over strip.
+		respBody = convertCompleteThink(respBody)
+		respBody = mergeReasoningContent(respBody)
+	} else if shouldStripReasoning(cfg, profileName) {
 		respBody = stripContentThinkTags(respBody)
 		respBody = stripReasoningContent(respBody)
 	} else {
@@ -1996,6 +2002,9 @@ func shouldStripReasoning(cfg *model.Config, profileName string) bool {
 
 // mergeReasoningContent converts "reasoning_content" into "content" in real-time
 // so it's visible as regular text to clients that don't parse reasoning_content.
+// Handles both the streaming shape (choices[0].delta) and the non-streaming
+// shape (choices[0].message). Pinned behavior: reasoning is appended AFTER
+// any existing content in the same chunk.
 func mergeReasoningContent(data []byte) []byte {
 	var obj map[string]interface{}
 	if err := json.Unmarshal(data, &obj); err != nil {
@@ -2009,19 +2018,21 @@ func mergeReasoningContent(data []byte) []byte {
 	if choice == nil {
 		return data
 	}
-	delta, ok := choice["delta"].(map[string]interface{})
-	if !ok {
-		return data
-	}
-
-	if rc, ok := delta["reasoning_content"].(string); ok {
-		// Send reasoning as visible content immediately instead of accumulating
-		delete(delta, "reasoning_content")
-		if existing, ok := delta["content"].(string); ok {
-			delta["content"] = existing + rc
-		} else {
-			delta["content"] = rc
+	for _, key := range []string{"delta", "message"} {
+		delta, ok := choice[key].(map[string]interface{})
+		if !ok {
+			continue
 		}
+		if rc, ok := delta["reasoning_content"].(string); ok {
+			// Send reasoning as visible content immediately instead of accumulating
+			delete(delta, "reasoning_content")
+			if existing, ok := delta["content"].(string); ok {
+				delta["content"] = existing + rc
+			} else {
+				delta["content"] = rc
+			}
+		}
+		break
 	}
 
 	cleaned, _ := json.Marshal(obj)

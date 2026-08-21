@@ -290,3 +290,113 @@ func TestHandleChatStream(t *testing.T) {
 		t.Errorf("TotalTokens = %d, want 7 (usage chunk parsed but not forwarded)", inst.TotalTokens)
 	}
 }
+
+// withMergeProfile rewrites the fixture's config to add a profile for
+// fake-1b with merge_reasoning enabled (P2-T1).
+func withMergeProfile(t *testing.T) {
+	t.Helper()
+	cfg := model.LoadConfig()
+	merge := true
+	cfg.Profiles["mergey"] = model.Profile{Model: "fake-1b", MergeReasoning: &merge}
+	model.SaveConfig(cfg)
+}
+
+// TestProxyStreamMergeReasoning: with a merge_reasoning profile, streaming
+// reasoning_content deltas arrive at the client as content, and the
+// reasoning_content field never leaks.
+func TestProxyStreamMergeReasoning(t *testing.T) {
+	up := &fakeUpstream{
+		streamScript: []string{
+			`{"choices":[{"index":0,"delta":{"role":"assistant","content":"Hel"}}]}`,
+			`{"choices":[{"index":0,"delta":{"reasoning_content":"thinking hard... "}}]}`,
+			`{"choices":[{"index":0,"delta":{"content":"lo"}}]}`,
+			`{"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`,
+		},
+	}
+	s, _ := startProxyFixture(t, up)
+	withMergeProfile(t)
+
+	rec := postCompletions(t, s, `{"model":"fake-1b","profile":"mergey","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	var contents []string
+	done := 0
+	for _, line := range strings.Split(rec.Body.String(), "\n") {
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		data := strings.TrimPrefix(line, "data: ")
+		if data == "[DONE]" {
+			done++
+			continue
+		}
+		var obj struct {
+			Choices []struct {
+				Delta struct {
+					Content          *string `json:"content"`
+					ReasoningContent *string `json:"reasoning_content"`
+				} `json:"delta"`
+			} `json:"choices"`
+		}
+		if err := json.Unmarshal([]byte(data), &obj); err != nil {
+			t.Fatalf("chunk is not JSON: %v: %s", err, data)
+		}
+		for _, c := range obj.Choices {
+			if c.Delta.ReasoningContent != nil {
+				t.Errorf("reasoning_content leaked to client: %s", data)
+			}
+			if c.Delta.Content != nil {
+				contents = append(contents, *c.Delta.Content)
+			}
+		}
+	}
+	if done != 1 {
+		t.Errorf("[DONE] count = %d, want 1", done)
+	}
+	if got, want := strings.Join(contents, ""), "Helthinking hard... lo"; got != want {
+		t.Errorf("merged content = %q, want %q", got, want)
+	}
+}
+
+// TestProxyNonStreamMergeReasoning: with a merge_reasoning profile, the
+// non-streaming response's reasoning_content is folded into content.
+func TestProxyNonStreamMergeReasoning(t *testing.T) {
+	up := &fakeUpstream{
+		nonStream: map[string]interface{}{
+			"id":     "cmpl-fake",
+			"object": "chat.completion",
+			"choices": []map[string]interface{}{{
+				"index":         0,
+				"message":       map[string]interface{}{"role": "assistant", "content": "Hello!", "reasoning_content": "Let me think."},
+				"finish_reason": "stop",
+			}},
+			"usage": map[string]interface{}{"prompt_tokens": 10, "completion_tokens": 42, "total_tokens": 52},
+		},
+	}
+	s, _ := startProxyFixture(t, up)
+	withMergeProfile(t)
+
+	rec := postCompletions(t, s, `{"model":"fake-1b","profile":"mergey","messages":[{"role":"user","content":"hi"}]}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	var resp map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("response is not JSON: %v", err)
+	}
+	choices, _ := resp["choices"].([]interface{})
+	if len(choices) != 1 {
+		t.Fatalf("choices = %v", resp["choices"])
+	}
+	msg, _ := choices[0].(map[string]interface{})["message"].(map[string]interface{})
+	if msg == nil {
+		t.Fatalf("no message in response: %s", rec.Body.String())
+	}
+	if _, ok := msg["reasoning_content"]; ok {
+		t.Errorf("reasoning_content leaked to client: %s", rec.Body.String())
+	}
+	if msg["content"] != "Hello!Let me think." {
+		t.Errorf("content = %v, want %q", msg["content"], "Hello!Let me think.")
+	}
+}

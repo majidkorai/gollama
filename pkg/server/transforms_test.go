@@ -275,9 +275,8 @@ func TestStripReasoningContent(t *testing.T) {
 }
 
 // ── mergeReasoningContent ──────────────────────────────────
-// NOTE: this function is currently dead code — the merge_reasoning profile
-// toggle does not call it (see ROBUSTNESS_PLAN.md P2-T1). These tests pin the
-// intended behavior so the wiring fix has a spec to satisfy.
+// Wired since P2-T1: the merge_reasoning profile toggle calls this on both
+// the stream (delta) and non-stream (message) proxy paths.
 
 func TestMergeReasoningContent(t *testing.T) {
 	tests := []struct {
@@ -306,6 +305,44 @@ func TestMergeReasoningContent(t *testing.T) {
 }
 
 // ── convertCompleteThink ───────────────────────────────────
+
+// messageJSONFields builds a non-streaming payload with choices[0].message
+// carrying the given fields.
+func messageJSONFields(fields map[string]interface{}) string {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	_ = enc.Encode(map[string]interface{}{
+		"choices": []map[string]interface{}{{"index": 0, "message": fields}},
+	})
+	return strings.TrimRight(buf.String(), "\n")
+}
+
+// TestMergeReasoningContentMessage covers the non-streaming shape
+// (choices[0].message) used by the non-stream proxy path (P2-T1).
+func TestMergeReasoningContentMessage(t *testing.T) {
+	tests := []struct {
+		name string
+		msg  map[string]interface{}
+		want string
+	}{
+		{"reasoning appended after existing content", map[string]interface{}{"role": "assistant", "content": "c", "reasoning_content": "r"}, "cr"},
+		{"reasoning only becomes content", map[string]interface{}{"role": "assistant", "reasoning_content": "r"}, "r"},
+		{"content only is unchanged", map[string]interface{}{"role": "assistant", "content": "c"}, "c"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			out := mergeReasoningContent([]byte(messageJSONFields(tt.msg)))
+			d := deltaOf(t, string(out))
+			if _, ok := d["reasoning_content"]; ok {
+				t.Fatalf("reasoning_content was not moved: %s", out)
+			}
+			if got, _ := d["content"].(string); got != tt.want {
+				t.Fatalf("content = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
 
 func TestConvertCompleteThink(t *testing.T) {
 	tests := []struct {
