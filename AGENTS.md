@@ -4,7 +4,7 @@
 
 Go binary that manages llama.cpp instances. CLI + embedded web UI + OpenAI-compatible API proxy. Zero external dependencies.
 
-**Version:** v3.8.0
+**Version:** v3.9.0
 **Module:** `github.com/majidkorai/gollama`
 **Go:** 1.23
 **Dependencies:** None (stdlib only)
@@ -13,10 +13,11 @@ Go binary that manages llama.cpp instances. CLI + embedded web UI + OpenAI-compa
 
 **`docs/ROBUSTNESS_PLAN.md` is the source of truth for ongoing work** — phased fixes for security, correctness, concurrency, and code-quality issues found in the 2026-08-18 architecture review. It starts with a "Resume here" block (current phase, conventions, deploy notes, pinned behavior quirks).
 
-- Phase 0 (test safety net) and Phase 1 (security, v3.8.0) are complete; Phases 2–5 are pending.
+- Phases 0–2 are complete (security `v3.8.0`, correctness `v3.9.0`); Phases 3–5 are pending.
 - Phase 1 behavior changes: `serve` binds `127.0.0.1` by default (`--listen`/`GOLLAMA_LISTEN` to opt out), all `/api/v1/*` + `/v1/*` routes require the config's `api_token` when set, chat ids are validated, model-delete path check hardened, self-update verifies release checksums, dep installs are no longer silent.
+- Phase 2 behavior changes (v3.9.0): `merge_reasoning` profiles now actually merge reasoning into content (stream + non-stream); `gollama run` no longer no-ops when an instance is alive (recovers orphans via `ps` scan, starts a second instance); `serve`/`run` shutdown stops all instances (SIGINT → 500ms → SIGKILL, bounded 5s); one readiness deadline everywhere (`model.LoadTimeout`, `GOLLAMA_MODEL_LOAD_TIMEOUT`, default 5m); model matching is deterministic (tiered scoring, lowest-port tie-break; multiple image profiles + no model → 400); Windows orphan recovery no longer registers phantom instances; per-GPU utilization (`gpu_util_per_gpu`) + instantaneous Linux CPU% (`/proc/<pid>/stat` double-sample, `ps` fallback).
 - When working on planned fixes, check the plan's task list and update its checkboxes.
-- Tests pin several current behavior quirks on purpose (e.g. `/api/v1/chat` drops `[DONE]`, fuzzy model-match nondeterminism) — don't change them incidentally; they are scoped to specific later tasks.
+- Tests pin several current behavior quirks on purpose (e.g. `/api/v1/chat` drops `[DONE]`, `ScanModels` quant-suffix short names) — don't change them incidentally; they are scoped to specific later tasks (fuzzy model-match nondeterminism was fixed in P2-T5).
 - Tooling note: the session file-write pipeline strips angle-bracket pairs from content; think-tag literals in `pkg/server/transforms_test.go` are built from hex escapes for this reason.
 
 ## Key Commands

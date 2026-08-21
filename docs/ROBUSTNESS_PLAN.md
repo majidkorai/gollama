@@ -1,15 +1,15 @@
 # Gollama Robustness Plan
 
-**Status:** Phase 1 (Security) complete, `v3.8.0`. **Next: Phase 2 — Correctness (→ v3.9.0).**
+**Status:** Phases 0–2 complete (`v3.8.0` security, `v3.9.0` correctness). **Next: Phase 3 — Concurrency & lifecycle (→ v4.0.0, major).**
 
 ## ▶ Resume here (read this first)
 
-**Where we are:** Phase 0 (test safety net) and Phase 1 (security) are done, and **Phase 1 is deployed** (v3.8.0 live on the gollama VM 2026-08-20, hermes pipeline updated with the token — see deploy notes below). Phase 1 shipped: loopback-default bind, shared-secret API token, chat-id + model-delete traversal fixes, self-update checksum verification, no silent package installs, systemd unit fixes, bounded API client. Phase 2 is complete: **P2-T1 (merge_reasoning) + P2-T2 (`gollama run` no-op, incl. a pgrep→ps orphan-recovery fix) + P2-T3 (clean shutdown) + P2-T4 (one readiness deadline) + P2-T5 (deterministic fuzzy model match) + P2-T6 (Windows orphan recovery) + P2-T7 (per-GPU utilization + real CPU) all done** — run the Phase 2 smoke tests, then tag **v3.9.0**. Next: Phase 3 (concurrency).
+**Where we are:** Phase 0 (test safety net) and Phase 1 (security) are done, and **Phase 1 is deployed** (v3.8.0 live on the gollama VM 2026-08-20, hermes pipeline updated with the token — see deploy notes below). Phase 1 shipped: loopback-default bind, shared-secret API token, chat-id + model-delete traversal fixes, self-update checksum verification, no silent package installs, systemd unit fixes, bounded API client. Phase 2 is complete: **P2-T1 (merge_reasoning) + P2-T2 (`gollama run` no-op, incl. a pgrep→ps orphan-recovery fix) + P2-T3 (clean shutdown) + P2-T4 (one readiness deadline) + P2-T5 (deterministic fuzzy model match) + P2-T6 (Windows orphan recovery) + P2-T7 (per-GPU utilization + real CPU) all done** — smoke tests passed 2026-08-21 (simultaneous serve+run instances, clean SIGTERM shutdown of both, no leftover processes) and **v3.9.0 is tagged + pushed** (GitHub Actions release building on the self-hosted runner). Next: Phase 3 (concurrency & lifecycle, → v4.0.0 major).
 
 **How to resume:**
 1. Read this file top-to-bottom (phase checkboxes are the source of truth).
 2. Confirm green baseline: `go build ./... && go vet ./... && go test ./...` (add `-race` for the server package; proxy tests spawn a dummy `llama-server` shell script and take ~20–35s).
-3. Start Phase 2, task P2-T1. Work the tasks in order within a phase; each phase ends with a tag.
+3. Start Phase 3, task P3-T1. Work the tasks in order within a phase; each phase ends with a tag.
 
 **Key context for the next session:**
 - Architecture review (what/where all the issues are) lives in the conversation that produced this plan; the plan itself is self-contained for execution. The full issue list maps 1:1 to tasks.
@@ -32,7 +32,13 @@
   - **Cron jobs** (`~/.hermes/cron/jobs.json`) pin `provider` per job and that value overrides the model block — both jobs (`telegram-top-stories`, `Daily Blog Post`) had `provider: custom` stored and kept 401ing after the config change. Fixed with `hermes cron edit <id> --provider gollama`, then gateway restart. (If a job ever 401s again, check its stored `provider` first: `hermes cron list` / `jobs.json`.)
 - Smoke test passed: no-token → 401, Bearer / `?token=` → 200, UI open on LAN, `hermes chat` round-trip OK, image gen (flux-klein) 200 with token, text model re-warmed after image gen, cron `telegram-top-stories` completed end-to-end after re-pointing both jobs at the `gollama` provider.
 
-**Baseline:** v3.8.0 (Phase 1), `main.go` + `pkg/{server,manager,model,llama,chat,ui}`, stdlib-only, `go build`/`go vet`/`go test` all green.
+**Phase 2 deploy (v3.9.0 — tagged + pushed 2026-08-21, VM deploy PENDING):**
+- Release built by GitHub Actions on the self-hosted runner (tag `gollama`); asset is the linux/amd64 binary, same pattern as v3.8.0.
+- Deploy steps when the release is ready: back up `/usr/local/bin/gollama` (e.g. `gollama.bak-v390-*`), install the new binary, `systemctl restart gollama`. No config/token changes needed — Phase 2 changed no auth or config schema.
+- **Behavior changes to verify on the VM:** (1) `systemctl stop gollama` (and Ctrl+C on the CLI) now stops all llama-server instances — `pgrep llama-server` must be empty afterwards (P2-T3); (2) instance cards show a per-GPU utilization badge (`GPU0 x% / GPU1 y%` on the 2×3090 box) and CPU% is now an instantaneous 1s sample (P2-T7); (3) `gollama run` with an instance alive recovers it and starts a second instance instead of colliding (P2-T2); (4) fuzzy model matches are deterministic (P2-T5) — the hermes pipeline's exact model names are unaffected.
+- hermes pipeline: no changes required (503/Retry-After contract unchanged; token unchanged).
+
+**Baseline:** v3.9.0 (Phase 2), `main.go` + `pkg/{server,manager,model,llama,chat,ui}`, stdlib-only, `go build`/`go vet`/`go test` all green (plus `GOOS=linux` and `GOOS=windows` cross-builds for the platform-split files).
 
 ## Goals
 
