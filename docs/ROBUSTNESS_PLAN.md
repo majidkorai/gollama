@@ -29,7 +29,8 @@
   - `ghost_post_creator.js` — `gollamaToken` in CONFIG + `Authorization: Bearer` header on the image-gen call.
   - `post_watcher.sh` — warmup curl now sends `?token=`.
   - `~/.hermes/config.yaml` — the agent's gollama endpoint is a **named custom provider** (`providers.gollama` with `api:` + `key_env: GOLLAMA_API_KEY`, `model.provider: gollama`). Note: a `key_env` in the `model:` block is NOT honored by hermes (v0.20.0) — inline `provider: custom` resolves to a `no-key-required` placeholder and 401s; the named-provider block is the supported path.
-- Smoke test passed: no-token → 401, Bearer / `?token=` → 200, UI open on LAN, `hermes chat` round-trip OK, image gen (flux-klein) 200 with token, text model re-warmed after image gen.
+  - **Cron jobs** (`~/.hermes/cron/jobs.json`) pin `provider` per job and that value overrides the model block — both jobs (`telegram-top-stories`, `Daily Blog Post`) had `provider: custom` stored and kept 401ing after the config change. Fixed with `hermes cron edit <id> --provider gollama`, then gateway restart. (If a job ever 401s again, check its stored `provider` first: `hermes cron list` / `jobs.json`.)
+- Smoke test passed: no-token → 401, Bearer / `?token=` → 200, UI open on LAN, `hermes chat` round-trip OK, image gen (flux-klein) 200 with token, text model re-warmed after image gen, cron `telegram-top-stories` completed end-to-end after re-pointing both jobs at the `gollama` provider.
 
 **Baseline:** v3.8.0 (Phase 1), `main.go` + `pkg/{server,manager,model,llama,chat,ui}`, stdlib-only, `go build`/`go vet`/`go test` all green.
 
