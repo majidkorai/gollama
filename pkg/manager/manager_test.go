@@ -111,6 +111,72 @@ func TestFindInstanceByModelDeterministic(t *testing.T) {
 	}
 }
 
+// TestRegisterOrphanFromCommandLine (P2-T6): only command lines that look
+// gollama-launched (carry the --host flag) are recovered; anything else is
+// skipped so no phantom instances or burned ports. Cross-platform: the
+// parser is pure, so it runs on every OS.
+func TestRegisterOrphanFromCommandLine(t *testing.T) {
+	fresh := func() *Manager {
+		return &Manager{instances: map[int]*Instance{}, nextPort: 8081}
+	}
+
+	// Not a gollama process (no --host) -> skipped, no state change.
+	m := fresh()
+	if m.registerOrphanFromCommandLine(111, `C:\tools\llama-bench.exe -m C:\models\foo.gguf`) {
+		t.Fatal("non-gollama command line was registered")
+	}
+	if len(m.instances) != 0 || m.nextPort != 8081 {
+		t.Fatalf("phantom state: instances=%v nextPort=%d", m.instances, m.nextPort)
+	}
+
+	// Gollama process with an explicit port -> registered on that port,
+	// nextPort advanced past it, model name reduced to its basename.
+	m = fresh()
+	if !m.registerOrphanFromCommandLine(222, `"C:\.gollama\bin\llama-server.exe" -m C:\.gollama\models\foo.gguf --host 0.0.0.0 --port 8085`) {
+		t.Fatal("gollama command line was not registered")
+	}
+	inst, ok := m.instances[8085]
+	if !ok || inst.PID != 222 || inst.Model != "foo.gguf" {
+		t.Fatalf("instance = %+v, want port 8085 pid 222 model foo.gguf", inst)
+	}
+	if m.nextPort != 8086 {
+		t.Fatalf("nextPort = %d, want 8086", m.nextPort)
+	}
+
+	// Same PID twice -> no duplicate registration.
+	if m.registerOrphanFromCommandLine(222, `llama-server -m x.gguf --host 1.2.3.4 --port 8099`) {
+		t.Fatal("duplicate PID was registered")
+	}
+
+	// Gollama process without --port -> guessed port from nextPort.
+	m = fresh()
+	if !m.registerOrphanFromCommandLine(333, `llama-server -m x.gguf --host 1.2.3.4`) {
+		t.Fatal("gollama command line without --port was not registered")
+	}
+	if got, ok := m.instances[8081]; !ok || got.PID != 333 {
+		t.Fatalf("guessed port 8081 not registered correctly: %v", m.instances)
+	}
+	if m.nextPort != 8082 {
+		t.Fatalf("nextPort = %d, want 8082", m.nextPort)
+	}
+}
+
+// TestRecoverOrphanPidWindowsSkipsSelf (P2-T6): the test process's own
+// command line is not a gollama one, so nothing may be registered — on
+// Windows via the no---host rule, on other OSes because wmic is missing and
+// the PID is skipped instead of guessed. Either way no phantom, no burned
+// port.
+func TestRecoverOrphanPidWindowsSkipsSelf(t *testing.T) {
+	m := &Manager{instances: map[int]*Instance{}, nextPort: 8081}
+	m.recoverOrphanPidWindows(os.Getpid())
+	if len(m.instances) != 0 {
+		t.Fatalf("phantom instance registered: %v", m.instances)
+	}
+	if m.nextPort != 8081 {
+		t.Fatalf("nextPort burned: %d", m.nextPort)
+	}
+}
+
 func TestStartRejectsRunningSlot(t *testing.T) {
 	m := &Manager{
 		instances: map[int]*Instance{

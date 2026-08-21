@@ -4,7 +4,7 @@
 
 ## ▶ Resume here (read this first)
 
-**Where we are:** Phase 0 (test safety net) and Phase 1 (security) are done, and **Phase 1 is deployed** (v3.8.0 live on the gollama VM 2026-08-20, hermes pipeline updated with the token — see deploy notes below). Phase 1 shipped: loopback-default bind, shared-secret API token, chat-id + model-delete traversal fixes, self-update checksum verification, no silent package installs, systemd unit fixes, bounded API client. Phase 2 is underway: **P2-T1 (merge_reasoning) + P2-T2 (`gollama run` no-op, incl. a pgrep→ps orphan-recovery fix) + P2-T3 (clean shutdown) + P2-T4 (one readiness deadline) + P2-T5 (deterministic fuzzy model match) done** — next is P2-T6 (Windows orphan recovery).
+**Where we are:** Phase 0 (test safety net) and Phase 1 (security) are done, and **Phase 1 is deployed** (v3.8.0 live on the gollama VM 2026-08-20, hermes pipeline updated with the token — see deploy notes below). Phase 1 shipped: loopback-default bind, shared-secret API token, chat-id + model-delete traversal fixes, self-update checksum verification, no silent package installs, systemd unit fixes, bounded API client. Phase 2 is underway: **P2-T1 (merge_reasoning) + P2-T2 (`gollama run` no-op, incl. a pgrep→ps orphan-recovery fix) + P2-T3 (clean shutdown) + P2-T4 (one readiness deadline) + P2-T5 (deterministic fuzzy model match) + P2-T6 (Windows orphan recovery) done** — next is P2-T7 (per-GPU utilization + real CPU).
 
 **How to resume:**
 1. Read this file top-to-bottom (phase checkboxes are the source of truth).
@@ -160,8 +160,10 @@ No behavior changes. This makes Phases 3–5 safe.
   - `ResolveModelBlob` fuzzy tier made deterministic too: short-name candidates are scored over substring candidates, ties within a tier broken by lexicographic index name (the pinned `TestResolveModelBlobFuzzyDocumentsNondeterminism` is now `TestResolveModelBlobFuzzyDeterministic` asserting the exact winner).
   - Image auto-detect with empty `model` and multiple image profiles → 400 listing the profile names (sorted); a single image profile is still auto-selected; explicit `profile` bypasses the check.
   - Tests: `TestFindInstanceByModelDeterministic` (tier precedence, port tie-break over 50 iterations, stopped instances excluded, empty query), `TestImageAutoDetectMultipleProfiles400`.
-- [ ] **P2-T6: Windows orphan recovery** (`pkg/manager/manager.go:183-199`)
-  - If WMI fails, log and **skip** the process instead of registering it under a guessed port (don't burn ports, don't show phantom instances).
+- [x] **P2-T6: Windows orphan recovery** (`pkg/manager/manager.go`)
+  - `recoverOrphansWindows` now delegates per-PID work to `recoverOrphanPidWindows`: if WMI fails to read the command line, it logs and **skips** the process instead of registering a phantom instance under a guessed port.
+  - Parsing/registration extracted to pure `registerOrphanFromCommandLine(pid, cmdLine) bool`: only command lines carrying the gollama `--host` flag are recovered (the old code also registered non-gollama processes whose WMI read succeeded but lacked `--host` — same phantom bug), duplicate PIDs are rejected, and a missing `--port` still gets a guessed port.
+  - Tests (cross-platform, the parser is pure): `TestRegisterOrphanFromCommandLine` (no---host skip, explicit port + basename model, duplicate PID, guessed port) and `TestRecoverOrphanPidWindowsSkipsSelf` (the test process itself must never register, on any OS).
 - [ ] **P2-T7: Per-GPU utilization + real CPU** (`pkg/manager/manager.go:842-886`)
   - `queryGpuUtil` returns `[]float64` (per GPU); instance gets `GpuUtil` = max, plus `GpuUtilPerGPU []float64` (UI badge can show `GPU0 92% / GPU1 3%`).
   - CPU: on Linux, sample `/proc/<pid>/stat` (utime+stime) twice 1s apart in the metrics goroutine → instantaneous %; keep `ps` as fallback.

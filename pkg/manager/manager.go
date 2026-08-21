@@ -204,74 +204,79 @@ func (m *Manager) recoverOrphansWindows() {
 			continue
 		}
 
-		// On Windows we can't get command-line args from tasklist CSV,
-		// so we try to match by looking at running processes' command lines via WMI
-		wmi := exec.Command("wmic", "process", "where", fmt.Sprintf("ProcessId=%d", pid), "get", "CommandLine", "/format:value")
-		wmiOut, wmiErr := wmi.Output()
-		if wmiErr != nil {
-			// Fallback: register with a guessed port, but only if PID not already tracked
-			if m.pidExists(pid) {
-				continue
-			}
-			port := m.nextPort
-			m.nextPort++
-		m.instances[port] = &Instance{
-				Port:         port,
-				Model:        "unknown",
-				PID:          pid,
-				Status:       "running",
-				Ready:        true,
-				LastActivity: time.Now(),
-			}
-			log.Printf("recovered orphan instance (limited): port=%d pid=%d", port, pid)
-			continue
-		}
+		m.recoverOrphanPidWindows(pid)
+	}
+}
 
-		var port int
-		var modelName string
-		for _, wmiLine := range strings.Split(string(wmiOut), "\n") {
-			wmiLine = strings.TrimSpace(wmiLine)
-			if strings.HasPrefix(wmiLine, "CommandLine=") {
-				cmdLine := strings.TrimPrefix(wmiLine, "CommandLine=")
-				// Only recover instances started by gollama (identified by --host flag)
-				if !strings.Contains(cmdLine, "--host ") {
-					continue
-				}
-				args := strings.Fields(cmdLine)
-				for i, a := range args {
-					if a == "--port" && i+1 < len(args) {
-						port, _ = strconv.Atoi(args[i+1])
-					}
-					if a == "-m" && i+1 < len(args) {
-						modelName = args[i+1]
-						if idx := strings.LastIndex(modelName, "/"); idx >= 0 {
-							modelName = modelName[idx+1:]
-						}
-						if idx := strings.LastIndex(modelName, "\\"); idx >= 0 {
-							modelName = modelName[idx+1:]
-						}
-					}
-				}
-			}
-		}
-		if port == 0 {
-			port = m.nextPort
-			m.nextPort++
-		}
-		if port >= m.nextPort {
-			m.nextPort = port + 1
-		}
-		if _, exists := m.instances[port]; !exists && port > 0 && !m.pidExists(pid) {
-			m.instances[port] = &Instance{
-				Port:         port,
-				Model:        modelName,
-				PID:          pid,
-				Status:       "running",
-				LastActivity: time.Now(),
-			}
-			log.Printf("recovered orphan instance: port=%d pid=%d model=%s", port, pid, modelName)
+// recoverOrphanPidWindows recovers one orphan by PID. tasklist CSV has no
+// command line, so we ask WMI for it. P2-T6: when WMI fails (or the command
+// line is not a gollama one) the process is skipped — the old code registered
+// a phantom instance on a guessed port, which burned ports and showed fake
+// instances in the UI.
+func (m *Manager) recoverOrphanPidWindows(pid int) {
+	if m.pidExists(pid) {
+		return
+	}
+	wmi := exec.Command("wmic", "process", "where", fmt.Sprintf("ProcessId=%d", pid), "get", "CommandLine", "/format:value")
+	wmiOut, wmiErr := wmi.Output()
+	if wmiErr != nil {
+		log.Printf("orphan recovery: cannot read command line of pid %d (%v) — skipping", pid, wmiErr)
+		return
+	}
+	for _, wmiLine := range strings.Split(string(wmiOut), "\n") {
+		wmiLine = strings.TrimSpace(wmiLine)
+		if strings.HasPrefix(wmiLine, "CommandLine=") {
+			m.registerOrphanFromCommandLine(pid, strings.TrimPrefix(wmiLine, "CommandLine="))
 		}
 	}
+}
+
+// registerOrphanFromCommandLine parses a process command line and registers
+// an orphan instance when it looks gollama-launched (identified by the
+// --host flag). Returns true when an instance was registered.
+func (m *Manager) registerOrphanFromCommandLine(pid int, cmdLine string) bool {
+	if m.pidExists(pid) {
+		return false
+	}
+	if !strings.Contains(cmdLine, "--host ") {
+		return false
+	}
+	var port int
+	var modelName string
+	args := strings.Fields(cmdLine)
+	for i, a := range args {
+		if a == "--port" && i+1 < len(args) {
+			port, _ = strconv.Atoi(args[i+1])
+		}
+		if a == "-m" && i+1 < len(args) {
+			modelName = args[i+1]
+			if idx := strings.LastIndex(modelName, "/"); idx >= 0 {
+				modelName = modelName[idx+1:]
+			}
+			if idx := strings.LastIndex(modelName, "\\"); idx >= 0 {
+				modelName = modelName[idx+1:]
+			}
+		}
+	}
+	if port == 0 {
+		port = m.nextPort
+		m.nextPort++
+	}
+	if port >= m.nextPort {
+		m.nextPort = port + 1
+	}
+	if _, exists := m.instances[port]; exists {
+		return false
+	}
+	m.instances[port] = &Instance{
+		Port:         port,
+		Model:        modelName,
+		PID:          pid,
+		Status:       "running",
+		LastActivity: time.Now(),
+	}
+	log.Printf("recovered orphan instance: port=%d pid=%d model=%s", port, pid, modelName)
+	return true
 }
 
 func (m *Manager) RecoverOrphans() {
