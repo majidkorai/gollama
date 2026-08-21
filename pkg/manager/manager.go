@@ -230,7 +230,7 @@ func (m *Manager) registerOrphan(pid int, cmdLine string) {
 		m.nextPort = port + 1
 	}
 	if _, exists := m.instances[port]; !exists && port > 0 && !m.pidExists(pid) {
-		m.instances[port] = &Instance{
+		inst := &Instance{
 			Port:         port,
 			Model:        modelName,
 			PID:          pid,
@@ -238,7 +238,9 @@ func (m *Manager) registerOrphan(pid int, cmdLine string) {
 			Ready:        true,
 			LastActivity: time.Now(),
 		}
+		m.instances[port] = inst
 		log.Printf("recovered orphan instance: port=%d pid=%d model=%s", port, pid, modelName)
+		m.confirmOrphanReady(inst)
 	}
 }
 
@@ -341,15 +343,68 @@ func (m *Manager) registerOrphanFromCommandLine(pid int, cmdLine string) bool {
 	if _, exists := m.instances[port]; exists {
 		return false
 	}
-	m.instances[port] = &Instance{
+	inst := &Instance{
 		Port:         port,
 		Model:        modelName,
 		PID:          pid,
 		Status:       "running",
+		Ready:        true,
 		LastActivity: time.Now(),
 	}
+	m.instances[port] = inst
 	log.Printf("recovered orphan instance: port=%d pid=%d model=%s", port, pid, modelName)
+	m.confirmOrphanReady(inst)
 	return true
+}
+
+// confirmOrphanReady kicks a background health poll for a recovered orphan
+// (P3-T3). Orphans are registered optimistically (Ready: true) because the
+// process was alive when we scanned, but we don't trust that forever: the
+// poll confirms /health, snapshots the one-shot metrics a fresh Start would
+// record, and detects the process dying or never becoming ready.
+func (m *Manager) confirmOrphanReady(inst *Instance) {
+	go func() {
+		healthClient := &http.Client{Timeout: 2 * time.Second}
+		baseURL := fmt.Sprintf("http://127.0.0.1:%d", inst.Port)
+		deadline := time.Now().Add(model.LoadTimeout())
+		for time.Now().Before(deadline) {
+			if m.ProcessExited(inst) {
+				m.mu.Lock()
+				if inst.Status == "running" {
+					inst.Status = "stopped"
+				}
+				m.mu.Unlock()
+				log.Printf("recovered orphan exited before becoming ready: port=%d", inst.Port)
+				return
+			}
+			resp, err := healthClient.Get(baseURL + "/health")
+			if err == nil {
+				resp.Body.Close()
+				if resp.StatusCode == http.StatusOK {
+					// Metrics outside the lock (P3-T2): ps + nvidia-smi.
+					cpu, mem := queryProcessStats(inst.PID)
+					per, gpuOK := queryGpuUtil()
+					m.mu.Lock()
+					inst.Ready = true
+					inst.CpuPercent = cpu
+					inst.MemoryMB = mem
+					if gpuOK {
+						setGpuUtil(inst, per)
+					}
+					m.mu.Unlock()
+					log.Printf("recovered orphan ready: port=%d cpu=%.0f%% mem=%.0fMB gpu=%.0f%%", inst.Port, cpu, mem, inst.GpuUtil)
+					return
+				}
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+		// Alive but never served /health within the deadline — don't trust
+		// the optimistic Ready forever.
+		m.mu.Lock()
+		inst.Ready = false
+		m.mu.Unlock()
+		log.Printf("recovered orphan did not confirm readiness: port=%d (check logs)", inst.Port)
+	}()
 }
 
 // RecoverOrphans scans for llama-server processes left behind by a previous

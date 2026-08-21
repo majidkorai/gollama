@@ -3,7 +3,10 @@
 package manager
 
 import (
+	"fmt"
 	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -330,4 +333,81 @@ func TestStopAll(t *testing.T) {
 			t.Errorf("process %d still alive after StopAll", inst.PID)
 		}
 	}
+}
+
+// TestConfirmOrphanReady (P3-T3): a recovered orphan is registered
+// optimistically, but the confirming health poll must (a) confirm readiness
+// and snapshot the one-shot metrics when the process actually serves /health,
+// and (b) mark the instance stopped when the process dies before serving.
+func TestConfirmOrphanReady(t *testing.T) {
+	t.Setenv("GOLLAMA_MODEL_LOAD_TIMEOUT", "5")
+
+	m := &Manager{instances: make(map[int]*Instance), nextPort: 8081, reserved: make(map[int]bool)}
+	// Locked reads so the test never races the confirming poll's writes.
+	memOf := func(inst *Instance) float64 {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		return inst.MemoryMB
+	}
+	readyOf := func(inst *Instance) bool {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		return inst.Ready
+	}
+	statusOf := func(inst *Instance) string {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		return inst.Status
+	}
+	str := func(inst *Instance) string {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		return fmt.Sprintf("ready=%v mem=%.1f status=%s", inst.Ready, inst.MemoryMB, inst.Status)
+	}
+
+	// (a) live process serving /health -> Ready confirmed + metrics snapshotted.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+	livePort := srv.Listener.Addr().(*net.TCPAddr).Port
+	live := &Instance{Port: livePort, PID: os.Getpid(), Status: "running", Ready: true}
+	m.instances[livePort] = live
+	m.confirmOrphanReady(live)
+	if !waitForCond(t, 5*time.Second, func() bool { return memOf(live) > 0 }) {
+		t.Fatalf("confirming poll did not snapshot metrics: %s", str(live))
+	}
+	if !readyOf(live) {
+		t.Fatalf("confirmed orphan not Ready: %s", str(live))
+	}
+
+	// (b) process dies before serving -> instance marked stopped.
+	cmd := exec.Command("/bin/sh", "-c", "exit 0")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	if err := cmd.Wait(); err != nil {
+		t.Fatal(err)
+	}
+	deadPort := 19999 // nothing listens here
+	dead := &Instance{Port: deadPort, PID: cmd.Process.Pid, Status: "running", Ready: true}
+	m.instances[deadPort] = dead
+	m.confirmOrphanReady(dead)
+	if !waitForCond(t, 5*time.Second, func() bool { return statusOf(dead) == "stopped" }) {
+		t.Fatalf("dead orphan not marked stopped: %s", str(dead))
+	}
+}
+
+// waitForCond polls cond every 20ms until it is true or the timeout elapses,
+// returning whether the condition was met.
+func waitForCond(t *testing.T, timeout time.Duration, cond func() bool) bool {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return true
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return cond()
 }
