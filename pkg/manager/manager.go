@@ -51,6 +51,12 @@ type Manager struct {
 	mu        sync.Mutex
 	instances map[int]*Instance
 	nextPort  int
+	// reserved ports claimed by an in-flight Start/StartImage (P3-T2):
+	// the port is picked and reserved under the lock, the availability
+	// scan and process spawn happen outside it, then the instance is
+	// committed and the reservation released. Reserved ports behave like
+	// running instances for allocation purposes.
+	reserved map[int]bool
 }
 
 // NewManager returns a Manager and recovers orphaned llama-server processes
@@ -74,6 +80,7 @@ func newManager() *Manager {
 	m := &Manager{
 		instances: make(map[int]*Instance),
 		nextPort:  8081,
+		reserved:  make(map[int]bool),
 	}
 
 	// Auto-stop idle instances
@@ -148,6 +155,11 @@ func (m *Manager) recoverOrphans() {
 	if err != nil {
 		return
 	}
+	// Collect candidates without the lock, then register under it (P3-T2).
+	var candidates []struct {
+		pid     int
+		cmdLine string
+	}
 	for _, line := range strings.Split(string(out), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -165,8 +177,16 @@ func (m *Manager) recoverOrphans() {
 		if !isLlamaServerCommandLine(cmdLine) {
 			continue
 		}
-		m.registerOrphan(pid, cmdLine)
+		candidates = append(candidates, struct {
+			pid     int
+			cmdLine string
+		}{pid, cmdLine})
 	}
+	m.mu.Lock()
+	for _, c := range candidates {
+		m.registerOrphan(c.pid, c.cmdLine)
+	}
+	m.mu.Unlock()
 }
 
 // isLlamaServerCommandLine reports whether a full command line belongs to a
@@ -228,6 +248,9 @@ func (m *Manager) recoverOrphansWindows() {
 	if err != nil {
 		return
 	}
+	// Collect PIDs without the lock, then resolve command lines (wmic) and
+	// register — each step outside the lock except registration (P3-T2).
+	var pids []int
 	for _, line := range strings.Split(string(out), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -242,32 +265,43 @@ func (m *Manager) recoverOrphansWindows() {
 		if pid == 0 {
 			continue
 		}
-
-		m.recoverOrphanPidWindows(pid)
+		pids = append(pids, pid)
 	}
+	var candidates []struct {
+		pid     int
+		cmdLine string
+	}
+	for _, pid := range pids {
+		if cmdLine, ok := m.windowsCommandLine(pid); ok {
+			candidates = append(candidates, struct {
+				pid     int
+				cmdLine string
+			}{pid, cmdLine})
+		}
+	}
+	m.mu.Lock()
+	for _, c := range candidates {
+		m.registerOrphanFromCommandLine(c.pid, c.cmdLine)
+	}
+	m.mu.Unlock()
 }
 
-// recoverOrphanPidWindows recovers one orphan by PID. tasklist CSV has no
-// command line, so we ask WMI for it. P2-T6: when WMI fails (or the command
-// line is not a gollama one) the process is skipped — the old code registered
-// a phantom instance on a guessed port, which burned ports and showed fake
-// instances in the UI.
-func (m *Manager) recoverOrphanPidWindows(pid int) {
-	if m.pidExists(pid) {
-		return
-	}
+// windowsCommandLine asks WMI for the command line of pid. Runs without m.mu
+// held.
+func (m *Manager) windowsCommandLine(pid int) (string, bool) {
 	wmi := exec.Command("wmic", "process", "where", fmt.Sprintf("ProcessId=%d", pid), "get", "CommandLine", "/format:value")
 	wmiOut, wmiErr := wmi.Output()
 	if wmiErr != nil {
 		log.Printf("orphan recovery: cannot read command line of pid %d (%v) — skipping", pid, wmiErr)
-		return
+		return "", false
 	}
 	for _, wmiLine := range strings.Split(string(wmiOut), "\n") {
 		wmiLine = strings.TrimSpace(wmiLine)
 		if strings.HasPrefix(wmiLine, "CommandLine=") {
-			m.registerOrphanFromCommandLine(pid, strings.TrimPrefix(wmiLine, "CommandLine="))
+			return strings.TrimPrefix(wmiLine, "CommandLine="), true
 		}
 	}
+	return "", false
 }
 
 // registerOrphanFromCommandLine parses a process command line and registers
@@ -318,9 +352,11 @@ func (m *Manager) registerOrphanFromCommandLine(pid int, cmdLine string) bool {
 	return true
 }
 
+// RecoverOrphans scans for llama-server processes left behind by a previous
+// gollama run. The process-table scan (ps / tasklist / wmic) runs WITHOUT
+// m.mu held (P3-T2) so UI polls and Starts are not blocked by the external
+// commands; registration happens under the lock.
 func (m *Manager) RecoverOrphans() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	m.recoverOrphans()
 }
 
@@ -343,10 +379,67 @@ func portAvailable(port int) bool {
 	return true
 }
 
-func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceFlags bool, profileEnv map[string]string, binaryPath ...string) (*Instance, error) {
+// portTakenLocked reports whether the port is held by a running instance or
+// reserved by an in-flight Start. Caller must hold m.mu.
+func (m *Manager) portTakenLocked(port int) bool {
+	if m.reserved[port] {
+		return true
+	}
+	inst, ok := m.instances[port]
+	return ok && inst.Status == "running"
+}
+
+// claimPort atomically reserves a port that is neither taken nor in use on
+// the wire. Returns the claimed port, or 0 when unavailable. Caller must
+// NOT hold m.mu.
+func (m *Manager) claimPort(port int) int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.portTakenLocked(port) || !portAvailable(port) {
+		return 0
+	}
+	m.reserved[port] = true
+	return port
+}
 
+// releasePort unreserves a port claimed by an in-flight Start. Caller must
+// NOT hold m.mu.
+func (m *Manager) releasePort(port int) {
+	m.mu.Lock()
+	delete(m.reserved, port)
+	m.mu.Unlock()
+}
+
+// allocateAvailablePort waits for the candidate to become free (TIME_WAIT
+// after a restart) and, if it stays busy, atomically claims the next free
+// port within +100. Runs entirely without m.mu held (P3-T2) — the old code
+// did this scan under the lock, serializing every Start behind up to 3s of
+// retries. Returns the port to use (the candidate when it freed up or no
+// free port was found in the window).
+func (m *Manager) allocateAvailablePort(port int) int {
+	if !portAvailable(port) {
+		// Port might be in TIME_WAIT after a restart — retry for a bit
+		for retry := 0; retry < 15; retry++ {
+			time.Sleep(200 * time.Millisecond)
+			if portAvailable(port) {
+				break
+			}
+		}
+	}
+	if portAvailable(port) {
+		return port
+	}
+	// Port taken by another process — find the next free one
+	for i := port + 1; i < port+100; i++ {
+		if claimed := m.claimPort(i); claimed != 0 {
+			log.Printf("port %d is busy, using %d instead", port, claimed)
+			return claimed
+		}
+	}
+	return port
+}
+
+func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceFlags bool, profileEnv map[string]string, binaryPath ...string) (*Instance, error) {
 	// Build set of flag keys from extraArgs early to check for --port
 	extraKeys := make(map[string]bool)
 	for _, a := range extraArgs {
@@ -366,44 +459,43 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 			}
 		}
 	}
+
+	// Pick the candidate port and reserve it under the lock (P3-T2). The
+	// availability scan, process build and spawn all happen outside the
+	// lock, so parallel Starts don't serialize behind up to 3s of port
+	// retries.
+	m.mu.Lock()
 	if port == 0 {
 		port = m.nextPort
 		m.nextPort++
 	}
-
 	if existing, exists := m.instances[port]; exists {
 		if existing.Status == "running" {
+			m.mu.Unlock()
 			return nil, fmt.Errorf("port %d is already in use", port)
 		}
 		// Stale entry (the process exited or was stopped) — reuse the slot
 		// instead of permanently blocking this port.
 		delete(m.instances, port)
 	}
-
-	if !portAvailable(port) {
-		// Port might be in TIME_WAIT after a restart — retry for a bit
-		for retry := 0; retry < 15; retry++ {
-			time.Sleep(200 * time.Millisecond)
-			if portAvailable(port) {
-				break
-			}
-		}
+	if m.reserved[port] {
+		m.mu.Unlock()
+		return nil, fmt.Errorf("port %d is already in use", port)
 	}
-	if !portAvailable(port) {
-		// Port taken by another process — find the next free one
-		for i := port + 1; i < port+100; i++ {
-			if _, exists := m.instances[i]; exists {
-				continue
-			}
-			if portAvailable(i) {
-				log.Printf("port %d is busy, using %d instead", port, i)
-				port = i
-				break
-			}
-		}
+	m.reserved[port] = true
+	candidate := port
+	m.mu.Unlock()
+
+	port = m.allocateAvailablePort(port)
+	if port != candidate {
+		// The scan atomically claimed a different port; hand over the
+		// reservation and advance the auto-assign cursor.
+		m.mu.Lock()
+		delete(m.reserved, candidate)
 		if port > m.nextPort {
 			m.nextPort = port + 1
 		}
+		m.mu.Unlock()
 	}
 
 	llamaBin := llama.FindLlamaServer()
@@ -412,6 +504,7 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 	}
 	blob, err := model.ResolveModelBlob(modelName)
 	if err != nil {
+		m.releasePort(port)
 		return nil, fmt.Errorf("resolving model: %w", err)
 	}
 
@@ -519,6 +612,7 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 	}
 
 	if err := cmd.Start(); err != nil {
+		m.releasePort(port)
 		return nil, fmt.Errorf("starting llama-server: %w", err)
 	}
 
@@ -570,7 +664,20 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 			}
 		}
 	}
+
+	// Commit under the lock (P3-T2): the spawn itself happened outside it.
+	// The defensive check is belt-and-braces — the reservation should make
+	// a collision impossible.
+	m.mu.Lock()
+	if _, taken := m.instances[port]; taken {
+		m.mu.Unlock()
+		_ = cmd.Process.Kill()
+		m.releasePort(port)
+		return nil, fmt.Errorf("port %d is already in use", port)
+	}
 	m.instances[port] = inst
+	delete(m.reserved, port)
+	m.mu.Unlock()
 
 	log.Printf("instance started: model=%s port=%d pid=%d", modelName, port, cmd.Process.Pid)
 
@@ -584,13 +691,16 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 			if err == nil {
 				resp.Body.Close()
 				if resp.StatusCode == 200 {
+					// Metrics outside the lock (P3-T2): queryProcessStats
+					// runs ps and queryGpuUtil runs nvidia-smi.
+					cpu, mem := queryProcessStats(inst.PID)
+					per, gpuOK := queryGpuUtil()
 					m.mu.Lock()
 					inst.Ready = true
 					// One-shot process metrics snapshot (stable after startup)
-					cpu, mem := queryProcessStats(inst.PID)
 					inst.CpuPercent = cpu
 					inst.MemoryMB = mem
-					if per, ok := queryGpuUtil(); ok {
+					if gpuOK {
 						setGpuUtil(inst, per)
 					}
 					m.mu.Unlock()
@@ -635,49 +745,45 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 
 // StartImage starts the Python image generation server as a managed subprocess.
 func (m *Manager) StartImage(modelID string, port int, env map[string]string) (*Instance, error) {
+	// Reserve the candidate port under the lock (P3-T2); the availability
+	// scan and spawn happen outside it.
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	if existing, exists := m.instances[port]; exists {
 		if existing.Status == "running" {
+			m.mu.Unlock()
 			return nil, fmt.Errorf("port %d is already in use", port)
 		}
 		// Stale entry (the process exited or was stopped) — reuse the slot
 		// instead of permanently blocking this port.
 		delete(m.instances, port)
 	}
-
-	if !portAvailable(port) {
-		for retry := 0; retry < 15; retry++ {
-			time.Sleep(200 * time.Millisecond)
-			if portAvailable(port) {
-				break
-			}
-		}
+	if m.reserved[port] {
+		m.mu.Unlock()
+		return nil, fmt.Errorf("port %d is already in use", port)
 	}
-	if !portAvailable(port) {
-		for i := port + 1; i < port+100; i++ {
-			if _, exists := m.instances[i]; exists {
-				continue
-			}
-			if portAvailable(i) {
-				log.Printf("port %d is busy, using %d instead", port, i)
-				port = i
-				break
-			}
-		}
+	m.reserved[port] = true
+	candidate := port
+	m.mu.Unlock()
+
+	port = m.allocateAvailablePort(port)
+	if port != candidate {
+		m.mu.Lock()
+		delete(m.reserved, candidate)
 		if port > m.nextPort {
 			m.nextPort = port + 1
 		}
+		m.mu.Unlock()
 	}
 
 	pythonBin := model.ImagePythonPath()
 	appPath := model.ImageAppPath()
 
 	if _, err := os.Stat(pythonBin); os.IsNotExist(err) {
+		m.releasePort(port)
 		return nil, fmt.Errorf("Python binary not found at %s — set GOLLAMA_IMAGE_PYTHON env var", pythonBin)
 	}
 	if _, err := os.Stat(appPath); os.IsNotExist(err) {
+		m.releasePort(port)
 		return nil, fmt.Errorf("image app not found at %s — set GOLLAMA_IMAGE_APP env var", appPath)
 	}
 
@@ -709,6 +815,7 @@ func (m *Manager) StartImage(modelID string, port int, env map[string]string) (*
 	}
 
 	if err := cmd.Start(); err != nil {
+		m.releasePort(port)
 		return nil, fmt.Errorf("starting image server: %w", err)
 	}
 
@@ -723,7 +830,18 @@ func (m *Manager) StartImage(modelID string, port int, env map[string]string) (*
 		Cmd:          cmd,
 	}
 	inst.WaitDone = make(chan struct{})
+
+	// Commit under the lock (P3-T2); the spawn happened outside it.
+	m.mu.Lock()
+	if _, taken := m.instances[port]; taken {
+		m.mu.Unlock()
+		_ = cmd.Process.Kill()
+		m.releasePort(port)
+		return nil, fmt.Errorf("port %d is already in use", port)
+	}
 	m.instances[port] = inst
+	delete(m.reserved, port)
+	m.mu.Unlock()
 
 	log.Printf("image instance started: model=%s port=%d pid=%d", modelID, port, cmd.Process.Pid)
 

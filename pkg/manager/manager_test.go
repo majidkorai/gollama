@@ -83,6 +83,7 @@ func TestFindInstanceByModelDeterministic(t *testing.T) {
 			8083: {Port: 8083, PID: os.Getpid(), Model: "qwen3.6-27b", Status: "stopped"},
 		},
 		nextPort: 9000,
+		reserved: make(map[int]bool),
 	}
 
 	// Exact match wins even though other candidates match by suffix/substring.
@@ -117,7 +118,7 @@ func TestFindInstanceByModelDeterministic(t *testing.T) {
 // parser is pure, so it runs on every OS.
 func TestRegisterOrphanFromCommandLine(t *testing.T) {
 	fresh := func() *Manager {
-		return &Manager{instances: map[int]*Instance{}, nextPort: 8081}
+		return &Manager{instances: map[int]*Instance{}, nextPort: 8081, reserved: make(map[int]bool)}
 	}
 
 	// Not a gollama process (no --host) -> skipped, no state change.
@@ -161,14 +162,20 @@ func TestRegisterOrphanFromCommandLine(t *testing.T) {
 	}
 }
 
-// TestRecoverOrphanPidWindowsSkipsSelf (P2-T6): the test process's own
+// TestRecoverOrphanWindowsSkipsSelf (P2-T6, P3-T2): the test process's own
 // command line is not a gollama one, so nothing may be registered — on
 // Windows via the no---host rule, on other OSes because wmic is missing and
 // the PID is skipped instead of guessed. Either way no phantom, no burned
 // port.
-func TestRecoverOrphanPidWindowsSkipsSelf(t *testing.T) {
-	m := &Manager{instances: map[int]*Instance{}, nextPort: 8081}
-	m.recoverOrphanPidWindows(os.Getpid())
+func TestRecoverOrphanWindowsSkipsSelf(t *testing.T) {
+	m := &Manager{instances: map[int]*Instance{}, nextPort: 8081, reserved: map[int]bool{}}
+	// Mirror recoverOrphansWindows for a single PID: fetch the command line
+	// (absent on non-Windows, where wmic is missing) and, if present, attempt
+	// to register it. The test binary's own process is not gollama-launched,
+	// so nothing may be registered and no port may be burned.
+	if cmdLine, ok := m.windowsCommandLine(os.Getpid()); ok {
+		m.registerOrphanFromCommandLine(os.Getpid(), cmdLine)
+	}
 	if len(m.instances) != 0 {
 		t.Fatalf("phantom instance registered: %v", m.instances)
 	}
@@ -245,6 +252,7 @@ func TestStartRejectsRunningSlot(t *testing.T) {
 			8124: {Port: 8124, Status: "running", PID: os.Getpid()},
 		},
 		nextPort: 9000,
+		reserved: make(map[int]bool),
 	}
 	_, err := m.Start("fake-model", 8124, nil, false, nil)
 	if err == nil || !strings.Contains(err.Error(), "already in use") {

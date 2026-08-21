@@ -3,6 +3,7 @@
 package manager
 
 import (
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -53,6 +54,7 @@ func TestStartAutoAssignsPastRunningInstance(t *testing.T) {
 			8081: {Port: 8081, Status: "running", PID: os.Getpid(), Model: "fake-1b"},
 		},
 		nextPort: 8082,
+		reserved: make(map[int]bool),
 	}
 	inst, err := m.Start("fake-1b", 0, nil, false, nil)
 	if err != nil {
@@ -83,7 +85,7 @@ func TestRecoverOrphansFindsScriptInstance(t *testing.T) {
 	}
 	t.Cleanup(func() { proc.Process.Kill() })
 
-	m := &Manager{instances: make(map[int]*Instance), nextPort: 8081}
+	m := &Manager{instances: make(map[int]*Instance), nextPort: 8081, reserved: make(map[int]bool)}
 	// ps can lag behind process start — retry briefly.
 	var found *Instance
 	for i := 0; i < 20; i++ {
@@ -137,7 +139,81 @@ func dummyHome(t *testing.T, script string) *Manager {
 		Profiles:     map[string]model.Profile{},
 		IdleTTL:      0,
 	})
-	return &Manager{instances: make(map[int]*Instance), nextPort: 8081}
+	return &Manager{instances: make(map[int]*Instance), nextPort: 8081, reserved: make(map[int]bool)}
+}
+
+// TestStartParallelNoSamePortNoSerialization (P3-T2): two auto-assign
+// Starts fired in parallel must (a) never be handed the same port, and
+// (b) not serialize behind the port-availability retry sleep. With the
+// reservation map the 15×200ms retry (see allocateAvailablePort) runs
+// OUTSIDE m.mu; before P3-T2 it ran under the lock, so two Starts each
+// forced through a busy candidate would take ~2× the retry window. We block
+// both auto-assign candidates (8081, 8082) so every Start pays the full
+// retry window, then assert the pair finishes in well under two windows.
+func TestStartParallelNoSamePortNoSerialization(t *testing.T) {
+	m := dummyHome(t, "#!/bin/sh\nsleep 30\n")
+	// Keep the background health-poll goroutines from lingering for the
+	// default 5m load timeout.
+	t.Setenv("GOLLAMA_MODEL_LOAD_TIMEOUT", "2")
+
+	// Occupy both auto-assign candidates so each Start hits the busy-port
+	// retry loop. Skip (not fail) if the ports are already taken.
+	var blockers []net.Listener
+	for _, p := range []string{"127.0.0.1:8081", "127.0.0.1:8082"} {
+		ln, err := net.Listen("tcp", p)
+		if err != nil {
+			for _, b := range blockers {
+				b.Close()
+			}
+			t.Skipf("candidate port busy in this environment (%s): %v", p, err)
+		}
+		blockers = append(blockers, ln)
+	}
+	defer func() {
+		for _, b := range blockers {
+			b.Close()
+		}
+	}()
+
+	start := time.Now()
+	resCh := make(chan struct {
+		inst *Instance
+		err  error
+	}, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			inst, err := m.Start("fake-1b", 0, nil, false, nil)
+			resCh <- struct {
+				inst *Instance
+				err  error
+			}{inst, err}
+		}()
+	}
+	ports := make([]int, 0, 2)
+	for i := 0; i < 2; i++ {
+		r := <-resCh
+		if r.err != nil {
+			t.Fatalf("parallel Start %d: %v", i, r.err)
+		}
+		ports = append(ports, r.inst.Port)
+		port := r.inst.Port
+		t.Cleanup(func() { m.Stop(port) })
+	}
+	elapsed := time.Since(start)
+
+	// (a) never the same port.
+	if ports[0] == ports[1] {
+		t.Fatalf("parallel Starts were handed the same port %d", ports[0])
+	}
+
+	// (b) not serialized on the retry sleep. One busy candidate costs one
+	// retry window (15×200ms ≈ 3s); if the retry ran under the lock the two
+	// Starts would take ~2 windows (≈6s). Assert comfortably under that.
+	const retryWindow = 3 * time.Second
+	if elapsed >= 2*retryWindow-500*time.Millisecond {
+		t.Fatalf("parallel Starts serialized on the port-retry sleep: %v (two windows ≈ %v)", elapsed, 2*retryWindow)
+	}
+	t.Logf("two parallel blocked Starts: ports %v in %v", ports, elapsed)
 }
 
 // waitForExit blocks until the instance's process has fully exited

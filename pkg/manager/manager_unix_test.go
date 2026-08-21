@@ -47,6 +47,7 @@ func TestStartReusesStaleSlot(t *testing.T) {
 			8123: {Port: 8123, Status: "stopped", Model: "fake-model"},
 		},
 		nextPort: 9000,
+		reserved: make(map[int]bool),
 	}
 	inst, err := m.Start("fake-model", 8123, nil, false, nil)
 	if err != nil {

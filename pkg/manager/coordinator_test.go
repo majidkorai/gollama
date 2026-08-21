@@ -56,7 +56,7 @@ func multiModelHome(t *testing.T, script string, models []string, image bool) *M
 		t.Setenv("GOLLAMA_IMAGE_PYTHON", "/bin/sh")
 		t.Setenv("GOLLAMA_IMAGE_APP", app)
 	}
-	return &Manager{instances: make(map[int]*Instance), nextPort: 8081}
+	return &Manager{instances: make(map[int]*Instance), nextPort: 8081, reserved: make(map[int]bool)}
 }
 
 // TestCoordinatorCoalescesSameModel (P3-T1): concurrent switches for the
