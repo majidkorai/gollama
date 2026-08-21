@@ -9,7 +9,7 @@
 **How to resume:**
 1. Read this file top-to-bottom (phase checkboxes are the source of truth).
 2. Confirm green baseline: `go build ./... && go vet ./... && go test ./...` (add `-race` for the server package; proxy tests spawn a dummy `llama-server` shell script and take ~20–35s).
-3. Start Phase 3, task P3-T3 (P3-T1 coordinator + P3-T2 no-lock-while-sleeping are done; P3-T3's `Cmd`/`WaitDone` half landed in P2-T3 — only the orphan health-poll confirmation remains). Work the tasks in order within a phase; each phase ends with a tag.
+3. Start Phase 3, task P3-T5 (P3-T1 coordinator, P3-T2 no-lock-while-sleeping, P3-T3 orphan-readiness confirmation, and P3-T4 sentinel errors are all done). Work the tasks in order within a phase; each phase ends with a tag.
 
 **Key context for the next session:**
 - Architecture review (what/where all the issues are) lives in the conversation that produced this plan; the plan itself is self-contained for execution. The full issue list maps 1:1 to tasks.
@@ -195,11 +195,8 @@ No behavior changes. This makes Phases 3–5 safe.
   - `Start` process spawn: build everything (args, env, log file) under lock is fine, but move `cmd.Start` + the 2s GPU cooldown + health polling outside the lock.
   - `Stop`: signal the process outside the lock (the 500ms sleep is the worst offender); mutate state under lock.
   - Regression test: two `Start` calls in parallel don't serialize on the sleep (assert wall-clock < threshold), and never get the same port.
-- [ ] **P3-T3: Instance lifecycle state** 
-  - `Instance` carries its `*exec.Cmd` + `waitDone chan struct{}` so Stop/StopAll/wait-for-exit are exact instead of signal-blind (supports P2-T3 properly).
-  - `recoverOrphans` registers recovered instances with `Ready: true` but also kicks a health poll to confirm (don't trust forever).
-- [ ] **P3-T4: Sentinel errors** (`pkg/model/model.go:1144` → `pkg/server/server.go:200,263`)
-  - `var ErrAlreadyExists = errors.New("model already exists")` in `pkg/model`; `errors.Is` in handlers. Same pattern for `ErrNotFound` (model/blob) where it's currently string-matched.
+- [x] **P3-T3: Instance lifecycle state** — **done**: `Cmd`/`WaitDone` landed in P2-T3 (Stop/StopAll/wait-for-exit exact); orphan registration now kicks `confirmOrphanReady` (unix + Windows paths), a background /health poll that confirms readiness + snapshots the one-shot metrics, marks the instance stopped if the process dies first (`ProcessExited`), and downgrades `Ready` to false if it never serves within the load deadline (don't trust forever). Windows registration also sets `Ready: true` to match unix.
+- [x] **P3-T4: Sentinel errors** (`pkg/model/model.go:1144` → `pkg/server/server.go:200,263`) — **done**: `model.ErrAlreadyExists` + `model.ErrNotFound` sentinels in pkg/model. `PullModel` returns `ErrAlreadyExists` (was `fmt.Errorf("already_exists")`); `ResolveModelBlob` wraps `ErrNotFound`; `handleModelPull`/`handleModelPullStream` use `errors.Is(err, model.ErrAlreadyExists)` (was `err.Error() == "already_exists"`); `handleModelDelete` now returns 404 for `ErrNotFound` and 500 for a real index-write failure (was a hardcoded 404 for every error).
 - [ ] **P3-T5: Request-level context on proxy paths**
   - `proxyToInstance` non-stream currently uses `context.WithTimeout(r.Context(), 10m)`; ensure *streaming* also honors client disconnect end-to-end (cancel upstream request when the client goes away — `proxyCtx` from `r.Context()` is already there; verify the read loop breaks and the upstream body is closed).
 

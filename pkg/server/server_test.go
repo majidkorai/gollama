@@ -309,6 +309,27 @@ func TestModelDeleteRejectsPathsOutsideModelsDir(t *testing.T) {
 	}
 }
 
+// TestModelDeleteMissingReturns404 (P3-T4): deleting a model that is not in
+// the index returns 404 (via errors.Is(ErrNotFound)), not 500 — the handler
+// must distinguish not-found from a real index-write failure.
+func TestModelDeleteMissingReturns404(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	modelsDir := filepath.Join(home, ".gollama", "models")
+	if err := os.MkdirAll(modelsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	model.SaveIndex(map[string]model.ModelInfo{})
+	s := New(manager.NewManagerNoRecovery(), "8080")
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/models/delete", strings.NewReader(`{"name":"ghost-1b"}`))
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("delete missing model = %d, want 404: %s", rec.Code, rec.Body.String())
+	}
+}
+
 // TestListenAddress verifies the v3.8.0 bind-address logic: loopback by
 // default, explicit override honored, empty falls back to loopback. The
 // actual socket bind is stdlib http.ListenAndServe (smoke-tested on the VM);

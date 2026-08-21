@@ -2,6 +2,7 @@ package model
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -133,6 +134,19 @@ func TestResolveModelBlob(t *testing.T) {
 	}
 	if _, err := ResolveModelBlob("gamma"); err == nil {
 		t.Fatal("expected error for missing model")
+	}
+}
+
+// TestResolveModelBlobNotFoundIsSentinel (P3-T4): a missing model returns an
+// error wrapping ErrNotFound so handlers can errors.Is it instead of
+// string-matching.
+func TestResolveModelBlobNotFoundIsSentinel(t *testing.T) {
+	setTestHome(t)
+	SaveIndex(map[string]ModelInfo{
+		"alpha": {Name: "alpha", ShortName: "alpha", BlobPath: writeModelFile(t, "alpha.gguf", 10)},
+	})
+	if _, err := ResolveModelBlob("nope-1b"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("ResolveModelBlob(missing) err = %v, want errors.Is(ErrNotFound)", err)
 	}
 }
 

@@ -218,13 +218,17 @@ func (s *Server) handleModelDelete(w http.ResponseWriter, r *http.Request) {
 	if err := model.UpdateIndex(func(idx map[string]model.ModelInfo) error {
 		info, ok := idx[req.Name]
 		if !ok {
-			return fmt.Errorf("model not found")
+			return model.ErrNotFound
 		}
 		blobPath = info.BlobPath
 		delete(idx, req.Name)
 		return nil
 	}); err != nil {
-		jsonError(w, "model not found", 404)
+		if errors.Is(err, model.ErrNotFound) {
+			jsonError(w, "model not found", 404)
+		} else {
+			jsonError(w, err.Error(), 500)
+		}
 		return
 	}
 
@@ -260,7 +264,7 @@ func (s *Server) handleModelPull(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := model.PullModel(req.Model); err != nil {
-		if err.Error() == "already_exists" {
+		if errors.Is(err, model.ErrAlreadyExists) {
 			jsonResponse(w, map[string]string{"status": "exists", "model": req.Model})
 		} else {
 			jsonError(w, err.Error(), 500)
@@ -323,7 +327,7 @@ func (s *Server) handleModelPullStream(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if err != nil {
-		if err.Error() == "already_exists" {
+		if errors.Is(err, model.ErrAlreadyExists) {
 			writeSSE("", map[string]string{"status": "exists"})
 		} else {
 			writeSSE("", map[string]string{"status": "error", "error": err.Error()})

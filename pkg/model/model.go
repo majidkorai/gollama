@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -20,6 +21,13 @@ import (
 	"strings"
 	"sync"
 	"time"
+)
+
+// Sentinel errors so handlers can distinguish failure modes with errors.Is
+// instead of string-matching (P3-T4).
+var (
+	ErrAlreadyExists = errors.New("model already exists")
+	ErrNotFound      = errors.New("model not found")
 )
 
 type ModelInfo struct {
@@ -1048,7 +1056,7 @@ func ResolveModelBlob(model string) (string, error) {
 	if _, err := os.Stat(model); err == nil {
 		return model, nil
 	}
-	return "", fmt.Errorf("model %q not found in index", model)
+	return "", fmt.Errorf("model %q not found in index: %w", model, ErrNotFound)
 }
 
 func PullModel(ref string) error {
@@ -1228,7 +1236,7 @@ func pullModelInternal(ctx context.Context, ref string, fn ProgressFn, progress 
 			return nil
 		})
 		log.Printf("model %s already exists, skipping download", modelName)
-		return fmt.Errorf("already_exists")
+		return ErrAlreadyExists
 	}
 
 	// Clean up stale index entry
