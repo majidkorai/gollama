@@ -26,7 +26,7 @@ func newTestServer(t *testing.T) *Server {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
-	return New(manager.NewManager(), "8080")
+	return New(manager.NewManagerNoRecovery(), "8080")
 }
 
 // startHealthServer returns the port of a local HTTP server whose /health
@@ -295,7 +295,7 @@ func TestModelDeleteRejectsPathsOutsideModelsDir(t *testing.T) {
 		"outside": {Name: "outside", BlobPath: "/tmp/gollama-test-outside.gguf", Size: 1},
 	})
 
-	s := New(manager.NewManager(), "8080")
+	s := New(manager.NewManagerNoRecovery(), "8080")
 	for _, name := range []string{"evil", "outside"} {
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/models/delete", strings.NewReader(`{"name":"`+name+`"}`))
 		rec := httptest.NewRecorder()
@@ -319,13 +319,13 @@ func TestListenAddress(t *testing.T) {
 	if s.listen != "127.0.0.1" {
 		t.Fatalf("default listen = %q, want 127.0.0.1", s.listen)
 	}
-	if got := NewWithListen(manager.NewManager(), "9080", "test", "0.0.0.0").listen; got != "0.0.0.0" {
+	if got := NewWithListen(manager.NewManagerNoRecovery(), "9080", "test", "0.0.0.0").listen; got != "0.0.0.0" {
 		t.Fatalf("explicit listen = %q, want 0.0.0.0", got)
 	}
-	if got := NewWithListen(manager.NewManager(), "9080", "test", "10.0.0.5").listen; got != "10.0.0.5" {
+	if got := NewWithListen(manager.NewManagerNoRecovery(), "9080", "test", "10.0.0.5").listen; got != "10.0.0.5" {
 		t.Fatalf("explicit listen = %q, want 10.0.0.5", got)
 	}
-	if got := NewWithListen(manager.NewManager(), "9080", "test", "").listen; got != "127.0.0.1" {
+	if got := NewWithListen(manager.NewManagerNoRecovery(), "9080", "test", "").listen; got != "127.0.0.1" {
 		t.Fatalf("empty listen = %q, want 127.0.0.1", got)
 	}
 }

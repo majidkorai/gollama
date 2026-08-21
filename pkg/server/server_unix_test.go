@@ -64,7 +64,7 @@ func postWarmup(t *testing.T, s *Server, body string) *httptest.ResponseRecorder
 
 func TestWarmupStartsAndIdempotent(t *testing.T) {
 	setupWarmupEnv(t)
-	s := New(manager.NewManager(), "8080")
+	s := New(manager.NewManagerNoRecovery(), "8080")
 	t.Cleanup(func() { s.mgr.Stop(8131) })
 
 	rec := postWarmup(t, s, `{"profile":"fake"}`)
@@ -91,7 +91,7 @@ func TestWarmupStartsAndIdempotent(t *testing.T) {
 
 func TestWarmupModelAutoDetect(t *testing.T) {
 	setupWarmupEnv(t)
-	s := New(manager.NewManager(), "8080")
+	s := New(manager.NewManagerNoRecovery(), "8080")
 	t.Cleanup(func() { s.mgr.Stop(8131) })
 
 	rec := postWarmup(t, s, `{"model":"fake-1b"}`)
@@ -107,7 +107,7 @@ func TestWarmupModelAutoDetect(t *testing.T) {
 
 func TestWarmupUnknowns(t *testing.T) {
 	setupWarmupEnv(t)
-	s := New(manager.NewManager(), "8080")
+	s := New(manager.NewManagerNoRecovery(), "8080")
 
 	if rec := postWarmup(t, s, `{"profile":"nope"}`); rec.Code != http.StatusNotFound {
 		t.Fatalf("unknown profile = %d, want 404: %s", rec.Code, rec.Body.String())

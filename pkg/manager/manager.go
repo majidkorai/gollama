@@ -53,13 +53,28 @@ type Manager struct {
 	nextPort  int
 }
 
+// NewManager returns a Manager and recovers orphaned llama-server processes
+// left behind by a previous gollama run.
 func NewManager() *Manager {
+	m := newManager()
+	m.recoverOrphans()
+	return m
+}
+
+// NewManagerNoRecovery is NewManager without the orphan ps scan. Tests use
+// it for hermetic managers: a dummy llama-server spawned by one test binary
+// would otherwise be adopted (and later stopped) by a gollama manager in
+// another test binary running on the same host.
+func NewManagerNoRecovery() *Manager {
+	return newManager()
+}
+
+func newManager() *Manager {
 	model.LoadConfig()
 	m := &Manager{
 		instances: make(map[int]*Instance),
 		nextPort:  8081,
 	}
-	m.recoverOrphans()
 
 	// Auto-stop idle instances
 	go func() {

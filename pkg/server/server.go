@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -25,6 +26,7 @@ import (
 
 type Server struct {
 	mgr     *manager.Manager
+	coord   *manager.Coordinator // serializes model switches (P3-T1)
 	port    string
 	listen  string // bind address; "127.0.0.1" by default (v3.8.0)
 	version string
@@ -45,6 +47,7 @@ func NewWithListen(mgr *manager.Manager, port, version, listen string) *Server {
 	}
 	s := &Server{
 		mgr:     mgr,
+		coord:   manager.NewCoordinator(mgr),
 		port:    port,
 		listen:  listen,
 		version: version,
@@ -355,7 +358,16 @@ func (s *Server) handleInstances(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, err.Error(), 400)
 			return
 		}
-		inst, err := s.mgr.Start(req.Model, req.Port, req.Flags, req.ReplaceFlags, nil)
+		// Quick launch goes through the coordinator (P3-T1): serialized
+		// against proxy/warmup switches, but explicit-launch semantics —
+		// never stops other instances, never reuses one.
+		inst, err := s.coord.SwitchAndStart(manager.SwitchRequest{
+			Model:        req.Model,
+			Mode:         manager.SwitchExplicit,
+			Port:         req.Port,
+			Flags:        req.Flags,
+			ReplaceFlags: req.ReplaceFlags,
+		})
 		if err != nil {
 			jsonError(w, err.Error(), 500)
 			return
@@ -1197,58 +1209,43 @@ func (s *Server) handleV1ImageGenerations(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	// Stop text instances to free VRAM for image generation.
-	// Only preempt if text has been idle for 30s — avoids toggling war
-	// when an agent workflow is actively using the text model (e.g. cron turns).
-	// A wide window means image generation waits for genuinely idle text
-	// rather than killing an in-flight agent call that still needs the GPU.
-	const imageTextIdleThreshold = 30 * time.Second
-	for _, inst := range s.mgr.List() {
-		if inst.Status == "running" && inst.Type != "image" {
-			sinceActivity := time.Since(inst.LastActivity)
-			if sinceActivity < imageTextIdleThreshold && sinceActivity >= 0 {
-				log.Printf("text instance %q (port %d) active %v ago — deferring image", inst.Model, inst.Port, sinceActivity.Round(time.Second))
-				w.Header().Set("Retry-After", "30")
-				jsonError(w, fmt.Sprintf("text model %q is busy, retry image generation later", inst.Model), 503)
-				return
-			}
-			log.Printf("stopping idle text instance %q (port %d) for image generation", inst.Model, inst.Port)
-			s.mgr.Stop(inst.Port)
+	// Switch to the image model through the coordinator (P3-T1): serialized
+	// against text switches; defers with 503 + Retry-After: 30 while a text
+	// model has been active in the last 30s (avoids killing an in-flight
+	// agent call that still needs the GPU); stops idle text to free VRAM.
+	alreadyRunning := s.mgr.FindInstanceByModel(modelName) != nil
+	var profileEnv map[string]string
+	if profileName != "" {
+		if p, ok := cfg.Profiles[profileName]; ok {
+			profileEnv = p.Env
 		}
 	}
-
-	inst := s.mgr.FindInstanceByModel(modelName)
-	if inst == nil {
-		startPort := 9081
-		// Find the next free port in the 9081+ range
-		for _, existing := range s.mgr.List() {
-			if existing.Type == "image" && existing.Port >= startPort {
-				startPort = existing.Port + 1
-			}
-		}
-
-		var profileEnv map[string]string
-		if profileName != "" {
-			if p, ok := cfg.Profiles[profileName]; ok {
-				profileEnv = p.Env
-			}
-		}
-
-		inst, err := s.mgr.StartImage(modelName, startPort, profileEnv)
-		if err != nil {
-			jsonError(w, fmt.Sprintf("starting image model %q: %v", modelName, err), 500)
+	inst, err := s.coord.SwitchAndStart(manager.SwitchRequest{
+		Model:   modelName,
+		Mode:    manager.SwitchImage,
+		Env:     profileEnv,
+		Profile: profileName,
+	})
+	if err != nil {
+		if errors.Is(err, manager.ErrBusy) {
+			log.Printf("deferring image generation: %v", err)
+			w.Header().Set("Retry-After", strconv.Itoa(manager.BusyRetryAfter))
+			jsonError(w, err.Error(), 503)
 			return
 		}
+		jsonError(w, fmt.Sprintf("starting image model %q: %v", modelName, err), 500)
+		return
+	}
+	s.mgr.TouchActivity(inst.Port)
+	if !alreadyRunning {
+		// Just spawned: keep the 503 + Retry-After: 5 contract (clients
+		// retry; readiness is polled in the background).
 		log.Printf("auto-started image model %q on port %d", modelName, inst.Port)
-		if profileName != "" {
-			s.mgr.SetProfile(inst.Port, profileName)
-		}
 		go s.waitForInstanceReady(inst.Port)
 		w.Header().Set("Retry-After", "5")
 		jsonError(w, fmt.Sprintf("image model %q is starting, retry in a few seconds", modelName), 503)
 		return
 	}
-	s.mgr.TouchActivity(inst.Port)
 	if err := s.waitForInstanceReady(inst.Port); err != nil {
 		jsonError(w, err.Error(), 500)
 		return
@@ -1295,59 +1292,6 @@ func resolveProfile(cfg *model.Config, profileName, modelName string) string {
 		}
 	}
 	return ""
-}
-
-// switchToModel frees the GPU for modelName: stops other running text
-// instances, and gives running image instances a grace period to finish
-// generating before preempting stale ones. Include the 2s GPU cooldown after
-// stopping a text instance. Call this only when a new model process is about
-// to be launched — it blocks up to ~62s while an image finishes generating.
-func (s *Server) switchToModel(modelName string) {
-	// Stop other text models when switching. Don't stop image instances —
-	// give them a grace period to finish generating (avoids cutting off the
-	// response mid-flight). Image can be preempted if it's been running for
-	// more than 30 seconds or has been idle for 10+ seconds.
-	var stoppedText bool
-	if running := s.mgr.List(); len(running) > 0 {
-		for _, inst := range running {
-			if inst.Status == "running" && inst.Type != "image" && inst.Model != modelName {
-				log.Printf("stopping existing text instance %q (port %d) for new model %q", inst.Model, inst.Port, modelName)
-				s.mgr.Stop(inst.Port)
-				stoppedText = true
-				continue
-			}
-			if inst.Status == "running" && inst.Type == "image" {
-				sinceStart := time.Since(inst.StartedAt)
-				sinceActivity := time.Since(inst.LastActivity)
-				if sinceStart < 30*time.Second || sinceActivity < 10*time.Second {
-					log.Printf("image instance %q (port %d) running for %v — deferring text until image finishes", inst.Model, inst.Port, sinceStart.Round(time.Second))
-					// Wait for image to complete (up to 60s)
-					deadline := time.Now().Add(60 * time.Second)
-					for time.Now().Before(deadline) {
-						if !s.mgr.HasInstance(inst.Port) {
-							log.Printf("image instance completed, proceeding with text model %q", modelName)
-							break
-						}
-						time.Sleep(1 * time.Second)
-					}
-					if s.mgr.HasInstance(inst.Port) {
-						log.Printf("image instance timed out — forcefully preempting")
-						s.mgr.Stop(inst.Port)
-					}
-				} else {
-					log.Printf("stopping stale image instance %q (port %d) for new model %q", inst.Model, inst.Port, modelName)
-					s.mgr.Stop(inst.Port)
-				}
-			}
-		}
-	}
-
-	// GPU cooldown: wait for CUDA to release VRAM from the stopped process
-	// before starting a new model on the same GPU(s).
-	if stoppedText {
-		log.Printf("waiting 2s for GPU memory release")
-		time.Sleep(2 * time.Second)
-	}
 }
 
 // handleWarmup starts a model (text or image profile) in the background so
@@ -1399,20 +1343,9 @@ func (s *Server) handleWarmup(w http.ResponseWriter, r *http.Request) {
 	// Image profiles: same switching rules as /v1/images/generations —
 	// only preempt text that has been idle for 30s.
 	if profile.Type == "image" {
-		const imageTextIdleThreshold = 30 * time.Second
-		for _, inst := range s.mgr.List() {
-			if inst.Status == "running" && inst.Type != "image" {
-				sinceActivity := time.Since(inst.LastActivity)
-				if sinceActivity < imageTextIdleThreshold && sinceActivity >= 0 {
-					log.Printf("warmup: text instance %q (port %d) active %v ago — deferring image warmup", inst.Model, inst.Port, sinceActivity.Round(time.Second))
-					w.Header().Set("Retry-After", "30")
-					jsonError(w, fmt.Sprintf("text model %q is busy, retry image warmup later", inst.Model), 503)
-					return
-				}
-				log.Printf("warmup: stopping idle text instance %q (port %d) for image warmup", inst.Model, inst.Port)
-				s.mgr.Stop(inst.Port)
-			}
-		}
+		// Idempotent first: an image model that is already running is
+		// returned as-is, even while text is busy (warmup is pre-warming,
+		// not generation).
 		if inst := s.mgr.FindInstanceByModel(modelName); inst != nil {
 			jsonResponse(w, map[string]interface{}{
 				"status": "running", "port": inst.Port, "model": inst.Model,
@@ -1420,19 +1353,21 @@ func (s *Server) handleWarmup(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		startPort := 9081
-		for _, existing := range s.mgr.List() {
-			if existing.Type == "image" && existing.Port >= startPort {
-				startPort = existing.Port + 1
-			}
-		}
-		inst, err := s.mgr.StartImage(modelName, startPort, profile.Env)
+		inst, err := s.coord.SwitchAndStart(manager.SwitchRequest{
+			Model:   modelName,
+			Mode:    manager.SwitchImage,
+			Env:     profile.Env,
+			Profile: profileName,
+		})
 		if err != nil {
+			if errors.Is(err, manager.ErrBusy) {
+				log.Printf("warmup: deferring image warmup for %q: %v", modelName, err)
+				w.Header().Set("Retry-After", strconv.Itoa(manager.BusyRetryAfter))
+				jsonError(w, err.Error(), 503)
+				return
+			}
 			jsonError(w, fmt.Sprintf("starting image model %q: %v", modelName, err), 500)
 			return
-		}
-		if profileName != "" {
-			s.mgr.SetProfile(inst.Port, profileName)
 		}
 		go s.waitForInstanceReady(inst.Port)
 		log.Printf("warmup: image model %q starting on port %d", modelName, inst.Port)
@@ -1473,14 +1408,17 @@ func (s *Server) handleWarmup(w http.ResponseWriter, r *http.Request) {
 		launchFlags = cfg.ProfileFlags(profileName)
 		log.Printf("warmup: using model profile %q for model %q", profileName, modelName)
 	}
-	s.switchToModel(modelName)
-	inst, err := s.mgr.Start(modelName, 0, launchFlags, false, profile.Env, profile.BinaryPath)
+	inst, err := s.coord.SwitchAndStart(manager.SwitchRequest{
+		Model:      modelName,
+		Mode:       manager.SwitchText,
+		Flags:      launchFlags,
+		Env:        profile.Env,
+		BinaryPath: profile.BinaryPath,
+		Profile:    profileName,
+	})
 	if err != nil {
 		jsonError(w, fmt.Sprintf("starting model %q: %v", modelName, err), 500)
 		return
-	}
-	if profileName != "" {
-		s.mgr.SetProfile(inst.Port, profileName)
 	}
 	log.Printf("warmup: model %q starting on port %d", modelName, inst.Port)
 	jsonResponse(w, map[string]interface{}{
@@ -1648,30 +1586,19 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 		launchFlags = cfg.ProxyFlags()
 	}
 
-	s.switchToModel(modelName)
+	var profileEnv map[string]string
+	var profileBinary string
+	if profileName != "" {
+		if p, ok := cfg.Profiles[profileName]; ok {
+			profileEnv = p.Env
+			profileBinary = p.BinaryPath
+		}
+	}
 
-	inst := s.mgr.FindInstanceByModel(modelName)
-	if inst == nil {
-		blob, err := model.ResolveModelBlob(modelName)
-		if err == nil && blob != "" {
-			var profileEnv map[string]string
-			var profileBinary string
-			if profileName != "" {
-				if p, ok := cfg.Profiles[profileName]; ok {
-					profileEnv = p.Env
-					profileBinary = p.BinaryPath
-				}
-			}
-			inst, err = s.mgr.Start(modelName, 0, launchFlags, false, profileEnv, profileBinary)
-			if err != nil {
-				jsonError(w, fmt.Sprintf("starting model %q: %v", modelName, err), 500)
-				return
-			}
-			log.Printf("auto-started model %q on port %d", modelName, inst.Port)
-			if profileName != "" {
-				s.mgr.SetProfile(inst.Port, profileName)
-			}
-		} else {
+	// Reject unknown models before switching: don't evict a running model
+	// for a request that cannot be served.
+	if s.mgr.FindInstanceByModel(modelName) == nil {
+		if blob, err := model.ResolveModelBlob(modelName); err != nil || blob == "" {
 			available := s.mgr.List()
 			names := make([]string, 0, len(available))
 			for _, a := range available {
@@ -1687,10 +1614,8 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 			return
 		}
 	}
-	s.mgr.TouchActivity(inst.Port)
 
 	isStream, _ := reqMap["stream"].(bool)
-	target := fmt.Sprintf("http://127.0.0.1:%d%s", inst.Port, targetPath)
 
 	// For streaming requests, begin the SSE response immediately so the
 	// client receives bytes (comment heartbeats) while a cold model loads.
@@ -1719,9 +1644,21 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 			}
 		}
 	}
-	if err := s.waitForReady(inst.Port, model.LoadTimeout(), heartbeat, func() bool {
-		return r.Context().Err() != nil
-	}); err != nil {
+	// Model switch (evict other models, start, wait for readiness) goes
+	// through the coordinator (P3-T1): concurrent requests for the same
+	// model coalesce; different models queue instead of thrashing the GPU.
+	inst, err := s.coord.SwitchAndStart(manager.SwitchRequest{
+		Model:       modelName,
+		Mode:        manager.SwitchText,
+		Flags:       launchFlags,
+		Env:         profileEnv,
+		BinaryPath:  profileBinary,
+		Profile:     profileName,
+		WaitReady:   true,
+		Heartbeat:   heartbeat,
+		ShouldAbort: func() bool { return r.Context().Err() != nil },
+	})
+	if err != nil {
 		if streamFlusher != nil {
 			w.Write(sseErrorChunk(err.Error()))
 			w.Write([]byte("data: [DONE]\n\n"))
@@ -1731,6 +1668,8 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 		jsonError(w, err.Error(), 500)
 		return
 	}
+	s.mgr.TouchActivity(inst.Port)
+	target := fmt.Sprintf("http://127.0.0.1:%d%s", inst.Port, targetPath)
 
 	var proxyCtx context.Context
 	var cancel context.CancelFunc

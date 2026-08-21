@@ -9,11 +9,11 @@
 **How to resume:**
 1. Read this file top-to-bottom (phase checkboxes are the source of truth).
 2. Confirm green baseline: `go build ./... && go vet ./... && go test ./...` (add `-race` for the server package; proxy tests spawn a dummy `llama-server` shell script and take ~20–35s).
-3. Start Phase 3, task P3-T1. Work the tasks in order within a phase; each phase ends with a tag.
+3. Start Phase 3, task P3-T2 (P3-T1 coordinator is done; P3-T3's `Cmd`/`WaitDone` half landed in P2-T3 — only the orphan health-poll confirmation remains). Work the tasks in order within a phase; each phase ends with a tag.
 
 **Key context for the next session:**
 - Architecture review (what/where all the issues are) lives in the conversation that produced this plan; the plan itself is self-contained for execution. The full issue list maps 1:1 to tasks.
-- **Test conventions** (follow them for new tests): `t.Setenv("HOME", t.TempDir())` for isolation; dummy `llama-server` = `#!/bin/sh\nsleep 30` script in `$HOME/.gollama/bin/`; fixed ports for warmup tests, ephemeral reserved ports for proxy tests (`startProxyFixture` in `pkg/server/proxy_test.go`); `fakeUpstream` (`pkg/server/fakeupstream_test.go`) simulates the model.
+- **Test conventions** (follow them for new tests): `t.Setenv("HOME", t.TempDir())` for isolation; dummy `llama-server` = `#!/bin/sh\nsleep 30` script in `$HOME/.gollama/bin/`; fixed ports for warmup tests, ephemeral reserved ports for proxy tests (`startProxyFixture` in `pkg/server/proxy_test.go`); `fakeUpstream` (`pkg/server/fakeupstream_test.go`) simulates the model. **Hermetic managers (P3-T1):** test managers must not run the orphan `ps` scan — use `manager.NewManagerNoRecovery()` (server tests) or raw `&Manager{...}` literals (manager tests), or one test binary's dummy processes get adopted by another binary's manager and stopped mid-switch.
 - **Session tooling quirk (important!):** the file-writing pipeline strips angle-bracket pairs from written content. In `pkg/server/transforms_test.go` the think-tag constants are therefore built from hex escapes (`0x3c`/`0x3e`) — keep it that way, and after writing any file containing `think`-style literals, verify on disk with `sed -n`/`grep` before compiling.
 - **Behavior quirks pinned by Phase 0 tests** (do not "fix" incidentally — they are scoped to later phases):
   - `/api/v1/chat` drops the `[DONE]` marker → fixed in P5-T1 (UI already tolerates `[DONE]`, `ui.go:2074`).
@@ -184,7 +184,7 @@ No behavior changes. This makes Phases 3–5 safe.
 
 ## Phase 3 — Concurrency & lifecycle → `v4.0.0` (major)
 
-- [ ] **P3-T1: Model-switch coordinator** (new `pkg/manager/coordinator.go` or in `server.go`)
+- [x] **P3-T1: Model-switch coordinator** (new `pkg/manager/coordinator.go` or in `server.go`) — **done**: `Coordinator.SwitchAndStart` with `switchMu` (serializes switches incl. the 60s image-grace wait and the readiness wait) + `mu`-guarded in-flight map `model → chan` (same-model callers coalesce and reuse the result; different models queue); modes `SwitchText`/`SwitchImage`/`SwitchExplicit`; `ErrBusy` (503 + Retry-After: 30) / `ErrSwitchAborted` / `ErrModelExited` / `ErrNotReady` sentinels; >90s waits log loudly. All five entry points rewired (proxy, warmup, instances POST, image generations, CLI chat/run); `Server.switchToModel` deleted. `Manager.ProcessExited` (WaitDone channel, else signal-0 with ESRCH/ErrProcessDone = gone, EPERM = alive) added for fail-fast readiness. `NewManagerNoRecovery()` added: server tests use it so one test binary's dummy llama-server is not adopted (and SIGKILL'ed) by another binary's orphan scan — that cross-binary interference was flaking the full suite.
   - All model switches go through one function: `coordinator.SwitchAndStart(model, profile, ...)`.
   - Internals: a `sync.Mutex` serializing switches + an in-flight map `model → chan *Instance` so concurrent requests for the *same* model coalesce (second caller waits on the channel, then reuses the instance) while different models queue.
   - Entry points rewired: `proxyToInstance`, `handleWarmup`, `handleInstances` (POST), `handleV1ImageGenerations` (text-stop part), CLI `chat`/`run`.

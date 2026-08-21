@@ -50,7 +50,10 @@ gollama/
 │   │   └── binary.go          # llama-server binary download/build/update
 │   ├── manager/
 │   │   ├── manager.go         # Instance lifecycle (start/stop/list/metrics)
-│   │   └── manager_test.go
+│   │   ├── coordinator.go     # Model-switch coordinator: serializes switches, coalesces same-model (P3-T1)
+│   │   ├── manager_test.go
+│   │   ├── coordinator_test.go
+│   │   └── manager_start_test.go
 │   ├── model/
 │   │   ├── model.go           # Config, model index, HF pull/search/scan
 │   │   ├── model_test.go

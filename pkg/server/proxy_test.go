@@ -62,7 +62,7 @@ func startProxyFixture(t *testing.T, upstream *fakeUpstream) (*Server, int) {
 	port := ln.Addr().(*net.TCPAddr).Port
 	ln.Close()
 
-	s := New(manager.NewManager(), "8080")
+	s := New(manager.NewManagerNoRecovery(), "8080")
 	inst, err := s.mgr.Start("fake-1b", 0, []string{"--port", strconv.Itoa(port)}, false, nil)
 	if err != nil {
 		t.Fatalf("starting dummy instance: %v", err)

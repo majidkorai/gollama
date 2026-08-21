@@ -217,7 +217,15 @@ func main() {
 		modelName := os.Args[2]
 		extraArgs := os.Args[3:]
 
-		inst, err := mgr.Start(modelName, 0, extraArgs, false, nil)
+		// Launch through the coordinator (P3-T1) with explicit-launch
+		// semantics: serialized, but never stops or reuses other
+		// instances (P2-T2 "always start" behavior preserved).
+		coord := manager.NewCoordinator(mgr)
+		inst, err := coord.SwitchAndStart(manager.SwitchRequest{
+			Model: modelName,
+			Mode:  manager.SwitchExplicit,
+			Flags: extraArgs,
+		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
@@ -262,7 +270,15 @@ func main() {
 		// had a model up. port 0 = auto-assign, which avoids running
 		// instances; an explicit --port that is in use is a clear error
 		// from Start.
-		inst, err := mgr.Start(modelName, 0, extraArgs, false, nil)
+		// Launch through the coordinator (P3-T1) with explicit-launch
+		// semantics: serialized, but never stops or reuses other
+		// instances (P2-T2 "always start" behavior preserved).
+		coord := manager.NewCoordinator(mgr)
+		inst, err := coord.SwitchAndStart(manager.SwitchRequest{
+			Model: modelName,
+			Mode:  manager.SwitchExplicit,
+			Flags: extraArgs,
+		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
