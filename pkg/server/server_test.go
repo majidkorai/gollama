@@ -57,20 +57,6 @@ func startHealthServer(t *testing.T, readyAt time.Time) int {
 	return ln.Addr().(*net.TCPAddr).Port
 }
 
-func TestModelLoadTimeoutEnv(t *testing.T) {
-	if got := modelLoadTimeout(); got != 5*time.Minute {
-		t.Fatalf("default = %v, want 5m", got)
-	}
-	t.Setenv("GOLLAMA_MODEL_LOAD_TIMEOUT", "42")
-	if got := modelLoadTimeout(); got != 42*time.Second {
-		t.Fatalf("env override = %v, want 42s", got)
-	}
-	t.Setenv("GOLLAMA_MODEL_LOAD_TIMEOUT", "garbage")
-	if got := modelLoadTimeout(); got != 5*time.Minute {
-		t.Fatalf("garbage env = %v, want 5m", got)
-	}
-}
-
 func TestSseErrorChunk(t *testing.T) {
 	chunk := sseErrorChunk(`failed: "quote" and | pipe`)
 	if !strings.HasPrefix(string(chunk), "data: ") || !strings.HasSuffix(string(chunk), "\n\n") {

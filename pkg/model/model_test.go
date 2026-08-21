@@ -81,6 +81,20 @@ func TestBinDir(t *testing.T) {
 	checkSuffix(t, BinDir(), "bin")
 }
 
+func TestLoadTimeout(t *testing.T) {
+	if got := LoadTimeout(); got != 5*time.Minute {
+		t.Fatalf("default = %v, want 5m", got)
+	}
+	t.Setenv("GOLLAMA_MODEL_LOAD_TIMEOUT", "42")
+	if got := LoadTimeout(); got != 42*time.Second {
+		t.Fatalf("env override = %v, want 42s", got)
+	}
+	t.Setenv("GOLLAMA_MODEL_LOAD_TIMEOUT", "garbage")
+	if got := LoadTimeout(); got != 5*time.Minute {
+		t.Fatalf("garbage env = %v, want 5m", got)
+	}
+}
+
 func TestIndexFile(t *testing.T) {
 	checkSuffix(t, IndexFile(), "index.json")
 }

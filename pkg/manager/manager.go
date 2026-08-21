@@ -533,7 +533,7 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 	go func() {
 		healthClient := &http.Client{Timeout: 2 * time.Second}
 		baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
-		deadline := time.Now().Add(120 * time.Second)
+		deadline := time.Now().Add(model.LoadTimeout())
 		for time.Now().Before(deadline) {
 			resp, err := healthClient.Get(baseURL + "/health")
 			if err == nil {
@@ -685,7 +685,7 @@ func (m *Manager) StartImage(modelID string, port int, env map[string]string) (*
 	go func() {
 		healthClient := &http.Client{Timeout: 2 * time.Second}
 		baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
-		deadline := time.Now().Add(120 * time.Second)
+		deadline := time.Now().Add(model.LoadTimeout())
 		for time.Now().Before(deadline) {
 			resp, err := healthClient.Get(baseURL + "/health")
 			if err == nil {

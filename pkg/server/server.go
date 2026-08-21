@@ -747,18 +747,6 @@ func (s *Server) handleChatByID(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// modelLoadTimeout bounds how long gollama holds a request while a model
-// cold-starts. Override with GOLLAMA_MODEL_LOAD_TIMEOUT (seconds).
-func modelLoadTimeout() time.Duration {
-	const def = 5 * time.Minute
-	if v := os.Getenv("GOLLAMA_MODEL_LOAD_TIMEOUT"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil && n > 0 {
-			return time.Duration(n) * time.Second
-		}
-	}
-	return def
-}
-
 // instanceLogTail returns the last n non-empty lines of an instance's log,
 // used to explain why a model failed to start.
 func instanceLogTail(port int, n int) string {
@@ -816,7 +804,7 @@ func proxyFail(w http.ResponseWriter, streamed bool, msg string) {
 // error includes a tail of the instance log so callers can tell *why* the
 // model did not come up, not just that it didn't.
 func (s *Server) waitForInstanceReady(port int) error {
-	return s.waitForReady(port, modelLoadTimeout(), nil, nil)
+	return s.waitForReady(port, model.LoadTimeout(), nil, nil)
 }
 
 // waitForReady is the core of waitForInstanceReady with hooks: beat is called
@@ -1719,7 +1707,7 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 			}
 		}
 	}
-	if err := s.waitForReady(inst.Port, modelLoadTimeout(), heartbeat, func() bool {
+	if err := s.waitForReady(inst.Port, model.LoadTimeout(), heartbeat, func() bool {
 		return r.Context().Err() != nil
 	}); err != nil {
 		if streamFlusher != nil {
@@ -1745,7 +1733,7 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 	// after /health flips to 200. Keep retrying (with heartbeats for
 	// streaming clients) until the model actually accepts the request.
 	var resp *http.Response
-	loadDeadline := time.Now().Add(modelLoadTimeout())
+	loadDeadline := time.Now().Add(model.LoadTimeout())
 	for {
 		proxyReq, err := http.NewRequestWithContext(proxyCtx, "POST", target, strings.NewReader(string(body)))
 		if err != nil {

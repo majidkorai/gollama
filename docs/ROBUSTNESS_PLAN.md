@@ -4,7 +4,7 @@
 
 ## ▶ Resume here (read this first)
 
-**Where we are:** Phase 0 (test safety net) and Phase 1 (security) are done, and **Phase 1 is deployed** (v3.8.0 live on the gollama VM 2026-08-20, hermes pipeline updated with the token — see deploy notes below). Phase 1 shipped: loopback-default bind, shared-secret API token, chat-id + model-delete traversal fixes, self-update checksum verification, no silent package installs, systemd unit fixes, bounded API client. Phase 2 is underway: **P2-T1 (merge_reasoning) + P2-T2 (`gollama run` no-op, incl. a pgrep→ps orphan-recovery fix) + P2-T3 (clean shutdown) done** — next is P2-T4 (one readiness deadline).
+**Where we are:** Phase 0 (test safety net) and Phase 1 (security) are done, and **Phase 1 is deployed** (v3.8.0 live on the gollama VM 2026-08-20, hermes pipeline updated with the token — see deploy notes below). Phase 1 shipped: loopback-default bind, shared-secret API token, chat-id + model-delete traversal fixes, self-update checksum verification, no silent package installs, systemd unit fixes, bounded API client. Phase 2 is underway: **P2-T1 (merge_reasoning) + P2-T2 (`gollama run` no-op, incl. a pgrep→ps orphan-recovery fix) + P2-T3 (clean shutdown) + P2-T4 (one readiness deadline) done** — next is P2-T5 (deterministic fuzzy model match).
 
 **How to resume:**
 1. Read this file top-to-bottom (phase checkboxes are the source of truth).
@@ -150,8 +150,11 @@ No behavior changes. This makes Phases 3–5 safe.
   - `serve` on SIGINT/SIGTERM: cancel ctx → `StopAll` bounded to 5s ("stopped N instance(s)" or a warning) → exit.
   - Tests: `TestStopEscalatesToKillWhenSIGINTIgnored` (SIGINT-ignoring script must be SIGKILL'ed after the grace period; waits for a marker file the script writes after its trap line, and skips if the sandbox blocks the child in dyld startup — observed in this session: macOS dyld `notifyDebuggerLoad` block under the DSH sandbox), `TestStopFastPathWhenAlreadyExited` (no 500ms wait for a dead process), `TestStopAll`.
   - Smoke: `gollama serve` with a live instance + SIGTERM → `shutting down... / instance on port 8081 did not exit after SIGINT — sending SIGKILL`, instance gone, clean exit.
-- [ ] **P2-T4: One readiness deadline** (`pkg/manager/manager.go:506`)
-  - Move the `GOLLAMA_MODEL_LOAD_TIMEOUT` reader to `pkg/manager` (or `pkg/model`) as `LoadTimeout()`; both the manager's health-poll goroutine and the server's `waitForReady` use it. Default 5 min.
+- [x] **P2-T4: One readiness deadline** (`pkg/model/model.go`, `pkg/manager/manager.go`, `pkg/server/server.go`)
+  - New `model.LoadTimeout()` — the single reader for `GOLLAMA_MODEL_LOAD_TIMEOUT` (seconds), default 5m, invalid/negative values fall back to the default.
+  - Manager's text and image ready-poll goroutines use it (previously a hardcoded 120s that disagreed with the server's 5m default).
+  - Server's three call sites (`waitForInstanceReady`, the streaming cold-start wait, the post-health 503-retry deadline) now call `model.LoadTimeout()`; the local `modelLoadTimeout` wrapper is gone.
+  - Test moved: `TestModelLoadTimeoutEnv` (server) → `TestLoadTimeout` (pkg/model).
 - [ ] **P2-T5: Deterministic model matching** (`pkg/manager/manager.go:792-824`, `pkg/server/server.go:1011-1024`)
   - `FindInstanceByModel`: collect **all** candidates, score exact-fold > short-name-equal > suffix > substring; ties broken by lowest port. Log when a substring match was used.
   - Image auto-detect with empty `model` and multiple image profiles → 400 listing profile names (no more map-order lottery).

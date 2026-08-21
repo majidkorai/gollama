@@ -271,6 +271,20 @@ func BinDir() string {
 	return filepath.Join(GollamaDir(), "bin")
 }
 
+// LoadTimeout bounds how long gollama waits for a model to become ready
+// (health check / proxy readiness). It is the single source of truth for
+// both the manager's ready-poll goroutines and the server's request-holding
+// deadline. Override with GOLLAMA_MODEL_LOAD_TIMEOUT (seconds); default 5m.
+func LoadTimeout() time.Duration {
+	const def = 5 * time.Minute
+	if v := os.Getenv("GOLLAMA_MODEL_LOAD_TIMEOUT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return time.Duration(n) * time.Second
+		}
+	}
+	return def
+}
+
 func IndexFile() string {
 	return filepath.Join(GollamaDir(), "index.json")
 }
