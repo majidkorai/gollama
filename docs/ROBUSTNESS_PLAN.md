@@ -4,7 +4,7 @@
 
 ## ▶ Resume here (read this first)
 
-**Where we are:** Phase 0 (test safety net) and Phase 1 (security) are done, and **Phase 1 is deployed** (v3.8.0 live on the gollama VM 2026-08-20, hermes pipeline updated with the token — see deploy notes below). Phase 1 shipped: loopback-default bind, shared-secret API token, chat-id + model-delete traversal fixes, self-update checksum verification, no silent package installs, systemd unit fixes, bounded API client. Phase 2 is underway: **P2-T1 (merge_reasoning) + P2-T2 (`gollama run` no-op, incl. a pgrep→ps orphan-recovery fix) done** — next is P2-T3 (clean shutdown).
+**Where we are:** Phase 0 (test safety net) and Phase 1 (security) are done, and **Phase 1 is deployed** (v3.8.0 live on the gollama VM 2026-08-20, hermes pipeline updated with the token — see deploy notes below). Phase 1 shipped: loopback-default bind, shared-secret API token, chat-id + model-delete traversal fixes, self-update checksum verification, no silent package installs, systemd unit fixes, bounded API client. Phase 2 is underway: **P2-T1 (merge_reasoning) + P2-T2 (`gollama run` no-op, incl. a pgrep→ps orphan-recovery fix) + P2-T3 (clean shutdown) done** — next is P2-T4 (one readiness deadline).
 
 **How to resume:**
 1. Read this file top-to-bottom (phase checkboxes are the source of truth).
@@ -143,10 +143,13 @@ No behavior changes. This makes Phases 3–5 safe.
   - Removed the `len(mgr.List()) == 0` guard; `run` always starts with port 0 (auto-assign). An explicit `--port` in use → clear "port N is already in use" error from `Start` (unit-tested in `TestStartRejectsRunningSlot`).
   - **Recovery fix found by the smoke test:** the old `recoverOrphans` used `pgrep -a llama-server`, which matches the *executable name* — for a shebang script that is the interpreter (`/bin/sh`), so on macOS orphans were never recovered and a second `run` collided on the same port. Now scans `ps -eo pid,args` full command lines (`isLlamaServerCommandLine`: llama-server basename arg + gollama's `--host` flag), portable across macOS/Linux. Tests: `TestIsLlamaServerCommandLine`, `TestRecoverOrphansFindsScriptInstance`, `TestStartAutoAssignsPastRunningInstance`.
   - Smoke test: `gollama run` ×2 with a live instance → second run logs `recovered orphan instance: port=8081` and starts on 8082.
-- [ ] **P2-T3: Clean shutdown** (`main.go` `serve`, `pkg/manager`)
-  - New `Manager.StopAll() []int` (iterate a snapshot, `Stop` each).
-  - `serve` on SIGINT/SIGTERM: cancel ctx → `mgr.StopAll()` (wait ≤ 5s) → exit.
-  - `Stop` improvement: after `os.Interrupt` + 500ms, check `cmd.ProcessState` via the `cmd.Wait()` goroutine result instead of blind `Kill`; keep `Kill` only if still alive. (Requires `Instance` to carry its `*exec.Cmd` or a done-channel — store `cmd` in the instance struct.)
+- [x] **P2-T3: Clean shutdown** (`main.go` `serve`, `pkg/manager`)
+  - `Instance` now holds `Cmd *exec.Cmd` + `WaitDone chan struct{}` (both `json:"-"`); the `cmd.Wait()` goroutines in `Start`/`StartImage` close it when the process is fully reaped.
+  - `Stop` rewritten: SIGINT → wait ≤500ms on `WaitDone` (or a signal-0 probe for recovered orphans — never a blind `Kill` that could hit a recycled PID) → SIGKILL only if still alive → wait for the reap. The mutex is no longer held while waiting.
+  - New `Manager.StopAll() []int` — stops all instances in parallel, returns stopped ports.
+  - `serve` on SIGINT/SIGTERM: cancel ctx → `StopAll` bounded to 5s ("stopped N instance(s)" or a warning) → exit.
+  - Tests: `TestStopEscalatesToKillWhenSIGINTIgnored` (SIGINT-ignoring script must be SIGKILL'ed after the grace period; waits for a marker file the script writes after its trap line, and skips if the sandbox blocks the child in dyld startup — observed in this session: macOS dyld `notifyDebuggerLoad` block under the DSH sandbox), `TestStopFastPathWhenAlreadyExited` (no 500ms wait for a dead process), `TestStopAll`.
+  - Smoke: `gollama serve` with a live instance + SIGTERM → `shutting down... / instance on port 8081 did not exit after SIGINT — sending SIGKILL`, instance gone, clean exit.
 - [ ] **P2-T4: One readiness deadline** (`pkg/manager/manager.go:506`)
   - Move the `GOLLAMA_MODEL_LOAD_TIMEOUT` reader to `pkg/manager` (or `pkg/model`) as `LoadTimeout()`; both the manager's health-poll goroutine and the server's `waitForReady` use it. Default 5 min.
 - [ ] **P2-T5: Deterministic model matching** (`pkg/manager/manager.go:792-824`, `pkg/server/server.go:1011-1024`)

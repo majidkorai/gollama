@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"syscall"
 	"testing"
 	"time"
 
@@ -103,5 +104,154 @@ func TestRecoverOrphansFindsScriptInstance(t *testing.T) {
 	}
 	if m.nextPort <= 18473 {
 		t.Errorf("nextPort = %d, want > 18473 so auto-assign skips the recovered port", m.nextPort)
+	}
+}
+
+// dummyHome sets up an isolated HOME with a dummy llama-server script (the
+// given shebang body) and a "fake-1b" index entry, and returns a fresh
+// Manager (no background goroutines).
+func dummyHome(t *testing.T, script string) *Manager {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	binDir := filepath.Join(home, ".gollama", "bin")
+	modelsDir := filepath.Join(home, ".gollama", "models")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(modelsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(binDir, "llama-server"), []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	blob := filepath.Join(modelsDir, "fake.gguf")
+	if err := os.WriteFile(blob, []byte("fake"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	model.SaveIndex(map[string]model.ModelInfo{
+		"fake-1b": {Name: "fake-1b", ShortName: "fake-1b", BlobPath: blob, Size: 4},
+	})
+	model.SaveConfig(&model.Config{
+		DefaultFlags: []string{"--ctx-size", "512"},
+		Profiles:     map[string]model.Profile{},
+		IdleTTL:      0,
+	})
+	return &Manager{instances: make(map[int]*Instance), nextPort: 8081}
+}
+
+// waitForExit blocks until the instance's process has fully exited
+// (WaitDone closed), failing after the timeout.
+func waitForExit(t *testing.T, inst *Instance, timeout time.Duration) {
+	t.Helper()
+	if inst.WaitDone == nil {
+		t.Fatal("instance has no WaitDone")
+	}
+	select {
+	case <-inst.WaitDone:
+	case <-time.After(timeout):
+		t.Fatalf("process did not exit within %v", timeout)
+	}
+}
+
+// TestStopEscalatesToKillWhenSIGINTIgnored (P2-T3): a process that ignores
+// SIGINT must be SIGKILL'ed after the 500ms grace period, and the instance
+// must be removed.
+func TestStopEscalatesToKillWhenSIGINTIgnored(t *testing.T) {
+	// The marker file is written by the script right after its trap line,
+	// so its presence proves the trap is in place.
+	m := dummyHome(t, "#!/bin/sh\ntrap '' INT\necho started >> $HOME/dbg.log\nwhile :; do sleep 1; done\n")
+	inst, err := m.Start("fake-1b", 0, nil, false, nil)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	// Wait for the process to actually start running the script (marker
+	// file). Some sandboxed environments block child processes in dyld
+	// startup (waiting on a process-monitoring notification), where a
+	// SIGINT kills them before any trap is in place — skip there.
+	marker := filepath.Join(os.Getenv("HOME"), "dbg.log")
+	markerSeen := false
+	for i := 0; i < 100; i++ {
+		if _, err := os.Stat(marker); err == nil {
+			markerSeen = true
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !markerSeen {
+		t.Skip("child process did not start running its script (sandboxed dyld block) — cannot test SIGINT escalation")
+	}
+
+	start := time.Now()
+	if err := m.Stop(inst.Port); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	elapsed := time.Since(start)
+	if elapsed < 400*time.Millisecond {
+		t.Errorf("Stop returned in %v — the SIGINT grace period was skipped", elapsed)
+	}
+	if elapsed > 5*time.Second {
+		t.Errorf("Stop took %v — SIGKILL escalation did not bound the wait", elapsed)
+	}
+	if proc, _ := os.FindProcess(inst.PID); proc != nil && proc.Signal(syscall.Signal(0)) == nil {
+		t.Errorf("process %d still alive after Stop", inst.PID)
+	}
+	if m.HasInstance(inst.Port) {
+		t.Errorf("instance still in map after Stop")
+	}
+}
+
+// TestStopFastPathWhenAlreadyExited (P2-T3): stopping an instance whose
+// process already exited must not pay the 500ms grace wait.
+func TestStopFastPathWhenAlreadyExited(t *testing.T) {
+	m := dummyHome(t, "#!/bin/sh\nexit 0\n")
+	inst, err := m.Start("fake-1b", 0, nil, false, nil)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	waitForExit(t, inst, 5*time.Second)
+
+	start := time.Now()
+	if err := m.Stop(inst.Port); err != nil {
+		t.Fatalf("Stop: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 400*time.Millisecond {
+		t.Errorf("Stop took %v for an already-exited process, want < 400ms", elapsed)
+	}
+}
+
+// TestStopAll (P2-T3): StopAll stops every instance in parallel and returns
+// their ports; the map ends up empty.
+func TestStopAll(t *testing.T) {
+	m := dummyHome(t, "#!/bin/sh\nsleep 30\n")
+	inst1, err := m.Start("fake-1b", 0, nil, false, nil)
+	if err != nil {
+		t.Fatalf("Start 1: %v", err)
+	}
+	inst2, err := m.Start("fake-1b", 0, nil, false, nil)
+	if err != nil {
+		t.Fatalf("Start 2: %v", err)
+	}
+	time.Sleep(300 * time.Millisecond)
+
+	stopped := m.StopAll()
+	if len(stopped) != 2 {
+		t.Fatalf("StopAll stopped %d instances, want 2: %v", len(stopped), stopped)
+	}
+	got := map[int]bool{}
+	for _, p := range stopped {
+		got[p] = true
+	}
+	if !got[inst1.Port] || !got[inst2.Port] {
+		t.Errorf("StopAll ports = %v, want [%d %d]", stopped, inst1.Port, inst2.Port)
+	}
+	if len(m.List()) != 0 {
+		t.Errorf("instances remaining after StopAll: %v", m.List())
+	}
+	for _, inst := range []*Instance{inst1, inst2} {
+		if proc, _ := os.FindProcess(inst.PID); proc != nil && proc.Signal(syscall.Signal(0)) == nil {
+			t.Errorf("process %d still alive after StopAll", inst.PID)
+		}
 	}
 }

@@ -195,6 +195,17 @@ func main() {
 		stop()
 		fmt.Println("\nshutting down...")
 
+		// Stop every model instance so its VRAM is reclaimed (P2-T3).
+		// Bounded to 5s so a stuck process can't hang the exit.
+		stopAll := make(chan []int, 1)
+		go func() { stopAll <- mgr.StopAll() }()
+		select {
+		case stopped := <-stopAll:
+			fmt.Printf("stopped %d instance(s)\n", len(stopped))
+		case <-time.After(5 * time.Second):
+			fmt.Fprintln(os.Stderr, "warning: some instances did not stop in time")
+		}
+
 	case "chat":
 		if len(os.Args) < 3 {
 			fmt.Println("Usage: gollama chat <model> [flags...]")

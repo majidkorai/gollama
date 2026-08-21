@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/majidkorai/gollama/pkg/llama"
@@ -38,6 +39,10 @@ type Instance struct {
 	DeviceSplit  string     `json:"device_split,omitempty"`
 	Profile      string     `json:"profile,omitempty"`
 	Type         string     `json:"type,omitempty"` // "text" or "image"
+
+	// Liveness bookkeeping (P2-T3). Not serialized.
+	Cmd      *exec.Cmd     `json:"-"` // process gollama launched (nil for recovered orphans)
+	WaitDone chan struct{} `json:"-"` // closed when the process has fully exited (nil for orphans)
 }
 
 type Manager struct {
@@ -481,7 +486,9 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 		Flags:        args,
 		StartedAt:    time.Now(),
 		LastActivity: time.Now(),
+		Cmd:          cmd,
 	}
+	inst.WaitDone = make(chan struct{})
 
 	// Calculate device split from launch flags and model metadata
 	var ngl, ncpuMoe float64
@@ -553,6 +560,7 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 
 	go func() {
 		err := cmd.Wait()
+		close(inst.WaitDone)
 		m.mu.Lock()
 		if inst.Status == "running" {
 			inst.Status = "stopped"
@@ -667,7 +675,9 @@ func (m *Manager) StartImage(modelID string, port int, env map[string]string) (*
 		StartedAt:    time.Now(),
 		LastActivity: time.Now(),
 		Type:         "image",
+		Cmd:          cmd,
 	}
+	inst.WaitDone = make(chan struct{})
 	m.instances[port] = inst
 
 	log.Printf("image instance started: model=%s port=%d pid=%d", modelID, port, cmd.Process.Pid)
@@ -695,6 +705,7 @@ func (m *Manager) StartImage(modelID string, port int, env map[string]string) (*
 
 	go func() {
 		err := cmd.Wait()
+		close(inst.WaitDone)
 		m.mu.Lock()
 		if inst.Status == "running" {
 			inst.Status = "stopped"
@@ -710,25 +721,96 @@ func (m *Manager) StartImage(modelID string, port int, env map[string]string) (*
 	return inst, nil
 }
 
+// Stop signals the instance's process, waits up to 500ms for a graceful
+// exit, and only then escalates to SIGKILL if the process is still alive.
+// Liveness is observed through the cmd.Wait() goroutine (WaitDone) when
+// gollama owns the process, or a signal-0 probe for recovered orphans —
+// never a blind Kill, which could hit a recycled PID. The mutex is not
+// held while waiting.
 func (m *Manager) Stop(port int) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	inst, ok := m.instances[port]
+	m.mu.Unlock()
 	if !ok {
 		return fmt.Errorf("no instance on port %d", port)
 	}
 
-	proc, err := os.FindProcess(inst.PID)
-	if err == nil {
-		proc.Signal(os.Interrupt)
-		time.Sleep(500 * time.Millisecond)
-		proc.Kill()
+	var proc *os.Process
+	if inst.Cmd != nil {
+		proc = inst.Cmd.Process
+	} else if inst.PID > 0 {
+		proc, _ = os.FindProcess(inst.PID)
+	}
+	if proc != nil {
+		proc.Signal(os.Interrupt) // ignore error: process may already be gone
 	}
 
+	// Give the process a moment to exit gracefully.
+	if inst.WaitDone != nil {
+		select {
+		case <-inst.WaitDone:
+		case <-time.After(500 * time.Millisecond):
+		}
+	} else {
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	// Still alive? Escalate to kill, then wait for the reap so the slot
+	// is truly free.
+	alive := false
+	switch {
+	case inst.WaitDone != nil:
+		select {
+		case <-inst.WaitDone:
+		default:
+			alive = true
+		}
+	case proc != nil && runtime.GOOS == "windows":
+		alive = true // no signal-0 probe on Windows — escalate
+	case proc != nil:
+		alive = proc.Signal(syscall.Signal(0)) == nil
+	}
+	if alive {
+		log.Printf("instance on port %d did not exit after SIGINT — sending SIGKILL", port)
+		if proc != nil {
+			proc.Kill()
+		}
+		if inst.WaitDone != nil {
+			select {
+			case <-inst.WaitDone:
+			case <-time.After(2 * time.Second):
+			}
+		}
+	}
+
+	m.mu.Lock()
 	inst.Status = "stopped"
 	delete(m.instances, port)
+	m.mu.Unlock()
 	return nil
+}
+
+// StopAll stops every known instance (in parallel) and returns the ports
+// that were stopped. Used on 'serve' shutdown so GPU memory is reclaimed
+// when gollama exits.
+func (m *Manager) StopAll() []int {
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var stopped []int
+	for _, inst := range m.List() {
+		port := inst.Port
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if err := m.Stop(port); err == nil {
+				mu.Lock()
+				stopped = append(stopped, port)
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	return stopped
 }
 
 func (m *Manager) UpdateTokens(port int, tps float64) {
