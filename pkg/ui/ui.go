@@ -1213,7 +1213,10 @@ async function loadInstances() {
       var idle = i.last_activity ? (function() { var s = Math.floor((Date.now() - new Date(i.last_activity).getTime()) / 1000); if (s < 60) return ''; return '<span title="Idle time">💤 ' + (s > 3600 ? Math.floor(s/3600)+'h ' : '') + Math.floor((s%3600)/60)+'m</span>'; })() : '';
       var tokens = i.total_tokens ? '<span title="Total tokens">🔤 ' + (i.total_tokens > 999 ? Math.round(i.total_tokens/1000) + 'K' : i.total_tokens) + '</span>' : '';
       var typeLabel = i.type == 'image' ? '<span class="badge" style="background:var(--accent-bg);color:var(--accent)">🖼️ image</span>' : '<span class="badge" style="background:var(--surface-2);color:var(--text-dim)">💬 text</span>';
-var metrics = typeLabel + (i.device_split ? '<span class="badge" style="background:var(--surface-2);color:var(--text-dim)" title="Model split">📊 ' + i.device_split + '</span>' : '') + (i.profile ? ' <span class="badge badge-profile" title="Active model profile">📋 ' + escHtml(i.profile) + '</span>' : '');
+      var gpuBadge = (i.gpu_util_per_gpu && i.gpu_util_per_gpu.length)
+        ? '<span class="badge" style="background:var(--surface-2);color:var(--text-dim)" title="GPU utilization per device">' + i.gpu_util_per_gpu.map(function(u, k) { return 'GPU' + k + ' ' + Math.round(u) + '%'; }).join(' / ') + '</span>'
+        : (i.gpu_util > 0 ? '<span class="badge" style="background:var(--surface-2);color:var(--text-dim)" title="GPU utilization">GPU ' + Math.round(i.gpu_util) + '%</span>' : '');
+var metrics = typeLabel + gpuBadge + (i.device_split ? '<span class="badge" style="background:var(--surface-2);color:var(--text-dim)" title="Model split">📊 ' + i.device_split + '</span>' : '') + (i.profile ? ' <span class="badge badge-profile" title="Active model profile">📋 ' + escHtml(i.profile) + '</span>' : '');
       var flags = i.flags && i.flags.length ? formatFlags(i.flags) : '';
       var flagsHtml = flags ? '<div style="font-size: 11px; color: var(--text-dim); margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); word-break: break-all; font-family: var(--font-mono)">' + escHtml(flags) + '</div>' : '';
       var errDiv = i.status != 'running' ? '<div class="error-line" id="err-' + i.port + '"></div>' : '';

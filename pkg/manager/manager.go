@@ -23,23 +23,24 @@ import (
 )
 
 type Instance struct {
-	Port         int        `json:"port"`
-	Model        string     `json:"model"`
-	BlobPath     string     `json:"blob_path"`
-	PID          int        `json:"pid"`
-	Status       string     `json:"status"`
-	Ready        bool       `json:"ready"`
-	TokensPerSec float64    `json:"tokens_per_sec,omitempty"`
-	Flags        []string   `json:"flags,omitempty"`
-	StartedAt    time.Time  `json:"started_at"`
-	TotalTokens  int64      `json:"total_tokens"`
-	LastActivity time.Time  `json:"last_activity"`
-	GpuUtil      float64    `json:"gpu_util"`
-	CpuPercent   float64    `json:"cpu_percent"`
-	MemoryMB     float64    `json:"memory_mb"`
-	DeviceSplit  string     `json:"device_split,omitempty"`
-	Profile      string     `json:"profile,omitempty"`
-	Type         string     `json:"type,omitempty"` // "text" or "image"
+	Port          int       `json:"port"`
+	Model         string    `json:"model"`
+	BlobPath      string    `json:"blob_path"`
+	PID           int       `json:"pid"`
+	Status        string    `json:"status"`
+	Ready         bool      `json:"ready"`
+	TokensPerSec  float64   `json:"tokens_per_sec,omitempty"`
+	Flags         []string  `json:"flags,omitempty"`
+	StartedAt     time.Time `json:"started_at"`
+	TotalTokens   int64     `json:"total_tokens"`
+	LastActivity  time.Time `json:"last_activity"`
+	GpuUtil       float64   `json:"gpu_util"`                   // max across GPUs (P2-T7)
+	GpuUtilPerGPU []float64 `json:"gpu_util_per_gpu,omitempty"` // per-GPU breakdown (P2-T7)
+	CpuPercent    float64   `json:"cpu_percent"`
+	MemoryMB      float64   `json:"memory_mb"`
+	DeviceSplit   string    `json:"device_split,omitempty"`
+	Profile       string    `json:"profile,omitempty"`
+	Type          string    `json:"type,omitempty"` // "text" or "image"
 
 	// Liveness bookkeeping (P2-T3). Not serialized.
 	Cmd      *exec.Cmd     `json:"-"` // process gollama launched (nil for recovered orphans)
@@ -77,14 +78,37 @@ func NewManager() *Manager {
 		for {
 			time.Sleep(15 * time.Second)
 			m.mu.Lock()
+			var pids []int
 			for _, inst := range m.instances {
 				if inst.Status == "running" && inst.PID > 0 {
-					cpu, mem := queryProcessStats(inst.PID)
-					inst.CpuPercent = cpu
-					inst.MemoryMB = mem
-					if gpu := queryGpuUtil(); gpu >= 0 {
-						inst.GpuUtil = gpu
+					pids = append(pids, inst.PID)
+				}
+			}
+			m.mu.Unlock()
+			if len(pids) == 0 {
+				continue
+			}
+			// P2-T7: first CPU sample (Linux /proc/<pid>/stat); the second
+			// comes 1s later, giving an instantaneous % instead of ps's
+			// lifetime average.
+			var cpuFirst map[int]float64
+			if runtime.GOOS == "linux" {
+				cpuFirst = make(map[int]float64, len(pids))
+				for _, pid := range pids {
+					if ticks, ok := procCPUTicks(pid); ok {
+						cpuFirst[pid] = ticks
 					}
+				}
+				time.Sleep(time.Second)
+			}
+			m.mu.Lock()
+			for _, inst := range m.instances {
+				if inst.Status != "running" || inst.PID <= 0 {
+					continue
+				}
+				applyCpuMetrics(inst, cpuFirst)
+				if per, ok := queryGpuUtil(); ok {
+					setGpuUtil(inst, per)
 				}
 			}
 			m.mu.Unlock()
@@ -551,8 +575,8 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 					cpu, mem := queryProcessStats(inst.PID)
 					inst.CpuPercent = cpu
 					inst.MemoryMB = mem
-					if gpu := queryGpuUtil(); gpu >= 0 {
-						inst.GpuUtil = gpu
+					if per, ok := queryGpuUtil(); ok {
+						setGpuUtil(inst, per)
 					}
 					m.mu.Unlock()
 					log.Printf("instance ready: port=%d cpu=%.0f%% mem=%.0fMB gpu=%.0f%%", port, cpu, mem, inst.GpuUtil)
@@ -1013,25 +1037,90 @@ func queryProcessStats(pid int) (cpuPercent, memoryMB float64) {
 	return
 }
 
-func queryGpuUtil() float64 {
+// queryGpuUtil returns per-GPU utilization percentages from nvidia-smi
+// (one entry per GPU, Linux only). ok is false when no GPU data is
+// available; the caller keeps the instance's last known values.
+func queryGpuUtil() ([]float64, bool) {
 	if runtime.GOOS != "linux" {
-		return -1
+		return nil, false
 	}
 	cmd := exec.Command("nvidia-smi", "--query-gpu=utilization.gpu", "--format=csv,noheader,nounits")
 	out, err := cmd.Output()
 	if err != nil {
-		return -1
+		return nil, false
 	}
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	if len(lines) == 0 {
-		return -1
-	}
-	var total float64
-	for _, line := range lines {
-		u, err := strconv.ParseFloat(strings.TrimSpace(line), 64)
-		if err == nil {
-			total += u
+	return parseGpuUtilCSV(out)
+}
+
+// parseGpuUtilCSV parses nvidia-smi's utilization.gpu CSV output: one
+// integer percentage per line, one line per GPU. Unparseable lines are
+// skipped; no valid lines -> not ok.
+func parseGpuUtilCSV(out []byte) ([]float64, bool) {
+	var per []float64
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if u, err := strconv.ParseFloat(strings.TrimSpace(line), 64); err == nil {
+			per = append(per, u)
 		}
 	}
-	return total / float64(len(lines))
+	if len(per) == 0 {
+		return nil, false
+	}
+	return per, true
+}
+
+// setGpuUtil applies a per-GPU utilization sample to the instance: GpuUtil
+// becomes the max across devices and GpuUtilPerGPU the full breakdown
+// (P2-T7). An empty sample is a no-op.
+func setGpuUtil(inst *Instance, per []float64) {
+	if len(per) == 0 {
+		return
+	}
+	inst.GpuUtilPerGPU = per
+	max := per[0]
+	for _, u := range per[1:] {
+		if u > max {
+			max = u
+		}
+	}
+	inst.GpuUtil = max
+}
+
+// applyCpuMetrics updates inst.CpuPercent and inst.MemoryMB. The CPU value
+// is instantaneous when a 1-second /proc/<pid>/stat double-sample
+// succeeded (Linux, P2-T7); ps's %cpu — a lifetime average — is the
+// fallback and the memory source everywhere.
+func applyCpuMetrics(inst *Instance, cpuFirst map[int]float64) {
+	cpu, mem := queryProcessStats(inst.PID)
+	if f, ok := cpuFirst[inst.PID]; ok {
+		if s, ok2 := procCPUTicks(inst.PID); ok2 && s >= f {
+			if tps := cpuTicksPerSec(); tps > 0 {
+				cpu = (s - f) / tps
+			}
+		}
+	}
+	inst.CpuPercent = cpu
+	inst.MemoryMB = mem
+}
+
+// parseProcStatTicks extracts utime+stime (in clock ticks) from a
+// /proc/<pid>/stat line. comm (field 2) is wrapped in parentheses and may
+// itself contain spaces and parentheses, so parsing starts after the last
+// ')'. utime/stime are fields 14/15 overall, i.e. indexes 11/12 after the
+// closing paren.
+func parseProcStatTicks(data []byte) (float64, bool) {
+	s := string(data)
+	idx := strings.LastIndexByte(s, ')')
+	if idx < 0 || idx+1 >= len(s) {
+		return 0, false
+	}
+	fields := strings.Fields(s[idx+1:])
+	if len(fields) < 13 {
+		return 0, false
+	}
+	utime, err1 := strconv.ParseFloat(fields[11], 64)
+	stime, err2 := strconv.ParseFloat(fields[12], 64)
+	if err1 != nil || err2 != nil {
+		return 0, false
+	}
+	return utime + stime, true
 }

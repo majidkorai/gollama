@@ -4,7 +4,7 @@
 
 ## ▶ Resume here (read this first)
 
-**Where we are:** Phase 0 (test safety net) and Phase 1 (security) are done, and **Phase 1 is deployed** (v3.8.0 live on the gollama VM 2026-08-20, hermes pipeline updated with the token — see deploy notes below). Phase 1 shipped: loopback-default bind, shared-secret API token, chat-id + model-delete traversal fixes, self-update checksum verification, no silent package installs, systemd unit fixes, bounded API client. Phase 2 is underway: **P2-T1 (merge_reasoning) + P2-T2 (`gollama run` no-op, incl. a pgrep→ps orphan-recovery fix) + P2-T3 (clean shutdown) + P2-T4 (one readiness deadline) + P2-T5 (deterministic fuzzy model match) + P2-T6 (Windows orphan recovery) done** — next is P2-T7 (per-GPU utilization + real CPU).
+**Where we are:** Phase 0 (test safety net) and Phase 1 (security) are done, and **Phase 1 is deployed** (v3.8.0 live on the gollama VM 2026-08-20, hermes pipeline updated with the token — see deploy notes below). Phase 1 shipped: loopback-default bind, shared-secret API token, chat-id + model-delete traversal fixes, self-update checksum verification, no silent package installs, systemd unit fixes, bounded API client. Phase 2 is complete: **P2-T1 (merge_reasoning) + P2-T2 (`gollama run` no-op, incl. a pgrep→ps orphan-recovery fix) + P2-T3 (clean shutdown) + P2-T4 (one readiness deadline) + P2-T5 (deterministic fuzzy model match) + P2-T6 (Windows orphan recovery) + P2-T7 (per-GPU utilization + real CPU) all done** — run the Phase 2 smoke tests, then tag **v3.9.0**. Next: Phase 3 (concurrency).
 
 **How to resume:**
 1. Read this file top-to-bottom (phase checkboxes are the source of truth).
@@ -163,10 +163,13 @@ No behavior changes. This makes Phases 3–5 safe.
 - [x] **P2-T6: Windows orphan recovery** (`pkg/manager/manager.go`)
   - `recoverOrphansWindows` now delegates per-PID work to `recoverOrphanPidWindows`: if WMI fails to read the command line, it logs and **skips** the process instead of registering a phantom instance under a guessed port.
   - Parsing/registration extracted to pure `registerOrphanFromCommandLine(pid, cmdLine) bool`: only command lines carrying the gollama `--host` flag are recovered (the old code also registered non-gollama processes whose WMI read succeeded but lacked `--host` — same phantom bug), duplicate PIDs are rejected, and a missing `--port` still gets a guessed port.
-  - Tests (cross-platform, the parser is pure): `TestRegisterOrphanFromCommandLine` (no---host skip, explicit port + basename model, duplicate PID, guessed port) and `TestRecoverOrphanPidWindowsSkipsSelf` (the test process itself must never register, on any OS).
-- [ ] **P2-T7: Per-GPU utilization + real CPU** (`pkg/manager/manager.go:842-886`)
-  - `queryGpuUtil` returns `[]float64` (per GPU); instance gets `GpuUtil` = max, plus `GpuUtilPerGPU []float64` (UI badge can show `GPU0 92% / GPU1 3%`).
-  - CPU: on Linux, sample `/proc/<pid>/stat` (utime+stime) twice 1s apart in the metrics goroutine → instantaneous %; keep `ps` as fallback.
+  - Tests (cross-platform, the parser is pure): `TestRegisterOrphanFromCommandLine` (no--host skip, explicit port + basename model, duplicate PID, guessed port) and `TestRecoverOrphanPidWindowsSkipsSelf` (the test process itself must never register, on any OS).
+- [x] **P2-T7: Per-GPU utilization + real CPU** (`pkg/manager/manager.go`, `pkg/manager/cpu_linux.go`, `pkg/manager/cpu_other.go`, `pkg/ui/ui.go`)
+  - `queryGpuUtil` now returns `([]float64, bool)` — one entry per GPU from nvidia-smi (CSV parsing split out as pure `parseGpuUtilCSV`). `Instance.GpuUtil` = max across devices (was the average), new `GpuUtilPerGPU []float64` (`gpu_util_per_gpu`) keeps the breakdown; `setGpuUtil` applies a sample (max of the current sample, not a running high-water mark).
+  - CPU: on Linux the metrics goroutine samples `/proc/<pid>/stat` utime+stime twice 1s apart (new `cpu_linux.go`: `procCPUTicks` + `cpuTicksPerSec` = 100 USER_HZ — stdlib has no Sysconf) → instantaneous %; `ps` %cpu (a lifetime average) is the fallback and the memory source everywhere (`applyCpuMetrics`). Non-Linux stubs in `cpu_other.go`.
+  - UI: instance card badge shows the per-GPU split (`GPU0 92% / GPU1 3%`), falling back to `GPU 92%` for single-GPU hosts without the array.
+  - Note: the `Instance` struct block got gofmt-aligned (it was pre-existing dirt in the same block as the new field); the rest of manager.go's gofmt dirt is untouched.
+  - Tests: `TestParseProcStatTicks` (incl. comm with spaces/parens), `TestParseGpuUtilCSV`, `TestSetGpuUtil` — all cross-platform (pure parsers).
 
 **Exit:** no feature silently lies; shutdown reclaims VRAM; matching is predictable.
 **Smoke test:** kill gollama → `pgrep llama-server` empty; `gollama run` with an instance alive starts a second one; UI shows per-GPU split.

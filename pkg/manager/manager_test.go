@@ -177,6 +177,68 @@ func TestRecoverOrphanPidWindowsSkipsSelf(t *testing.T) {
 	}
 }
 
+// TestParseProcStatTicks (P2-T7): utime/stime extraction from a
+// /proc/<pid>/stat line. comm (field 2) is wrapped in parentheses and may
+// itself contain spaces and parentheses, so the parser must start after the
+// last ')'.
+func TestParseProcStatTicks(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want float64
+		ok   bool
+	}{
+		{"plain", "1 (bash) S 0 1 1 0 -1 4194560 100 0 0 0 1234 567 0 0 20 0 1 0 3456 12345678 90 18446744073709551615 134217728 134217728 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0", 1234 + 567, true},
+		{"comm with spaces and parens", "42 (my proc (with) spaces) S 0 1 1 0 -1 0 0 0 0 0 10 20 0 0 20 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0", 30, true},
+		{"no closing paren", "1 (bash S 0 1 1 0 -1 0 0 0 0 0 10 20", 0, false},
+		{"too few fields", "1 (bash) S 0 1 1 0 -1 0 0 0 0 0 10", 0, false},
+		{"non-numeric utime", "1 (bash) S 0 1 1 0 -1 0 0 0 0 0 x 20", 0, false},
+	}
+	for _, c := range cases {
+		got, ok := parseProcStatTicks([]byte(c.in))
+		if ok != c.ok || (ok && got != c.want) {
+			t.Errorf("%s: got (%v, %v), want (%v, %v)", c.name, got, ok, c.want, c.ok)
+		}
+	}
+}
+
+// TestParseGpuUtilCSV (P2-T7): one entry per GPU line; unparseable lines
+// are skipped; no valid lines -> not ok.
+func TestParseGpuUtilCSV(t *testing.T) {
+	per, ok := parseGpuUtilCSV([]byte("92\n3\n"))
+	if !ok || len(per) != 2 || per[0] != 92 || per[1] != 3 {
+		t.Fatalf("multi = (%v, %v), want ([92 3], true)", per, ok)
+	}
+	per, ok = parseGpuUtilCSV([]byte("17\n"))
+	if !ok || len(per) != 1 || per[0] != 17 {
+		t.Fatalf("single = (%v, %v), want ([17], true)", per, ok)
+	}
+	if _, ok := parseGpuUtilCSV([]byte("garbage\n")); ok {
+		t.Fatal("garbage lines parsed")
+	}
+	if _, ok := parseGpuUtilCSV(nil); ok {
+		t.Fatal("empty output parsed")
+	}
+}
+
+// TestSetGpuUtil (P2-T7): GpuUtil is the max of the current sample (not a
+// running high-water mark) and GpuUtilPerGPU keeps the breakdown.
+func TestSetGpuUtil(t *testing.T) {
+	inst := &Instance{Port: 8081}
+	setGpuUtil(inst, []float64{3, 92})
+	if inst.GpuUtil != 92 || len(inst.GpuUtilPerGPU) != 2 || inst.GpuUtilPerGPU[0] != 3 || inst.GpuUtilPerGPU[1] != 92 {
+		t.Fatalf("after [3 92]: GpuUtil=%v per=%v, want 92 / [3 92]", inst.GpuUtil, inst.GpuUtilPerGPU)
+	}
+	setGpuUtil(inst, []float64{50, 10})
+	if inst.GpuUtil != 50 {
+		t.Fatalf("after [50 10]: GpuUtil=%v, want 50 (max of the new sample)", inst.GpuUtil)
+	}
+	setGpuUtil(inst, []float64{})
+	if inst.GpuUtil != 50 || len(inst.GpuUtilPerGPU) != 2 {
+		t.Fatalf("empty sample changed state: GpuUtil=%v per=%v", inst.GpuUtil, inst.GpuUtilPerGPU)
+	}
+}
+
 func TestStartRejectsRunningSlot(t *testing.T) {
 	m := &Manager{
 		instances: map[int]*Instance{
