@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"sync"
+	"time"
 )
 
 // defaultStreamScript is the SSE payload sequence a fake upstream sends for a
@@ -41,6 +42,14 @@ type fakeUpstream struct {
 
 	completions int
 	bodies      []map[string]interface{}
+
+	// streamDelay, when non-zero, makes the fake sleep this long between
+	// streamed lines so a test can hold the proxy's read loop open and
+	// cancel the client mid-stream (P3-T5).
+	streamDelay time.Duration
+	// streamCanceled is set (under mu) when a streaming request's context is
+	// canceled mid-stream — i.e., the proxy aborted the upstream request.
+	streamCanceled bool
 }
 
 func (f *fakeUpstream) handler() http.Handler {
@@ -90,6 +99,16 @@ func (f *fakeUpstream) handleCompletions(w http.ResponseWriter, r *http.Request)
 		for _, payload := range script {
 			fmt.Fprintf(w, "data: %s\n\n", payload)
 			flusher.Flush()
+			if f.streamDelay > 0 {
+				select {
+				case <-time.After(f.streamDelay):
+				case <-r.Context().Done():
+					f.mu.Lock()
+					f.streamCanceled = true
+					f.mu.Unlock()
+					return
+				}
+			}
 		}
 		if !f.noDone {
 			fmt.Fprint(w, "data: [DONE]\n\n")
@@ -121,6 +140,14 @@ func (f *fakeUpstream) requestCount() int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.completions
+}
+
+// wasStreamCanceled reports whether a streaming request was aborted by the
+// proxy (its upstream request context canceled mid-stream, P3-T5).
+func (f *fakeUpstream) wasStreamCanceled() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.streamCanceled
 }
 
 // lastBody returns the JSON body of the most recent successful completion.

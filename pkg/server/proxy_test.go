@@ -3,6 +3,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -174,6 +175,49 @@ func TestProxyStream(t *testing.T) {
 	inst := instanceOnPort(t, s, port)
 	if inst.TotalTokens != 7 {
 		t.Errorf("TotalTokens = %d, want 7 (from trailing usage chunk)", inst.TotalTokens)
+	}
+}
+
+// TestProxyStreamHonorsClientDisconnect (P3-T5): when the client goes away
+// mid-stream, the proxy must break its read loop and cancel the upstream
+// request — it must not keep draining a model no one is listening to. The
+// upstream request is tied to r.Context() (context.WithCancel), so a client
+// disconnect cancels it; the fake upstream observes that cancellation.
+func TestProxyStreamHonorsClientDisconnect(t *testing.T) {
+	up := &fakeUpstream{streamDelay: 200 * time.Millisecond}
+	s, _ := startProxyFixture(t, up)
+
+	body := `{"model":"fake-1b","stream":true,"messages":[{"role":"user","content":"hi"}]}`
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	ctx, cancel := context.WithCancel(req.Context())
+	defer cancel()
+	req = req.WithContext(ctx)
+	rec := httptest.NewRecorder()
+
+	done := make(chan struct{})
+	go func() {
+		s.mux.ServeHTTP(rec, req)
+		close(done)
+	}()
+
+	// Let a few deltas flow, then drop the client.
+	time.Sleep(500 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("proxy did not return after the client disconnected")
+	}
+
+	// The upstream request must have been canceled (proxy aborted it).
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && !up.wasStreamCanceled() {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !up.wasStreamCanceled() {
+		t.Fatal("upstream request was not canceled after the client disconnected")
 	}
 }
 

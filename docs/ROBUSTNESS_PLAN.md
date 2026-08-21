@@ -1,6 +1,6 @@
 # Gollama Robustness Plan
 
-**Status:** Phases 0–2 complete (`v3.8.0` security, `v3.9.0` correctness). **Next: Phase 3 — Concurrency & lifecycle (→ v4.0.0, major).**
+**Status:** Phases 0–2 complete (`v3.8.0` security, `v3.9.0` correctness). **Phase 3 (concurrency & lifecycle) — all five tasks done; remaining: Phase-3 smoke test (two concurrent different-model chat curls) + tag `v4.0.0` (major) + deploy to the gollama VM.**
 
 ## ▶ Resume here (read this first)
 
@@ -9,7 +9,7 @@
 **How to resume:**
 1. Read this file top-to-bottom (phase checkboxes are the source of truth).
 2. Confirm green baseline: `go build ./... && go vet ./... && go test ./...` (add `-race` for the server package; proxy tests spawn a dummy `llama-server` shell script and take ~20–35s).
-3. Start Phase 3, task P3-T5 (P3-T1 coordinator, P3-T2 no-lock-while-sleeping, P3-T3 orphan-readiness confirmation, and P3-T4 sentinel errors are all done). Work the tasks in order within a phase; each phase ends with a tag.
+3. All five Phase 3 tasks (P3-T1 coordinator, P3-T2 no-lock-while-sleeping, P3-T3 orphan-readiness confirmation, P3-T4 sentinel errors, P3-T5 streaming client-disconnect) are done and the full `-race` suite is green. Remaining to close Phase 3: run the smoke test (fire two `curl /v1/chat/completions` for *different* models simultaneously → first starts, second waits, both serve, no stop/start loop), then tag `v4.0.0` (major) and deploy to the gollama VM.
 
 **Key context for the next session:**
 - Architecture review (what/where all the issues are) lives in the conversation that produced this plan; the plan itself is self-contained for execution. The full issue list maps 1:1 to tasks.
@@ -197,8 +197,7 @@ No behavior changes. This makes Phases 3–5 safe.
   - Regression test: two `Start` calls in parallel don't serialize on the sleep (assert wall-clock < threshold), and never get the same port.
 - [x] **P3-T3: Instance lifecycle state** — **done**: `Cmd`/`WaitDone` landed in P2-T3 (Stop/StopAll/wait-for-exit exact); orphan registration now kicks `confirmOrphanReady` (unix + Windows paths), a background /health poll that confirms readiness + snapshots the one-shot metrics, marks the instance stopped if the process dies first (`ProcessExited`), and downgrades `Ready` to false if it never serves within the load deadline (don't trust forever). Windows registration also sets `Ready: true` to match unix.
 - [x] **P3-T4: Sentinel errors** (`pkg/model/model.go:1144` → `pkg/server/server.go:200,263`) — **done**: `model.ErrAlreadyExists` + `model.ErrNotFound` sentinels in pkg/model. `PullModel` returns `ErrAlreadyExists` (was `fmt.Errorf("already_exists")`); `ResolveModelBlob` wraps `ErrNotFound`; `handleModelPull`/`handleModelPullStream` use `errors.Is(err, model.ErrAlreadyExists)` (was `err.Error() == "already_exists"`); `handleModelDelete` now returns 404 for `ErrNotFound` and 500 for a real index-write failure (was a hardcoded 404 for every error).
-- [ ] **P3-T5: Request-level context on proxy paths**
-  - `proxyToInstance` non-stream currently uses `context.WithTimeout(r.Context(), 10m)`; ensure *streaming* also honors client disconnect end-to-end (cancel upstream request when the client goes away — `proxyCtx` from `r.Context()` is already there; verify the read loop breaks and the upstream body is closed).
+- [x] **P3-T5: Request-level context on proxy paths** — **verified + pinned**: streaming already ties the upstream request to `r.Context()` via `context.WithCancel` (non-stream uses `WithTimeout(r.Context(), 10m)`); the read loop breaks on `r.Context().Err()`, an upstream read error, or a client-write error, and `defer resp.Body.Close()` + `defer cancel()` run on return. Regression `TestProxyStreamHonorsClientDisconnect`: the fake upstream streams slowly, the test drops the client mid-stream, and asserts the proxy returns promptly AND the upstream request context was canceled (no draining a model no one is listening to).
 
 **Exit:** concurrent different-model requests queue instead of thrashing; UI polls are not blocked by port scans; `systemctl stop gollama` leaves no GPU memory behind.
 **Smoke test (the important one):** fire two `curl /v1/chat/completions` for *different* models simultaneously → first model starts, second waits, then both serve; no stop/start loop in logs.
