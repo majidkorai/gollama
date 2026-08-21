@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -1020,14 +1021,26 @@ func ResolveModelBlob(model string) (string, error) {
 			return info.BlobPath, nil
 		}
 	}
-	// Fuzzy match — find by short name or substring (e.g. "gemma-4-12b" matches short_name or full name)
+	// Fuzzy match — find by short name or substring (e.g. "gemma-4-12b"
+	// matches short_name or full name). Deterministic (P2-T5): short-name
+	// candidates win over substring candidates, and ties within a tier are
+	// broken by lexicographic index name (the old code returned whichever
+	// candidate map iteration hit first).
 	lowerModel := strings.ToLower(model)
-	for _, info := range idx {
-		match := strings.ToLower(info.ShortName) == lowerModel ||
-			strings.Contains(strings.ToLower(info.Name), lowerModel)
-		if match {
-			if _, err := os.Stat(info.BlobPath); err == nil {
-				return info.BlobPath, nil
+	var shortCands, substrCands []string
+	for name, info := range idx {
+		switch {
+		case info.ShortName != "" && strings.EqualFold(info.ShortName, model):
+			shortCands = append(shortCands, name)
+		case strings.Contains(strings.ToLower(info.Name), lowerModel):
+			substrCands = append(substrCands, name)
+		}
+	}
+	for _, list := range [][]string{shortCands, substrCands} {
+		sort.Strings(list)
+		for _, name := range list {
+			if _, err := os.Stat(idx[name].BlobPath); err == nil {
+				return idx[name].BlobPath, nil
 			}
 		}
 	}

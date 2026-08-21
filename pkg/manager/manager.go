@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -894,29 +895,69 @@ func (m *Manager) StopIdle(ttl time.Duration) []int {
 	return ports
 }
 
+// FindInstanceByModel returns the running instance for modelName, or nil.
+// Matching is deterministic (P2-T5): candidates are scored
+// exact/same-blob (0) > short-name (1) > suffix (2) > substring (3), and
+// ties are broken by the lowest port — the old code returned whichever
+// candidate map iteration hit first.
 func (m *Manager) FindInstanceByModel(modelName string) *Instance {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Exact match first
-	if inst, ok := m.instancesByModelLocked(modelName); ok {
-		return inst
+	if modelName == "" {
+		return nil
 	}
-	// Suffix match (e.g. "qwen3.6-27b" matches "hf.co/.../Qwen3.6-27B-GGUF:Q4_K_M")
-	for _, inst := range m.instances {
-		if inst.Status == "running" && containsIgnoreCase(inst.Model, modelName) {
-			return inst
+
+	// Deterministic iteration order: ascending port.
+	ports := make([]int, 0, len(m.instances))
+	for port := range m.instances {
+		ports = append(ports, port)
+	}
+	sort.Ints(ports)
+
+	idx := model.LoadIndex()
+	queryBlob, _ := model.ResolveModelBlob(modelName)
+
+	const (
+		tierExact = iota // case-insensitive name match, or the same GGUF file
+		tierShort        // short name of the served model matches
+		tierSuffix
+		tierSubstring
+	)
+	matchTier := func(inst *Instance) int {
+		if strings.EqualFold(inst.Model, modelName) || (queryBlob != "" && inst.BlobPath == queryBlob) {
+			return tierExact
 		}
+		if info, ok := idx[inst.Model]; ok && info.ShortName != "" && strings.EqualFold(info.ShortName, modelName) {
+			return tierShort
+		}
+		if strings.HasSuffix(strings.ToLower(inst.Model), strings.ToLower(modelName)) {
+			return tierSuffix
+		}
+		if containsIgnoreCase(inst.Model, modelName) {
+			return tierSubstring
+		}
+		return -1
 	}
-	// Blob path match — different model names that resolve to the same GGUF file
-	if blob, err := model.ResolveModelBlob(modelName); err == nil && blob != "" {
-		for _, inst := range m.instances {
-			if inst.Status == "running" && inst.BlobPath == blob {
-				return inst
+
+	var best *Instance
+	bestTier := tierSubstring + 1
+	for _, port := range ports {
+		inst := m.instances[port]
+		if inst.Status != "running" {
+			continue
+		}
+		if tier := matchTier(inst); tier >= 0 && tier < bestTier {
+			best, bestTier = inst, tier
+			if tier == tierExact {
+				break
 			}
 		}
 	}
-	return nil
+	if best != nil && bestTier == tierSubstring {
+		log.Printf("model %q matched running instance on port %d by substring only — consider an exact model or profile name", modelName, best.Port)
+	}
+	return best
 }
 
 func (m *Manager) instancesByModelLocked(modelName string) (*Instance, bool) {

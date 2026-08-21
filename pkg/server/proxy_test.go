@@ -400,3 +400,53 @@ func TestProxyNonStreamMergeReasoning(t *testing.T) {
 		t.Errorf("content = %v, want %q", msg["content"], "Hello!Let me think.")
 	}
 }
+
+// withImageProfiles rewrites the fixture's config to add the named image
+// profiles (P2-T5).
+func withImageProfiles(t *testing.T, names ...string) {
+	t.Helper()
+	cfg := model.LoadConfig()
+	for i, name := range names {
+		cfg.Profiles[name] = model.Profile{Model: fmt.Sprintf("black-forest-labs/img-%d", i), Type: "image"}
+	}
+	model.SaveConfig(cfg)
+}
+
+// TestImageAutoDetectMultipleProfiles400 (P2-T5): with several image profiles
+// and no model given, the handler must 400 listing the profile names instead
+// of picking one by map iteration order. An explicit profile bypasses the
+// check.
+func TestImageAutoDetectMultipleProfiles400(t *testing.T) {
+	up := &fakeUpstream{}
+	s, _ := startProxyFixture(t, up)
+	withImageProfiles(t, "flux-zeta", "flux-alpha")
+
+	// No model, no profile -> 400 listing both names (sorted).
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/images/generations", strings.NewReader(`{"prompt":"hi"}`))
+	req.Header.Set("Content-Type", "application/json")
+	s.mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	if !strings.Contains(body, "flux-alpha") || !strings.Contains(body, "flux-zeta") {
+		t.Fatalf("400 body does not list both profiles: %s", body)
+	}
+	if i := strings.Index(body, "flux-alpha"); i < 0 || !strings.Contains(body[i:], "flux-zeta") {
+		t.Fatalf("profile names not in sorted order: %s", body)
+	}
+
+	// Explicit profile -> not the multi-profile 400; the request proceeds to
+	// the busy-text 503 (the fixture's text instance is fresh).
+	rec = httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodPost, "/v1/images/generations", strings.NewReader(`{"prompt":"hi","profile":"flux-zeta"}`))
+	req.Header.Set("Content-Type", "application/json")
+	s.mux.ServeHTTP(rec, req)
+	if rec.Code == http.StatusBadRequest && strings.Contains(rec.Body.String(), "multiple image profiles") {
+		t.Fatalf("explicit profile hit the multi-profile 400: %s", rec.Body.String())
+	}
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503 (busy text deferral): %s", rec.Code, rec.Body.String())
+	}
+}

@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -1123,15 +1124,26 @@ func (s *Server) handleV1ImageGenerations(w http.ResponseWriter, r *http.Request
 
 	cfg := model.LoadConfig()
 
-	// Resolve profile: explicit or auto-detect by model name
+	// Resolve profile: explicit or auto-detect by model name. Deterministic
+	// (P2-T5): with no model given, a single image profile is used, but
+	// multiple ones are a 400 listing the names — no map-order lottery.
 	if profileName == "" {
+		var imageNames []string
 		for name, p := range cfg.Profiles {
 			if p.Type == "image" {
-				if modelName != "" && p.Model != "" && strings.EqualFold(modelName, p.Model) {
-					profileName = name
-					break
-				}
-				if modelName == "" {
+				imageNames = append(imageNames, name)
+			}
+		}
+		sort.Strings(imageNames)
+		switch {
+		case modelName == "" && len(imageNames) == 1:
+			profileName = imageNames[0]
+		case modelName == "" && len(imageNames) > 1:
+			jsonError(w, fmt.Sprintf("multiple image profiles configured (%s) — specify one with the \"profile\" field", strings.Join(imageNames, ", ")), 400)
+			return
+		case modelName != "":
+			for _, name := range imageNames {
+				if p := cfg.Profiles[name]; p.Model != "" && strings.EqualFold(modelName, p.Model) {
 					profileName = name
 					break
 				}

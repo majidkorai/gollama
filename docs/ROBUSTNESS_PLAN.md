@@ -4,7 +4,7 @@
 
 ## ▶ Resume here (read this first)
 
-**Where we are:** Phase 0 (test safety net) and Phase 1 (security) are done, and **Phase 1 is deployed** (v3.8.0 live on the gollama VM 2026-08-20, hermes pipeline updated with the token — see deploy notes below). Phase 1 shipped: loopback-default bind, shared-secret API token, chat-id + model-delete traversal fixes, self-update checksum verification, no silent package installs, systemd unit fixes, bounded API client. Phase 2 is underway: **P2-T1 (merge_reasoning) + P2-T2 (`gollama run` no-op, incl. a pgrep→ps orphan-recovery fix) + P2-T3 (clean shutdown) + P2-T4 (one readiness deadline) done** — next is P2-T5 (deterministic fuzzy model match).
+**Where we are:** Phase 0 (test safety net) and Phase 1 (security) are done, and **Phase 1 is deployed** (v3.8.0 live on the gollama VM 2026-08-20, hermes pipeline updated with the token — see deploy notes below). Phase 1 shipped: loopback-default bind, shared-secret API token, chat-id + model-delete traversal fixes, self-update checksum verification, no silent package installs, systemd unit fixes, bounded API client. Phase 2 is underway: **P2-T1 (merge_reasoning) + P2-T2 (`gollama run` no-op, incl. a pgrep→ps orphan-recovery fix) + P2-T3 (clean shutdown) + P2-T4 (one readiness deadline) + P2-T5 (deterministic fuzzy model match) done** — next is P2-T6 (Windows orphan recovery).
 
 **How to resume:**
 1. Read this file top-to-bottom (phase checkboxes are the source of truth).
@@ -18,7 +18,7 @@
 - **Behavior quirks pinned by Phase 0 tests** (do not "fix" incidentally — they are scoped to later phases):
   - `/api/v1/chat` drops the `[DONE]` marker → fixed in P5-T1 (UI already tolerates `[DONE]`, `ui.go:2074`).
   - `ScanModels` normalizes underscores→hyphens before the quant-strip regex → scanned short names keep the quant suffix → fixed in P5-T2.
-  - `FindInstanceByModel` fuzzy match is map-iteration-nondeterministic → fixed in P2-T5 (test asserts "a valid candidate", not which one).
+  - ~~`FindInstanceByModel` fuzzy match is map-iteration-nondeterministic → fixed in P2-T5 (test asserts "a valid candidate", not which one).~~ **Fixed (P2-T5):** tiered scoring, lowest-port tie-break, tests assert the exact winner.
   - ~~`merge_reasoning` is dead code (toggle does nothing)~~ → **wired in P2-T1 (done)** (tests in `transforms_test.go` pin intended behavior; note: `mergeReasoningContent` appends reasoning AFTER existing content in the same chunk, "c"+"r"→"cr" — preserved).
   - `ProfileFlags` keeps both `--verbose` and `--no-verbose` (standalone flags aren't key-overridden; llama-server takes the last) → snapshot in `flags_test.go`, replaced by typed flag model in P5-T3.
 
@@ -88,7 +88,7 @@ No behavior changes. This makes Phases 3–5 safe.
 - [x] **P0-T5: Chat-history tests** (`pkg/model/chat_history_test.go`)
   - Round-trip, auto-title, truncation (byte-based: 60/80 bytes + 3-byte ellipsis), corrupt-file skipping, delete.
 - [x] **P0-T6: Model index tests** (`pkg/model/index_test.go`)
-  - `ScanModels` idempotence, split-file indexing (part 1 only, size = sum), missing-blob filtering, `ResolveModelBlob` exact/path/missing, fuzzy-match nondeterminism documented (P2-T5 fixes).
+  - `ScanModels` idempotence, split-file indexing (part 1 only, size = sum), missing-blob filtering, `ResolveModelBlob` exact/path/missing, fuzzy-match nondeterminism documented (fixed in P2-T5 — `TestResolveModelBlobFuzzyDeterministic` now asserts the exact winner).
   - **Bonus finding pinned:** scan path replaces underscores→hyphens *before* the quant-strip regex (which expects underscores), so scanned short names keep the quant suffix.
 
 **Exit:** `go test ./...` green, proxy + transforms covered.
@@ -155,9 +155,11 @@ No behavior changes. This makes Phases 3–5 safe.
   - Manager's text and image ready-poll goroutines use it (previously a hardcoded 120s that disagreed with the server's 5m default).
   - Server's three call sites (`waitForInstanceReady`, the streaming cold-start wait, the post-health 503-retry deadline) now call `model.LoadTimeout()`; the local `modelLoadTimeout` wrapper is gone.
   - Test moved: `TestModelLoadTimeoutEnv` (server) → `TestLoadTimeout` (pkg/model).
-- [ ] **P2-T5: Deterministic model matching** (`pkg/manager/manager.go:792-824`, `pkg/server/server.go:1011-1024`)
-  - `FindInstanceByModel`: collect **all** candidates, score exact-fold > short-name-equal > suffix > substring; ties broken by lowest port. Log when a substring match was used.
-  - Image auto-detect with empty `model` and multiple image profiles → 400 listing profile names (no more map-order lottery).
+- [x] **P2-T5: Deterministic model matching** (`pkg/manager/manager.go`, `pkg/model/model.go`, `pkg/server/server.go`)
+  - `FindInstanceByModel` rewritten: collects **all** candidates in ascending-port order and scores them exact-fold/same-blob (tier 0) > short-name-equal (1) > suffix (2) > substring (3); ties broken by lowest port; logs a warning when a substring-only match was used. Empty query returns nil.
+  - `ResolveModelBlob` fuzzy tier made deterministic too: short-name candidates are scored over substring candidates, ties within a tier broken by lexicographic index name (the pinned `TestResolveModelBlobFuzzyDocumentsNondeterminism` is now `TestResolveModelBlobFuzzyDeterministic` asserting the exact winner).
+  - Image auto-detect with empty `model` and multiple image profiles → 400 listing the profile names (sorted); a single image profile is still auto-selected; explicit `profile` bypasses the check.
+  - Tests: `TestFindInstanceByModelDeterministic` (tier precedence, port tie-break over 50 iterations, stopped instances excluded, empty query), `TestImageAutoDetectMultipleProfiles400`.
 - [ ] **P2-T6: Windows orphan recovery** (`pkg/manager/manager.go:183-199`)
   - If WMI fails, log and **skip** the process instead of registering it under a guessed port (don't burn ports, don't show phantom instances).
 - [ ] **P2-T7: Per-GPU utilization + real CPU** (`pkg/manager/manager.go:842-886`)

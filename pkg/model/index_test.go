@@ -136,12 +136,12 @@ func TestResolveModelBlob(t *testing.T) {
 	}
 }
 
-// TestResolveModelBlobFuzzyDocumentsNondeterminism: two models both contain
-// the substring "qwen"; the current implementation returns whichever comes
-// first in map iteration order, which varies between runs. This test pins
-// that it returns a valid candidate (not which one) — P2-T5 makes the choice
-// deterministic and this test can then assert the exact winner.
-func TestResolveModelBlobFuzzyDocumentsNondeterminism(t *testing.T) {
+// TestResolveModelBlobFuzzyDeterministic (P2-T5): when several models match
+// a fuzzy query, the winner is deterministic — short-name candidates beat
+// substring candidates, and ties within a tier go to the lexicographically
+// first index name (the old code returned whichever candidate map iteration
+// hit first).
+func TestResolveModelBlobFuzzyDeterministic(t *testing.T) {
 	setTestHome(t)
 	pA := writeModelFile(t, "qwen-a.gguf", 10)
 	pB := writeModelFile(t, "qwen-b.gguf", 10)
@@ -153,7 +153,23 @@ func TestResolveModelBlobFuzzyDocumentsNondeterminism(t *testing.T) {
 	if err != nil {
 		t.Fatalf("fuzzy resolve failed: %v", err)
 	}
-	if got != pA && got != pB {
-		t.Fatalf("fuzzy resolve = %q, want one of the candidates", got)
+	if got != pA {
+		t.Fatalf("fuzzy resolve = %q, want %q (lexicographic first among substring candidates)", got, pA)
+	}
+
+	// A short-name candidate wins over a substring candidate even when the
+	// substring candidate's name sorts first.
+	pC := writeModelFile(t, "zeta.gguf", 10)
+	pD := writeModelFile(t, "alpha-qwen-99b.gguf", 10)
+	SaveIndex(map[string]ModelInfo{
+		"zeta":  {Name: "zeta", ShortName: "qwen", BlobPath: pC},
+		"alpha": {Name: "alpha-qwen-99b-gguf", ShortName: "alpha", BlobPath: pD},
+	})
+	got, err = ResolveModelBlob("qwen")
+	if err != nil {
+		t.Fatalf("fuzzy resolve failed: %v", err)
+	}
+	if got != pC {
+		t.Fatalf("fuzzy resolve = %q, want %q (short-name tier beats substring tier)", got, pC)
 	}
 }
