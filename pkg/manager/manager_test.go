@@ -47,6 +47,27 @@ func TestNewManagerMultiple(t *testing.T) {
 	}
 }
 
+func TestIsLlamaServerCommandLine(t *testing.T) {
+	tests := []struct {
+		in   string
+		want bool
+	}{
+		{"llama-server -m /root/models/m.gguf --host 0.0.0.0 --port 8081", true},
+		{"/usr/local/bin/llama-server -m m.gguf --host 0.0.0.0 --port 8081", true},
+		// shebang script: interpreter first, script path second (macOS ps form)
+		{"/bin/sh /root/.gollama/bin/llama-server --host 127.0.0.1 --port 8081", true},
+		{"llama-server --port 8081", false},                // no --host: not gollama-started
+		{"/usr/bin/llama-bench --host 0.0.0.0", false},     // different binary
+		{"llama-server --host=0.0.0.0 --port 8081", false}, // gollama always passes --host with a value arg
+		{"bash -c sleep 30", false},
+	}
+	for _, tt := range tests {
+		if got := isLlamaServerCommandLine(tt.in); got != tt.want {
+			t.Errorf("isLlamaServerCommandLine(%q) = %v, want %v", tt.in, got, tt.want)
+		}
+	}
+}
+
 func TestStartRejectsRunningSlot(t *testing.T) {
 	m := &Manager{
 		instances: map[int]*Instance{

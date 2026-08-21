@@ -246,47 +246,50 @@ func main() {
 		modelName := os.Args[2]
 		extraArgs := os.Args[3:]
 
-		if len(mgr.List()) == 0 {
-			inst, err := mgr.Start(modelName, 8081, extraArgs, false, nil)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-				os.Exit(1)
-			}
-			fmt.Printf("Started %s on port %d (PID %d)\n", inst.Model, inst.Port, inst.PID)
-			ip := localIP()
-			fmt.Printf("Chat: http://%s:%d\n", ip, inst.Port)
-			fmt.Printf("Web UI: run 'gollama serve' for http://%s:9080\n", ip)
-			fmt.Println("Press Ctrl+C to stop")
+		// Always start (P2-T2): the old "only when no instances running"
+		// guard made this a silent no-op whenever another gollama process
+		// had a model up. port 0 = auto-assign, which avoids running
+		// instances; an explicit --port that is in use is a clear error
+		// from Start.
+		inst, err := mgr.Start(modelName, 0, extraArgs, false, nil)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("Started %s on port %d (PID %d)\n", inst.Model, inst.Port, inst.PID)
+		ip := localIP()
+		fmt.Printf("Chat: http://%s:%d\n", ip, inst.Port)
+		fmt.Printf("Web UI: run 'gollama serve' for http://%s:9080\n", ip)
+		fmt.Println("Press Ctrl+C to stop")
 
-			sigCh := make(chan os.Signal, 1)
-			signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-			done := make(chan struct{})
-			go func() {
-				for {
-					time.Sleep(2 * time.Second)
-					for _, i := range mgr.List() {
-						if i.Port == inst.Port && i.Status != "running" {
-							close(done)
-							return
-						}
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+		done := make(chan struct{})
+		go func() {
+			for {
+				time.Sleep(2 * time.Second)
+				for _, i := range mgr.List() {
+					if i.Port == inst.Port && i.Status != "running" {
+						close(done)
+						return
 					}
 				}
-			}()
-			select {
-			case <-sigCh:
-				fmt.Println("\nstopping...")
-				mgr.Stop(inst.Port)
-			case <-done:
-				fmt.Println("\ninstance stopped unexpectedly")
-				logFile := filepath.Join(model.GollamaDir(), "logs", fmt.Sprintf("port-%d.log", inst.Port))
-				if data, err := os.ReadFile(logFile); err == nil {
-					lines := strings.Split(string(data), "\n")
-					for i := len(lines) - 1; i >= 0 && i > len(lines)-10; i-- {
-						line := strings.TrimSpace(lines[i])
-						if line != "" && !strings.Contains(line, "\r") {
-							fmt.Printf("Error: %s\n", line)
-							break
-						}
+			}
+		}()
+		select {
+		case <-sigCh:
+			fmt.Println("\nstopping...")
+			mgr.Stop(inst.Port)
+		case <-done:
+			fmt.Println("\ninstance stopped unexpectedly")
+			logFile := filepath.Join(model.GollamaDir(), "logs", fmt.Sprintf("port-%d.log", inst.Port))
+			if data, err := os.ReadFile(logFile); err == nil {
+				lines := strings.Split(string(data), "\n")
+				for i := len(lines) - 1; i >= 0 && i > len(lines)-10; i-- {
+					line := strings.TrimSpace(lines[i])
+					if line != "" && !strings.Contains(line, "\r") {
+						fmt.Printf("Error: %s\n", line)
+						break
 					}
 				}
 			}

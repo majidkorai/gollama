@@ -94,8 +94,12 @@ func (m *Manager) recoverOrphans() {
 		return
 	}
 
-	cmd := exec.Command("pgrep", "-a", "llama-server")
-	out, err := cmd.Output()
+	// Scan full command lines (ps -eo pid,args) instead of matching process
+	// names (pgrep): for a shebang script the kernel records the interpreter
+	// (e.g. /bin/sh) as the executable name, so pgrep never matched
+	// "llama-server" on macOS and orphans were silently unrecovered, letting
+	// a second 'gollama run' collide on the same port.
+	out, err := exec.Command("ps", "-eo", "pid,args").Output()
 	if err != nil {
 		return
 	}
@@ -104,53 +108,72 @@ func (m *Manager) recoverOrphans() {
 		if line == "" {
 			continue
 		}
-		parts := strings.Fields(line)
-		if len(parts) < 2 {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
 			continue
 		}
-		pidStr := parts[0]
-		pid, _ := strconv.Atoi(pidStr)
-		if pid == 0 {
+		pid, _ := strconv.Atoi(fields[0])
+		if pid == 0 || pid == os.Getpid() {
 			continue
 		}
+		cmdLine := strings.Join(fields[1:], " ")
+		if !isLlamaServerCommandLine(cmdLine) {
+			continue
+		}
+		m.registerOrphan(pid, cmdLine)
+	}
+}
 
-		cmdLine := strings.Join(parts[1:], " ")
-		// Only recover instances started by gollama (identified by --host flag)
-		if !strings.Contains(cmdLine, "--host ") {
-			continue
+// isLlamaServerCommandLine reports whether a full command line belongs to a
+// llama-server process started by gollama: an argument whose basename is
+// llama-server (or .exe) plus the --host flag gollama always passes.
+func isLlamaServerCommandLine(cmdLine string) bool {
+	if !strings.Contains(cmdLine, "--host ") {
+		return false
+	}
+	for _, a := range strings.Fields(cmdLine) {
+		base := filepath.Base(a)
+		if base == "llama-server" || base == "llama-server.exe" {
+			return true
 		}
-		var port int
-		var modelName string
-		args := parts[1:]
-		for i, a := range args {
-			if a == "--port" && i+1 < len(args) {
-				port, _ = strconv.Atoi(args[i+1])
+	}
+	return false
+}
+
+// registerOrphan parses the port/model out of a recovered command line and
+// registers the instance. Caller holds m.mu.
+func (m *Manager) registerOrphan(pid int, cmdLine string) {
+	var port int
+	var modelName string
+	args := strings.Fields(cmdLine)
+	for i, a := range args {
+		if a == "--port" && i+1 < len(args) {
+			port, _ = strconv.Atoi(args[i+1])
+		}
+		if a == "-m" && i+1 < len(args) {
+			modelName = args[i+1]
+			if idx := strings.LastIndex(modelName, "/"); idx >= 0 {
+				modelName = modelName[idx+1:]
 			}
-			if a == "-m" && i+1 < len(args) {
-				modelName = args[i+1]
-				if idx := strings.LastIndex(modelName, "/"); idx >= 0 {
-					modelName = modelName[idx+1:]
-				}
-			}
 		}
-		if port == 0 {
-			port = m.nextPort
-			m.nextPort++
+	}
+	if port == 0 {
+		port = m.nextPort
+		m.nextPort++
+	}
+	if port >= m.nextPort {
+		m.nextPort = port + 1
+	}
+	if _, exists := m.instances[port]; !exists && port > 0 && !m.pidExists(pid) {
+		m.instances[port] = &Instance{
+			Port:         port,
+			Model:        modelName,
+			PID:          pid,
+			Status:       "running",
+			Ready:        true,
+			LastActivity: time.Now(),
 		}
-		if port >= m.nextPort {
-			m.nextPort = port + 1
-		}
-		if _, exists := m.instances[port]; !exists && port > 0 && !m.pidExists(pid) {
-			m.instances[port] = &Instance{
-				Port:         port,
-				Model:        modelName,
-				PID:          pid,
-				Status:       "running",
-				Ready:        true,
-				LastActivity: time.Now(),
-			}
-			log.Printf("recovered orphan instance: port=%d pid=%d model=%s", port, pid, modelName)
-		}
+		log.Printf("recovered orphan instance: port=%d pid=%d model=%s", port, pid, modelName)
 	}
 }
 

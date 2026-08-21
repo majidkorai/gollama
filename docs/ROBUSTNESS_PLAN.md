@@ -4,7 +4,7 @@
 
 ## ▶ Resume here (read this first)
 
-**Where we are:** Phase 0 (test safety net) and Phase 1 (security) are done, and **Phase 1 is deployed** (v3.8.0 live on the gollama VM 2026-08-20, hermes pipeline updated with the token — see deploy notes below). Phase 1 shipped: loopback-default bind, shared-secret API token, chat-id + model-delete traversal fixes, self-update checksum verification, no silent package installs, systemd unit fixes, bounded API client. Phase 2 is underway: **P2-T1 (merge_reasoning) done** — next is P2-T2 (`gollama run` no-op).
+**Where we are:** Phase 0 (test safety net) and Phase 1 (security) are done, and **Phase 1 is deployed** (v3.8.0 live on the gollama VM 2026-08-20, hermes pipeline updated with the token — see deploy notes below). Phase 1 shipped: loopback-default bind, shared-secret API token, chat-id + model-delete traversal fixes, self-update checksum verification, no silent package installs, systemd unit fixes, bounded API client. Phase 2 is underway: **P2-T1 (merge_reasoning) + P2-T2 (`gollama run` no-op, incl. a pgrep→ps orphan-recovery fix) done** — next is P2-T3 (clean shutdown).
 
 **How to resume:**
 1. Read this file top-to-bottom (phase checkboxes are the source of truth).
@@ -139,8 +139,10 @@ No behavior changes. This makes Phases 3–5 safe.
   - Non-stream path: merge branch runs `convertCompleteThink` then `mergeReasoningContent` (merge takes precedence over strip on both paths, matching the stream path's check order).
   - `mergeReasoningContent` generalized to handle both `delta` (stream) and `message` (non-stream) shapes, mirroring `stripReasoningContent`.
   - Pinned tests updated: the dead-code NOTE in `transforms_test.go` now says wired; new `TestMergeReasoningContentMessage` covers the message shape; new e2e `TestProxyStreamMergeReasoning` / `TestProxyNonStreamMergeReasoning` (with a `nonStream` override added to `fakeUpstream`) assert reasoning never leaks and lands in `content`.
-- [ ] **P2-T2: `gollama run` no longer a silent no-op** (`main.go:213`)
-  - Remove the `len(mgr.List()) == 0` guard; always start (auto-port assignment already handles collisions). If the caller passes an explicit port in use → clear error.
+- [x] **P2-T2: `gollama run` no longer a silent no-op** (`main.go`, `pkg/manager/manager.go`)
+  - Removed the `len(mgr.List()) == 0` guard; `run` always starts with port 0 (auto-assign). An explicit `--port` in use → clear "port N is already in use" error from `Start` (unit-tested in `TestStartRejectsRunningSlot`).
+  - **Recovery fix found by the smoke test:** the old `recoverOrphans` used `pgrep -a llama-server`, which matches the *executable name* — for a shebang script that is the interpreter (`/bin/sh`), so on macOS orphans were never recovered and a second `run` collided on the same port. Now scans `ps -eo pid,args` full command lines (`isLlamaServerCommandLine`: llama-server basename arg + gollama's `--host` flag), portable across macOS/Linux. Tests: `TestIsLlamaServerCommandLine`, `TestRecoverOrphansFindsScriptInstance`, `TestStartAutoAssignsPastRunningInstance`.
+  - Smoke test: `gollama run` ×2 with a live instance → second run logs `recovered orphan instance: port=8081` and starts on 8082.
 - [ ] **P2-T3: Clean shutdown** (`main.go` `serve`, `pkg/manager`)
   - New `Manager.StopAll() []int` (iterate a snapshot, `Stop` each).
   - `serve` on SIGINT/SIGTERM: cancel ctx → `mgr.StopAll()` (wait ≤ 5s) → exit.
