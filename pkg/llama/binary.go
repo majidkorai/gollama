@@ -903,8 +903,3 @@ func buildLlamaServerCUDA() error {
 	fmt.Println("  Build complete.")
 	return nil
 }
-
-func tmpFileReader(path string) io.ReadCloser {
-	r, _ := os.Open(path)
-	return r
-}

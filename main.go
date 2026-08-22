@@ -530,21 +530,8 @@ WantedBy=%s
 // findGollamaUnit returns the installed gollama systemd unit path
 // (system unit first, then user unit) and whether it is a user unit.
 func findGollamaUnit() (string, bool) {
-	const systemUnit = "/etc/systemd/system/gollama.service"
-	if _, err := os.Stat(systemUnit); err == nil {
-		return systemUnit, false
-	}
-	if home, err := os.UserHomeDir(); err == nil {
-		if p := filepath.Join(home, ".config", "systemd", "user", "gollama.service"); fileExists(p) {
-			return p, true
-		}
-	}
-	return "", false
-}
-
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
+	path, userUnit, _ := manager.FindGollamaUnit()
+	return path, userUnit
 }
 
 func isFreshInstall() bool {

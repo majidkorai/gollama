@@ -473,20 +473,14 @@ func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 // restart if a gollama unit is installed (system unit first, then user
 // unit), else nil (caller falls back to re-exec).
 func systemdRestartArgs() []string {
-	if _, err := os.Stat("/etc/systemd/system/gollama.service"); err == nil {
-		return []string{"restart", "gollama"}
+	_, userUnit, found := manager.FindGollamaUnit()
+	if !found {
+		return nil
 	}
-	if home, err := os.UserHomeDir(); err == nil {
-		if p := filepath.Join(home, ".config", "systemd", "user", "gollama.service"); fileExists(p) {
-			return []string{"--user", "restart", "gollama.service"}
-		}
+	if userUnit {
+		return []string{"--user", "restart", "gollama.service"}
 	}
-	return nil
-}
-
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
+	return []string{"restart", "gollama"}
 }
 
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {

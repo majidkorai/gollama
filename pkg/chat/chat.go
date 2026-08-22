@@ -7,8 +7,11 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/majidkorai/gollama/pkg/model"
 )
 
 type Message struct {
@@ -46,8 +49,8 @@ func WaitForReady(baseURL string, timeout time.Duration) error {
 	}
 
 	// Check log file for clues if health never responded
-	logFile := fmt.Sprintf("%s/.gollama/logs/port-%s.log",
-		os.Getenv("HOME"), strings.TrimPrefix(baseURL, "http://127.0.0.1:"))
+	logFile := filepath.Join(model.GollamaDir(), "logs",
+		fmt.Sprintf("port-%s.log", strings.TrimPrefix(baseURL, "http://127.0.0.1:")))
 	if data, err := os.ReadFile(logFile); err == nil {
 		lines := strings.Split(string(data), "\n")
 		for i := len(lines) - 1; i >= 0 && i > len(lines)-10; i-- {
