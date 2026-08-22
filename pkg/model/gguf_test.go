@@ -200,3 +200,79 @@ func TestReadGGUFMetadata_Empty(t *testing.T) {
 		t.Fatal("expected error for empty file")
 	}
 }
+
+func TestStripQuantSuffix(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		// Standard K-quants
+		{"qwen2-0.5b-instruct-q4_k_m", "qwen2-0.5b-instruct"},
+		{"qwen2-0.5b-instruct-q3_k_s", "qwen2-0.5b-instruct"},
+		{"llama-3-8b-instruct-q2_k", "llama-3-8b-instruct"},
+		{"llama-3-8b-instruct-q6_k", "llama-3-8b-instruct"},
+		{"llama-3-8b-instruct-q8_k", "llama-3-8b-instruct"},
+		// Old-style quants
+		{"llama-3-8b-instruct-q4_0", "llama-3-8b-instruct"},
+		{"llama-3-8b-instruct-q4_1", "llama-3-8b-instruct"},
+		{"llama-3-8b-instruct-q5_1", "llama-3-8b-instruct"},
+		{"llama-3-8b-instruct-q8_0", "llama-3-8b-instruct"},
+		// IQ quants
+		{"deepseek-v4-flash-81gb-iq2_xxs", "deepseek-v4-flash-81gb"},
+		{"gemma-2-2b-it-iq4_xs", "gemma-2-2b-it"},
+		{"gemma-2-2b-it-iq4_nl", "gemma-2-2b-it"},
+		{"llama-3-8b-instruct-iq1_s", "llama-3-8b-instruct"},
+		{"llama-3-8b-instruct-iq3_xxs", "llama-3-8b-instruct"},
+		// Vendor prefixes (UD-, ARM-) — longer matches must win over the bare quant
+		{"qwen2-1.5b-instruct-ud-q4_k_m", "qwen2-1.5b-instruct"},
+		{"llama-3-8b-instruct-ud-q3_k_l", "llama-3-8b-instruct"},
+		{"llama-3-8b-instruct-arm-q4_k_m", "llama-3-8b-instruct"},
+		{"llama-3-8b-instruct-arm-q8_0", "llama-3-8b-instruct"},
+		// FP formats
+		{"gemma-2-2b-it-bf16", "gemma-2-2b-it"},
+		{"llama-3-8b-f16", "llama-3-8b"},
+		{"llama-3-8b-f32", "llama-3-8b"},
+		// With .gguf extension
+		{"Qwen2-0.5B-Instruct-Q4_K_M.gguf", "Qwen2-0.5B-Instruct"},
+		// Underscore separators
+		{"model_q4_k_m", "model"},
+		{"model_ud-q4_k_m", "model"},
+		// No quant → unchanged (case preserved)
+		{"my-model", "my-model"},
+		{"gemma-4-12b-it", "gemma-4-12b-it"},
+		{"My-Model-7B", "My-Model-7B"},
+		// Case-insensitive match, original case preserved
+		{"My-Model-Q4_K_M", "My-Model"},
+	}
+	for _, tc := range cases {
+		if got := StripQuantSuffix(tc.in); got != tc.want {
+			t.Errorf("StripQuantSuffix(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestGGUFMetadataCached(t *testing.T) {
+	path := buildGGUFWithTypes(t,
+		"general.architecture", uint32(8), "llama",
+		"llama.block_count", uint32(5), int32(31),
+	)
+	defer os.Remove(path)
+
+	m1, err := GGUFMetadataCached(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m1 == nil || m1.BlockCount != 31 {
+		t.Fatalf("meta = %+v, want BlockCount 31", m1)
+	}
+	// Remove the file: a second lookup must still succeed from the cache
+	// (proving it is not re-reading the file).
+	os.Remove(path)
+	m2, err := GGUFMetadataCached(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m2 != m1 {
+		t.Error("expected the same cached *GGUFMeta pointer on the second lookup")
+	}
+}

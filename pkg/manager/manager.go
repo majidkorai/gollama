@@ -701,7 +701,10 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 			}
 		}
 	}
-	totalBlocks := float64(model.ReadBlockCount(blob))
+	var totalBlocks float64
+	if meta, err := model.GGUFMetadataCached(blob); err == nil && meta != nil {
+		totalBlocks = float64(meta.BlockCount)
+	}
 	if ngl > 0 {
 		if totalBlocks == 0 {
 			// No block count from GGUF — show raw flag values

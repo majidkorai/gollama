@@ -47,14 +47,13 @@ func TestScanModelsIndexesNewFiles(t *testing.T) {
 	if info.Size != 100 {
 		t.Errorf("Size = %d, want 100", info.Size)
 	}
-	// Documents current behavior: the scan path replaces underscores with
-	// hyphens in Name BEFORE the quant-stripping regex runs (the regex
-	// expects underscores), so the short name keeps the quant suffix.
+	// P5-T2: the scan path strips the quantization tag BEFORE normalizing
+	// underscores, so the short name is clean.
 	if info.Name != "My-Model-Q4-K-M" {
 		t.Errorf("Name = %q, want My-Model-Q4-K-M", info.Name)
 	}
-	if info.ShortName != "my-model-q4-k-m" {
-		t.Errorf("ShortName = %q, want my-model-q4-k-m (documents current behavior)", info.ShortName)
+	if info.ShortName != "my-model" {
+		t.Errorf("ShortName = %q, want my-model (quant suffix stripped, P5-T2)", info.ShortName)
 	}
 }
 

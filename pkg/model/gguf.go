@@ -2,7 +2,6 @@ package model
 
 import (
 	"bufio"
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -11,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 )
 
 const ggufMagic = "GGUF"
@@ -43,7 +43,8 @@ var ggufTypeNames = map[uint32]string{
 	26: "BF16",
 }
 
-type ggufMetadata struct {
+// GGUFMeta is the subset of GGUF metadata gollama cares about.
+type GGUFMeta struct {
 	Architecture   string
 	Quantization   string
 	ContextLength  uint64
@@ -51,7 +52,35 @@ type ggufMetadata struct {
 	BlockCount     uint32
 }
 
-func readGGUFMetadata(path string) (*ggufMetadata, error) {
+// ggufMetaCache memoizes parsed GGUF metadata by path for the lifetime of
+// the process. Model files are immutable in practice (re-pulls of an
+// existing file are refused), so caching is safe on the hot path
+// (per-instance-start metadata lookups).
+var (
+	ggufMetaCache   = map[string]*GGUFMeta{}
+	ggufMetaCacheMu sync.Mutex
+)
+
+// GGUFMetadataCached returns the parsed metadata for a GGUF file, backed by
+// a process-local cache. Returns (nil, nil) when the file is not a GGUF.
+func GGUFMetadataCached(path string) (*GGUFMeta, error) {
+	ggufMetaCacheMu.Lock()
+	if m, ok := ggufMetaCache[path]; ok {
+		ggufMetaCacheMu.Unlock()
+		return m, nil
+	}
+	ggufMetaCacheMu.Unlock()
+
+	m, err := readGGUFMetadata(path)
+	if m != nil {
+		ggufMetaCacheMu.Lock()
+		ggufMetaCache[path] = m
+		ggufMetaCacheMu.Unlock()
+	}
+	return m, err
+}
+
+func readGGUFMetadata(path string) (*GGUFMeta, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("opening file: %w", err)
@@ -83,7 +112,7 @@ func readGGUFMetadata(path string) (*ggufMetadata, error) {
 		return nil, fmt.Errorf("reading metadata count: %w", err)
 	}
 
-	meta := &ggufMetadata{}
+	meta := &GGUFMeta{}
 
 	for i := uint64(0); i < metadataCount; i++ {
 		// Some GGUF writers add null-byte padding between metadata entries.
@@ -133,13 +162,23 @@ func readGGUFMetadata(path string) (*ggufMetadata, error) {
 				continue
 			}
 		default:
-			if meta.Architecture != "" && key == meta.Architecture+".block_count" && valueType == 5 {
-				var val int32
-				if err := binary.Read(r, binary.LittleEndian, &val); err != nil {
-					return nil, fmt.Errorf("reading block_count: %w", err)
+			if meta.Architecture != "" && key == meta.Architecture+".block_count" {
+				switch valueType {
+				case 5: // INT32 (standard)
+					var val int32
+					if err := binary.Read(r, binary.LittleEndian, &val); err != nil {
+						return nil, fmt.Errorf("reading block_count: %w", err)
+					}
+					meta.BlockCount = uint32(val)
+					continue
+				case 0: // UINT8 (defensive: some writers)
+					var val uint8
+					if err := binary.Read(r, binary.LittleEndian, &val); err != nil {
+						return nil, fmt.Errorf("reading block_count: %w", err)
+					}
+					meta.BlockCount = uint32(val)
+					continue
 				}
-				meta.BlockCount = uint32(val)
-				continue
 			}
 			if (key == "llama.context_length" || key == "gemma.context_length" ||
 				key == "qwen2.context_length" || key == "starcoder2.context_length" ||
@@ -230,73 +269,28 @@ func deriveShortName(path string) string {
 	re := regexp.MustCompile(`-\d{5}-of-\d{5}$`)
 	base = re.ReplaceAllString(base, "")
 
-	// Remove quantization suffix (common patterns)
-	quantRe := regexp.MustCompile(`(?i)(-UD)?-[IQBF][QKBF][0-9]_[SLMX](_[SLMX])?$|-[BQKF][0-9]_[A-Z_]+$`)
-	base = quantRe.ReplaceAllString(base, "")
-
-	return strings.ToLower(base)
+	// Remove quantization suffix (single source of truth: StripQuantSuffix)
+	return strings.ToLower(StripQuantSuffix(base))
 }
 
-// ReadBlockCount reads the block count from a GGUF model file.
-func ReadBlockCount(path string) uint32 {
-	f, err := os.Open(path)
-	if err != nil {
-		return 0
+// StripQuantSuffix removes a trailing quantization tag from a model name or
+// GGUF filename stem (e.g. "Qwen2-0.5B-Instruct-Q4_K_M.gguf" →
+// "Qwen2-0.5B-Instruct", "model-UD-Q4_K_M" → "model"). It is the single
+// source of truth for quant-suffix stripping (P5-T2), replacing three
+// divergent regexes. Matching is case-insensitive, understands vendor
+// prefixes (UD-, ARM-), and works whether or not underscores have been
+// normalized to hyphens elsewhere in the name. A no-match returns the input
+// unchanged.
+func StripQuantSuffix(name string) string {
+	base := strings.TrimSuffix(name, ".gguf")
+	lowerBase := strings.ToLower(base)
+	for _, q := range knownQuantSuffixes {
+		ql := strings.ToLower(q)
+		if strings.HasSuffix(lowerBase, "-"+ql) || strings.HasSuffix(lowerBase, "_"+ql) {
+			return base[:len(base)-len(ql)-1]
+		}
 	}
-	defer f.Close()
-
-	// Only read the first 10 MB — metadata is always near the start
-	const maxHead = 10 * 1024 * 1024
-	fi, err := f.Stat()
-	if err != nil {
-		return 0
-	}
-	headSize := fi.Size()
-	if headSize > maxHead {
-		headSize = maxHead
-	}
-	data := make([]byte, headSize)
-	if _, err := io.ReadFull(f, data); err != nil && err != io.ErrUnexpectedEOF {
-		return 0
-	}
-
-	// Scan for "general.architecture" in file bytes to find the arch name
-	pat := []byte("general.architecture")
-	idx := bytes.Index(data, pat)
-	if idx < 0 {
-		return 0
-	}
-
-	pos := idx + len(pat)
-	if pos+12 > len(data) {
-		return 0
-	}
-	valType := binary.LittleEndian.Uint32(data[pos : pos+4])
-	pos += 4
-	if valType != 8 {
-		return 0
-	}
-	strLen := binary.LittleEndian.Uint64(data[pos : pos+8])
-	pos += 8
-	if strLen == 0 || pos+int(strLen) > len(data) {
-		return 0
-	}
-	arch := string(data[pos : pos+int(strLen)])
-
-	blockKey := []byte(arch + ".block_count")
-	bkIdx := bytes.Index(data, blockKey)
-	if bkIdx < 0 {
-		return 0
-	}
-
-	bkValType := binary.LittleEndian.Uint32(data[bkIdx+len(blockKey) : bkIdx+len(blockKey)+4])
-	switch bkValType {
-	case 5, 4: // INT32 or FLOAT32 (some writers store ints as float type)
-		return binary.LittleEndian.Uint32(data[bkIdx+len(blockKey)+4 : bkIdx+len(blockKey)+8])
-	case 0:
-		return uint32(data[bkIdx+len(blockKey)+4])
-	}
-	return 0
+	return name
 }
 
 // DeriveShortNameFromRepo creates a clean API name from a HuggingFace model ID.

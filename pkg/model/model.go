@@ -889,9 +889,7 @@ func doScanModels() {
 				base := entry.Name()
 				base = splitRe.ReplaceAllString(base, "")
 				// Strip quantization suffix for cleaner name
-				quantRe := regexp.MustCompile(`(?i)-[IQBF][QKBF][0-9]_[SLMX](_[SLMX])?$|-[BQKF][0-9]_[A-Z_]+$`)
-				base = quantRe.ReplaceAllString(base, "")
-				base = strings.ToLower(base)
+				base = strings.ToLower(StripQuantSuffix(base))
 				base = strings.ReplaceAll(base, "_", "-")
 				base = strings.TrimSuffix(base, ".gguf")
 				fi, _ := os.Stat(path)
@@ -968,13 +966,14 @@ func doScanModels() {
 			}
 			// Normalize: underscores → hyphens for consistency
 			info.Name = strings.ReplaceAll(base, "_", "-")
-			// Generate a clean short name: lowercase, underscores→hyphens, strip quants
-			short := strings.ToLower(info.Name)
+			// Generate a clean short name: strip the quantization tag FIRST
+			// (it is underscore-separated — StripQuantSuffix understands both
+			// separators), then normalize. Stripping after underscore→hyphen
+			// normalization would never match (P5-T2).
+			short := strings.ToLower(base)
+			short = StripQuantSuffix(short)
 			short = strings.ReplaceAll(short, "_", "-")
 			short = strings.ReplaceAll(short, " ", "-")
-			// Strip trailing quant pattern like -iq4_xs, -q4_k_m etc.
-			quantRe := regexp.MustCompile(`(?i)-[iqbf][qkbf][0-9]_[slmx](_[slmx])?$`)
-			short = quantRe.ReplaceAllString(short, "")
 			info.ShortName = short
 			idx[base] = info
 			log.Printf("scanned new model: %s (short=%s, arch=%s, quant=%s)", base, short, info.Architecture, info.Quantization)
