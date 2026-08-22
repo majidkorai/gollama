@@ -177,6 +177,40 @@ func TestPullModelFreshDownload(t *testing.T) {
 	}
 }
 
+// TestPullModelQuantMatchCaseInsensitive guards the HF quant-suffix match:
+// repos commonly use lowercase filenames (q4_k_m.gguf) while users request the
+// canonical uppercase form (Q4_K_M). A case-sensitive match would fail and
+// fall back to downloading *all* GGUF files (e.g. a huge fp16 build).
+func TestPullModelQuantMatchCaseInsensitive(t *testing.T) {
+	setTestHome(t)
+	q4 := []byte(strings.Repeat("q4-lowercase-content-", 100))
+	fp16 := []byte(strings.Repeat("fp16-large-content--", 1000))
+	f := setTestHF(t, map[string][]byte{
+		"test/repo/test-repo-q4_k_m.gguf": q4,
+		"test/repo/test-repo-fp16.gguf":   fp16,
+	})
+
+	if err := PullModel("test/repo:Q4_K_M"); err != nil {
+		t.Fatalf("PullModel: %v", err)
+	}
+
+	// Only the q4_k_m file should be downloaded — not the fp16 fallback.
+	if f.resolves != 1 {
+		t.Fatalf("resolve requests = %d, want 1 (case-insensitive quant match)", f.resolves)
+	}
+	dest := filepath.Join(ModelsDir(), "test-repo-q4_k_m.gguf")
+	got, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatalf("reading dest: %v", err)
+	}
+	if !bytes.Equal(got, q4) {
+		t.Fatalf("content mismatch: got %d bytes, want %d", len(got), len(q4))
+	}
+	if _, err := os.Stat(filepath.Join(ModelsDir(), "test-repo-fp16.gguf")); !os.IsNotExist(err) {
+		t.Fatalf("fp16 file should not have been downloaded (quant match failed)")
+	}
+}
+
 func TestPullModelResumesPartial(t *testing.T) {
 	setTestHome(t)
 	content := []byte(strings.Repeat("resume-resume-resume-", 100))

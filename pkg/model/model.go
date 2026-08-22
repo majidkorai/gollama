@@ -1247,13 +1247,18 @@ func pullModelInternal(ctx context.Context, ref string, fn ProgressFn, progress 
 	var targetFiles []sibling
 	splitPartRe := regexp.MustCompile(`-\d{5}-of-\d{5}$`)
 	var minSegments int
+	// Quant matching is case-insensitive: repos frequently use lowercase
+	// filenames (e.g. q4_k_m.gguf) while users request the canonical
+	// uppercase form (Q4_K_M). Comparing in uppercase avoids silently
+	// falling back to "all GGUF files" when only the case differs.
+	quantUpper := strings.ToUpper(quant)
 	for _, s := range modelData.Siblings {
 		if strings.HasSuffix(s.Filename, ".gguf") {
 			fname := filepath.Base(s.Filename)
 			stem := strings.TrimSuffix(fname, ".gguf")
 			stem = splitPartRe.ReplaceAllString(stem, "")
 			// Match quant as a suffix of the remaining stem (handles UD-Q3_K_S, IQ1_M, etc.)
-			if strings.HasSuffix(stem, quant) || strings.HasSuffix(stem, "-"+quant) {
+			if strings.HasSuffix(strings.ToUpper(stem), quantUpper) || strings.HasSuffix(strings.ToUpper(stem), "-"+quantUpper) {
 				segments := strings.Split(stem, "-")
 				if len(segments) < minSegments || minSegments == 0 {
 					minSegments = len(segments)
