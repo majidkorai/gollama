@@ -421,6 +421,16 @@ var (
 	indexMu sync.RWMutex
 )
 
+// Model-dir scan throttling (P4-T2). The models directory is rescanned at
+// most once per scanInterval so the frequently-polled GET /api/v1/models
+// stays O(index) instead of O(files × GGUF headers). scanInterval <= 0
+// disables throttling (tests set this).
+var (
+	scanMu       sync.Mutex
+	lastScanTime time.Time
+	scanInterval = 60 * time.Second
+)
+
 // HTTPClient is a shared HTTP client with a custom User-Agent.
 // No timeout: it carries long model downloads.
 var HTTPClient = &http.Client{
@@ -755,8 +765,42 @@ func ListRepoGGUFFiles(repo string) ([]RepoGGUFFile, error) {
 	return result, nil
 }
 
-// ScanModels scans the models directory for .gguf files not in the index and adds them.
+// ScanModels scans the models directory for .gguf files not in the index and
+// adds them. It always runs the scan (no throttling).
 func ScanModels() {
+	doScanModels()
+}
+
+// ScanModelsForce runs the scan and updates the throttle clock so subsequent
+// throttled scans are suppressed. Used by the ?refresh=1 model-list query.
+func ScanModelsForce() {
+	scanMu.Lock()
+	lastScanTime = time.Now()
+	scanMu.Unlock()
+	doScanModels()
+}
+
+// ResetScanThrottle clears the models-dir scan throttle clock so the next
+// throttled scan runs immediately. Intended for tests.
+func ResetScanThrottle() {
+	scanMu.Lock()
+	lastScanTime = time.Time{}
+	scanMu.Unlock()
+}
+
+// scanModelsMaybe runs the scan at most once per scanInterval.
+func scanModelsMaybe() {
+	scanMu.Lock()
+	if scanInterval > 0 && time.Since(lastScanTime) < scanInterval {
+		scanMu.Unlock()
+		return
+	}
+	lastScanTime = time.Now()
+	scanMu.Unlock()
+	doScanModels()
+}
+
+func doScanModels() {
 	entries, err := os.ReadDir(ModelsDir())
 	if err != nil {
 		return
@@ -876,8 +920,8 @@ func ScanModels() {
 }
 
 func ListModels() ([]ModelInfo, error) {
-	// Auto-discover new GGUF files
-	ScanModels()
+	// Auto-discover new GGUF files (throttled — see scanInterval).
+	scanModelsMaybe()
 
 	// Copy data under read lock, then release before calling
 	// populateModelInfo (which acquires a write lock).
@@ -893,7 +937,14 @@ func ListModels() ([]ModelInfo, error) {
 	indexMu.RUnlock()
 
 	for i := range modelList {
-		populateModelInfo(&modelList[i])
+		info := &modelList[i]
+		// Skip the (expensive) GGUF header read when the index entry is
+		// already complete (P4-T2).
+		if info.Architecture != "" && info.Quantization != "" &&
+			info.ContextLength > 0 && info.ShortName != "" {
+			continue
+		}
+		populateModelInfo(info)
 	}
 	return modelList, nil
 }

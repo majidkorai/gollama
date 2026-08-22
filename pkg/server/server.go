@@ -144,6 +144,10 @@ func (s *Server) handleLogo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
+	// ?refresh=1 forces a models-dir scan (otherwise it's throttled).
+	if r.URL.Query().Get("refresh") == "1" {
+		model.ScanModelsForce()
+	}
 	models, err := model.ListModels()
 	if err != nil {
 		jsonError(w, err.Error(), 500)

@@ -362,3 +362,54 @@ func TestWaitForReadyBeats(t *testing.T) {
 		t.Fatal("heartbeat was never called during the wait")
 	}
 }
+
+// TestModelsRefreshParam (P4-T2): the model list is throttled, but ?refresh=1
+// forces a scan so a just-added file shows up immediately.
+func TestModelsRefreshParam(t *testing.T) {
+	s := newTestServer(t)
+	model.ResetScanThrottle()
+
+	home := os.Getenv("HOME")
+	modelsDir := filepath.Join(home, ".gollama", "models")
+	if err := os.MkdirAll(modelsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	writeGGUF := func(name string) {
+		if err := os.WriteFile(filepath.Join(modelsDir, name), []byte{0x47}, 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	listNames := func(query string) map[string]bool {
+		rec := getWithAuth(t, s, "/api/v1/models", "", query)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET /api/v1/models?%s = %d: %s", query, rec.Code, rec.Body.String())
+		}
+		var models []model.ModelInfo
+		if err := json.Unmarshal(rec.Body.Bytes(), &models); err != nil {
+			t.Fatalf("bad JSON: %v", err)
+		}
+		names := map[string]bool{}
+		for _, m := range models {
+			names[m.Name] = true
+		}
+		return names
+	}
+
+	// First call scans (fresh clock) and indexes the first file.
+	writeGGUF("one.gguf")
+	if got := listNames(""); !got["one"] {
+		t.Fatalf("after first list, want one indexed, got %v", got)
+	}
+
+	// Second file added; a plain list is throttled within the window.
+	writeGGUF("two.gguf")
+	if got := listNames(""); got["two"] {
+		t.Fatalf("throttled list should not see two yet, got %v", got)
+	}
+
+	// ?refresh=1 forces a scan and surfaces the new file.
+	if got := listNames("refresh=1"); !got["two"] {
+		t.Fatalf("refresh=1 should see two, got %v", got)
+	}
+}

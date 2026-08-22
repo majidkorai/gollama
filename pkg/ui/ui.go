@@ -682,7 +682,7 @@ code.path { font-size: 12px; color: var(--text-muted); font-family: var(--font-m
 <div id="view-models" class="view" role="tabpanel" aria-label="Models">
   <div class="page-header">
     <h1>Models</h1>
-    <p><span id="modelCount"><span class="spinner" id="modelCountSpinner"></span> Loading…</span> <button class="ghost small" onclick="loadModels()" title="Refresh models" style="padding:2px 6px;vertical-align:middle">↻</button></p>
+    <p><span id="modelCount"><span class="spinner" id="modelCountSpinner"></span> Loading…</span> <button class="ghost small" onclick="loadModels(true)" title="Refresh models" style="padding:2px 6px;vertical-align:middle">↻</button></p>
   </div>
   <div id="modelList" class="card"><div class="card-body"><div class="empty-state"><span class="spinner"></span> Loading models…</div></div></div>
   <div class="section">
@@ -1091,14 +1091,14 @@ function switchView(name) {
 }
 
 // ── Models ───────────────────────────────────────────
-async function loadModels() {
+async function loadModels(refresh) {
   var mc = document.getElementById('modelCount'), ml = document.getElementById('modelList'), ms = document.getElementById('modelCountSpinner');
   var s = document.getElementById('modelSelect');
   if (ms) ms.style.display = 'inline-block';
   if (mc) mc.innerHTML = '<span class="spinner"></span> Loading…';
   ml.classList.add('refreshing');
   try {
-    var r = await apiFetch('/api/v1/models'), m = await r.json();
+    var r = await apiFetch('/api/v1/models' + (refresh ? '?refresh=1' : '')), m = await r.json();
     cachedModelCount = m.length;
     var fmc = document.getElementById('faceModels'); if (fmc) fmc.textContent = String(m.length);
     mc.innerHTML = m.length + ' downloaded';

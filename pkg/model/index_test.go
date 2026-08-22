@@ -7,7 +7,16 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
+
+// resetScanClock clears the models-dir scan throttle so each test starts fresh.
+func resetScanClock(t *testing.T) {
+	t.Helper()
+	scanMu.Lock()
+	lastScanTime = time.Time{}
+	scanMu.Unlock()
+}
 
 // writeModelFile creates a fake .gguf in the (temp-HOME) models dir. The
 // content is not a valid GGUF (magic check fails), so metadata parsing
@@ -185,5 +194,34 @@ func TestResolveModelBlobFuzzyDeterministic(t *testing.T) {
 	}
 	if got != pC {
 		t.Fatalf("fuzzy resolve = %q, want %q (short-name tier beats substring tier)", got, pC)
+	}
+}
+
+// TestScanModelsMaybeThrottles (P4-T2): the throttled scan runs at most once
+// per interval; ScanModelsForce bypasses the throttle.
+func TestScanModelsMaybeThrottles(t *testing.T) {
+	setTestHome(t)
+	// Enable throttling for this test only.
+	scanInterval = time.Hour
+	defer func() { scanInterval = 0 }()
+	resetScanClock(t)
+
+	writeModelFile(t, "first.gguf", 10)
+	scanModelsMaybe()
+	if _, ok := LoadIndex()["first"]; !ok {
+		t.Fatalf("first scan should index the file: %v", LoadIndex())
+	}
+
+	// Second scan within the interval is throttled — new file not indexed.
+	writeModelFile(t, "second.gguf", 10)
+	scanModelsMaybe()
+	if _, ok := LoadIndex()["second"]; ok {
+		t.Fatalf("throttled scan should not index the new file")
+	}
+
+	// Force scan bypasses the throttle and indexes the new file.
+	ScanModelsForce()
+	if _, ok := LoadIndex()["second"]; !ok {
+		t.Fatalf("force scan should index the new file: %v", LoadIndex())
 	}
 }

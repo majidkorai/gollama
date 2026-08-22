@@ -11,6 +11,13 @@ import (
 	"time"
 )
 
+// TestMain disables models-dir scan throttling so tests always see a fresh
+// scan regardless of run order or timing within the shared test process.
+func TestMain(m *testing.M) {
+	scanInterval = 0
+	os.Exit(m.Run())
+}
+
 func TestFormatSize(t *testing.T) {
 	tests := []struct {
 		input int64
