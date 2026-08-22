@@ -13,7 +13,7 @@ Go binary that manages llama.cpp instances. CLI + embedded web UI + OpenAI-compa
 
 **`docs/ROBUSTNESS_PLAN.md` is the source of truth for ongoing work** — phased fixes for security, correctness, concurrency, and code-quality issues found in the 2026-08-18 architecture review. It starts with a "Resume here" block (current phase, conventions, deploy notes, pinned behavior quirks).
 
-- Phases 0–4 are complete (security `v3.8.0`, correctness `v3.9.0`, concurrency & lifecycle `v4.0.0`, robustness `v4.1.0`); Phase 5 (refactor → `v4.2.0`) is in progress — P5-T1 done (one SSE streaming proxy: shared `proxySSE`/`postToInstance` in `pkg/server/server.go`; `/api/v1/chat` now sends exactly one `[DONE]`, forwards the trailing usage chunk, and runs the same reasoning transforms as the OpenAI proxy); P5-T2 done (one GGUF parser + one quant regex: `ReadBlockCount` deleted in favor of cached `model.GGUFMetadataCached`, exported `model.StripQuantSuffix` replaces three divergent regexes, scan-path short names are now clean); P5-T3 done (typed flag model: `pkg/model/flags.go` `ParseFlags`/`Merge`/`Args` replaces `sanitizeFlags` + the `ProfileFlags` and `manager.Start` merge loops; standalone flags now set/unset their counterpart — effective behavior unchanged), next is P5-T4.
+- Phases 0–4 are complete (security `v3.8.0`, correctness `v3.9.0`, concurrency & lifecycle `v4.0.0`, robustness `v4.1.0`); Phase 5 (refactor → `v4.2.0`) is in progress — P5-T1 done (one SSE streaming proxy: shared `proxySSE`/`postToInstance` in `pkg/server/server.go`; `/api/v1/chat` now sends exactly one `[DONE]`, forwards the trailing usage chunk, and runs the same reasoning transforms as the OpenAI proxy); P5-T2 done (one GGUF parser + one quant regex: `ReadBlockCount` deleted in favor of cached `model.GGUFMetadataCached`, exported `model.StripQuantSuffix` replaces three divergent regexes, scan-path short names are now clean); P5-T3 done (typed flag model: `pkg/model/flags.go` `ParseFlags`/`Merge`/`Args` replaces `sanitizeFlags` + the `ProfileFlags` and `manager.Start` merge loops; standalone flags now set/unset their counterpart — effective behavior unchanged); P5-T4 done (UI split: the 3200-line `const Page` is now assembled from `pkg/ui/web/{index.html,app.css,app.js}` via `go:embed`, served page stays a single self-contained HTML doc; `switchView` nav uses `data-view` attributes; byte-identity guarded by `TestPageMatchesReference`), next is P5-T5.
 - Phase 1 behavior changes: `serve` binds `127.0.0.1` by default (`--listen`/`GOLLAMA_LISTEN` to opt out), all `/api/v1/*` + `/v1/*` routes require the config's `api_token` when set, chat ids are validated, model-delete path check hardened, self-update verifies release checksums, dep installs are no longer silent.
 - Phase 2 behavior changes (v3.9.0): `merge_reasoning` profiles now actually merge reasoning into content (stream + non-stream); `gollama run` no longer no-ops when an instance is alive (recovers orphans via `ps` scan, starts a second instance); `serve`/`run` shutdown stops all instances (SIGINT → 500ms → SIGKILL, bounded 5s); one readiness deadline everywhere (`model.LoadTimeout`, `GOLLAMA_MODEL_LOAD_TIMEOUT`, default 5m); model matching is deterministic (tiered scoring, lowest-port tie-break; multiple image profiles + no model → 400); Windows orphan recovery no longer registers phantom instances; per-GPU utilization (`gpu_util_per_gpu`) + instantaneous Linux CPU% (`/proc/<pid>/stat` double-sample, `ps` fallback).
 - Phase 3 behavior changes (v4.0.0): every model switch goes through one `Coordinator` (`pkg/manager/coordinator.go`) — concurrent requests for the *same* model coalesce onto one process, requests for *different* models queue on the switch lock (no stop/start thrash), image warmup checks idempotency first and defers with 503 + `Retry-After: 30` while a text model has been active <30s; the manager no longer holds its mutex while sleeping (ports are picked + reserved under the lock, availability scans/spawn/metrics run outside it — parallel `Start`s get unique ports); recovered orphans get their `Ready` confirmed by a background health poll (metrics snapshot, dead-process detection, downgrade if it never serves); `model.ErrAlreadyExists`/`model.ErrNotFound` sentinels replace string-matched errors (model delete 404s only when genuinely missing, 500 on real index failures); the streaming proxy cancels the upstream request when the client disconnects. `Manager.NewManagerNoRecovery()` exists for hermetic tests (skips the orphan `ps` scan).
@@ -69,7 +69,13 @@ gollama/
 │   ├── server/
 │   │   └── server.go          # HTTP server: web UI + REST API + OpenAI proxy
 │   └── ui/
-│       └── ui.go              # Embedded web UI (3100-line const string: HTML/CSS/JS)
+│       ├── ui.go              # Assembles Page from embedded web/ files (P5-T4)
+│       └── web/
+│           ├── index.html     # HTML shell with __GOLLAMA_CSS__ / __GOLLAMA_JS__ placeholders
+│           ├── app.css        # All CSS
+│           ├── app.js         # All JS
+│           └── testdata/
+│               └── page_reference.html  # Byte-identity reference (TestPageMatchesReference)
 ```
 
 ## Architecture
@@ -336,9 +342,9 @@ curl -s -X POST "http://192.168.1.36:9080/api/v1/warmup?token=<api-token>" -d '{
 | `restart` | — | Restart gollama |
 | `logs` | `<port>` | Print instance logs |
 
-## UI Architecture (`pkg/ui/ui.go`)
+## UI Architecture (`pkg/ui/web/`)
 
-Single `const Page` string (~3100 lines) containing the entire web app: HTML template + CSS + JS. No framework, no build step.
+The web app lives in `pkg/ui/web/`: `index.html` (HTML shell), `app.css` (CSS), `app.js` (JS). `pkg/ui/ui.go` embeds them via `go:embed` and assembles `ui.Page` by inlining the CSS/JS into the `__GOLLAMA_CSS__` / `__GOLLAMA_JS__` placeholders (P5-T4). No framework, no build step; the served page is a single self-contained HTML document (inline `<style>` + `<script>`).
 
 ### Views (JS SPA with `switchView()`):
 - **Dashboard** (`#view-dashboard`): Quick Launch form + Running Instances grid; polls `loadInstances()` every 5s while visible
@@ -348,7 +354,7 @@ Single `const Page` string (~3100 lines) containing the entire web app: HTML tem
 - **Settings** (`#view-settings`): Version info + API token (copy/regenerate/disable) + idle TTL + default flags + API defaults + Model Profiles + restart
 
 ### JS Patterns:
-- Navigation: `switchView(name)` — hides all `.view`, shows target, calls `loadInstances()`/`loadModels()`/`loadChats()`/`loadSettings()` depending on view; starts/stops the 5s dashboard poll
+- Navigation: `switchView(name)` — hides all `.view`, shows target, calls `loadInstances()`/`loadModels()`/`loadChats()`/`loadSettings()` depending on view; starts/stops the 5s dashboard poll. Nav buttons carry a `data-view` attribute (P5-T4); `switchView` finds the active button via `.nav-item[data-view="..."]`
 - Sidebar: Collapsible (60px), expanded (220px), state in localStorage
 - Theme: Dark/light toggle, persisted in localStorage, CSS custom properties; syncs `meta[theme-color]`
 - Faceplate: top strip (`#faceLed`, `#faceInst`, `#faceTps`, `#faceModels`, `#faceVersion`, `#faceClock`) updated by `updateFaceplate()` from the instance list + a 1s clock
@@ -364,12 +370,12 @@ Single `const Page` string (~3100 lines) containing the entire web app: HTML tem
 - Badges are square with a 4px LED dot (`::before`); instance cards are "rack units" with a 2px status stripe (`.inst-card.starting/.stopped/.error`)
 - Both dark and light themes via `.light` on `<html>` + `<body>` (JS sets both); keep that pairing
 - Responsive breakpoint at 768px (force-collapsed sidebar, single column, faceplate trimmed)
-- Gotcha: `switchView` finds nav items by `onclick*="<name>"` substring — nav buttons must keep inline `onclick="switchView('x')"`
+- Nav buttons carry a `data-view` attribute; `switchView` matches on it (P5-T4). Keep the attribute in sync with the view id when adding a view.
 
 ## Code Conventions
 
 1. **Zero external dependencies** — stdlib only. No gorilla/mux, no cobra, no chi, no templ.
-2. **Single ui.go file** — all HTML/CSS/JS in one Go const string. Edit with care (no template engine).
+2. **Web UI in `pkg/ui/web/`** — HTML/CSS/JS live in separate files (`index.html`, `app.css`, `app.js`), assembled into `ui.Page` at load via `go:embed` (P5-T4). No build step; the served page is inlined (CSS in `<style>`, JS in `<script>`), so edits to `web/` files require a rebuild. `TestPageMatchesReference` guards byte-identity against `web/testdata/page_reference.html` — if you intentionally change the served bytes, regenerate that reference (see its test comment).
 3. **Model profiles** — stored in `config.json` under `profiles` key. Always named "Model Profiles" in the UI.
 4. **Config access** — always call `model.LoadConfig()` (reads from disk every time). Save with `model.SaveConfig()`.
 5. **Instance management** — through `manager.Manager` (mutex-protected map of ports). Ports auto-assigned from 8080+.
@@ -389,7 +395,7 @@ Tests use temp dirs (`t.Setenv("HOME", t.TempDir())`, no real config). No test f
 
 ## Important Files
 
-- `pkg/ui/ui.go` — the giant const string. All UI changes happen here. Look for the `// ── Section ──` comments to navigate.
+- `pkg/ui/web/{index.html,app.css,app.js}` — the web UI (HTML/CSS/JS). All UI changes happen here. `app.js` and `app.css` use `// ── Section ──` comments to navigate.
 - `pkg/server/server.go` — all HTTP handlers, route registration, OpenAI proxy logic.
 - `pkg/manager/manager.go` — instance lifecycle, metrics polling, idle timeout.
 - `pkg/model/model.go` — config management, model index, HF pull/search, flag handling.

@@ -1,0 +1,451 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0f1115">
+<link rel="icon" type="image/svg+xml" href="/logo.svg">
+<title>gollama · GPU console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+__GOLLAMA_CSS__
+</style>
+</head>
+<body>
+
+<!-- ─── Sidebar ──────────────────────────────────────── -->
+<aside class="sidebar" role="navigation" aria-label="Main navigation">
+  <div class="logo">
+    <img src="/logo.svg" alt="gollama">
+    <span class="logo-sub">GPU CONSOLE</span>
+    <button class="toggle" onclick="toggleSidebar()" aria-label="Toggle sidebar">◀</button>
+  </div>
+  <nav>
+    <button class="nav-item active" data-view="dashboard" onclick="switchView('dashboard')" aria-label="Dashboard">
+      <span class="icon">📊</span><span class="label">Dashboard</span>
+    </button>
+    <button class="nav-item" data-view="models" onclick="switchView('models')" aria-label="Models">
+      <span class="icon">📦</span><span class="label">Models</span>
+    </button>
+    <button class="nav-item" data-view="chat" onclick="switchView('chat')" aria-label="Chat">
+      <span class="icon">💬</span><span class="label">Chat</span>
+    </button>
+    <button class="nav-item" data-view="image" onclick="switchView('image')" aria-label="Image">
+      <span class="icon">🎨</span><span class="label">Image</span>
+    </button>
+    <button class="nav-item" data-view="settings" onclick="switchView('settings')" aria-label="Settings">
+      <span class="icon">⚙️</span><span class="label">Settings</span>
+    </button>
+  </nav>
+  <div class="bottom">
+    <button class="nav-item" onclick="toggleTheme()" id="themeToggle" aria-label="Toggle theme">
+      <span class="icon">🌙</span><span class="label">Theme</span>
+    </button>
+  </div>
+</aside>
+
+<div class="content">
+
+<!-- ─── Faceplate ────────────────────────────────────── -->
+<header class="faceplate">
+  <div class="face-left">
+    <span class="face-led led-off" id="faceLed"></span>
+    <span class="face-brand">GOLLAMA</span>
+    <span class="face-ver" id="faceVersion">v—</span>
+  </div>
+  <div class="face-meters" aria-hidden="true">
+    <span class="face-meter">INST<b id="faceInst">0</b></span>
+    <span class="face-meter">THR<b id="faceTps">—</b></span>
+    <span class="face-meter">MOD<b id="faceModels">0</b></span>
+  </div>
+  <div class="face-right">
+    <span class="face-clock" id="faceClock">--:--:--</span>
+  </div>
+</header>
+
+<!-- ─── Main ──────────────────────────────────────────── -->
+<main class="main" id="main">
+
+<!-- ── Dashboard ────────────────────────────────────── -->
+<div id="view-dashboard" class="view active" role="tabpanel" aria-label="Dashboard">
+  <div class="page-header">
+    <h1>Dashboard</h1>
+    <p>MONITOR &amp; MANAGE LLAMA.CPP INSTANCES</p>
+  </div>
+
+  <div class="section" id="launch-section">
+    <div class="section-header"><h2>Quick Launch</h2></div>
+    <div class="card"><div class="card-body">
+      <div class="launch-row">
+        <div class="field"><label for="modelSelect">Model</label><select id="modelSelect" autocomplete="off"><option value="">Loading…</option></select></div>
+        <div class="field"><label for="portInput">Port</label><input type="number" id="portInput" value="8081" min="8081" max="8099" autocomplete="off"></div>
+        <div class="field"><button class="primary" onclick="launchInstance()" id="launchBtn">Launch</button></div>
+      </div>
+      <details class="advanced-flags">
+        <summary>Advanced flags</summary>
+        <div class="flags-block">
+          <div id="flagsContainer"></div>
+          <button class="ghost small" onclick="addFlag()">+ Add Flag</button>
+        </div>
+      </details>
+      <div class="preset-row">
+        <select id="presetSelect" onchange="applyPreset()">
+          <option value="">Presets</option>
+        </select>
+        <button class="small secondary" onclick="savePreset()" id="savePresetBtn" title="Save current flags as preset">Save</button>
+        <button class="small danger" onclick="deletePreset()" id="deletePresetBtn" style="display:none" title="Delete preset">Delete</button>
+      </div>
+    </div></div>
+  </div>
+
+  <div class="section">
+    <div class="section-header">
+      <h2>Running Instances</h2>
+      <div class="section-tools">
+        <span class="badge badge-blue" id="instanceCount"></span>
+        <button class="ghost small" onclick="loadInstances()" title="Refresh instances" style="padding:2px 6px;font-size:13px">↻</button>
+      </div>
+    </div>
+    <div id="instances" class="instance-grid">
+      <div class="empty-state">
+        <div class="icon">▣</div>
+        <div class="title">No running instances</div>
+        <p>Launch one above to get started.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Models ────────────────────────────────────────── -->
+<div id="view-models" class="view" role="tabpanel" aria-label="Models">
+  <div class="page-header">
+    <h1>Models</h1>
+    <p><span id="modelCount"><span class="spinner" id="modelCountSpinner"></span> Loading…</span> <button class="ghost small" onclick="loadModels(true)" title="Refresh models" style="padding:2px 6px;vertical-align:middle">↻</button></p>
+  </div>
+  <div id="modelList" class="card"><div class="card-body"><div class="empty-state"><span class="spinner"></span> Loading models…</div></div></div>
+  <div class="section">
+    <div class="section-header"><h2>Pull Model</h2></div>
+    <div class="card"><div class="card-body">
+      <div class="pull-row">
+        <input type="text" id="pullInput" placeholder="Search HuggingFace for a model…" autocomplete="off" oninput="onPullInputChange(this.value)">
+        <button class="primary" onclick="pullModel()" id="pullBtn">Pull</button>
+      </div>
+      <div id="pullSuggestions" style="display:none;margin-top:4px"></div>
+      <div id="pullProgress" style="display:none">
+        <div id="pullModelName"></div>
+        <div class="pull-status-row">
+          <span id="pullPct">0%</span>
+          <span id="pullSpeed"></span>
+        </div>
+        <div class="pull-track"><div id="pullBar"></div></div>
+        <div class="pull-status-row">
+          <span id="pullStatus"></span>
+          <button class="small danger" id="pullCancelBtn" onclick="cancelPull()">Cancel</button>
+        </div>
+      </div>
+    </div></div>
+  </div>
+</div>
+
+<!-- ── Model Details Modal ──────────────────────────── -->
+<div class="modal" id="modelModal" role="dialog" aria-modal="true" aria-label="Model details">
+  <div class="modal-content" onclick="event.stopPropagation()">
+    <div class="modal-head">
+      <h2 id="modelModalTitle">Model</h2>
+      <button class="small danger" onclick="closeModelDetails()" aria-label="Close">Close</button>
+    </div>
+    <div id="modelModalBody">
+      <div class="detail-row"><span class="detail-label">Architecture</span><span class="detail-value" id="md-arch">—</span></div>
+      <div class="detail-row"><span class="detail-label">Quantization</span><span class="detail-value" id="md-quant">—</span></div>
+      <div class="detail-row"><span class="detail-label">Context Length</span><span class="detail-value" id="md-ctx">—</span></div>
+      <div class="detail-row"><span class="detail-label">API Name</span><span class="detail-value" id="md-apiname">—</span></div>
+      <div class="detail-row"><span class="detail-label">Size</span><span class="detail-value" id="md-size">—</span></div>
+      <div class="detail-row"><span class="detail-label">Path</span><span class="detail-value" id="md-path">—</span></div>
+    </div>
+    <button class="primary" onclick="launchModelFromDetails()" id="md-launch-btn">Launch</button>
+  </div>
+</div>
+
+<!-- ── Chat History Modal ──────────────────────────── -->
+<div class="modal" id="chatHistoryModal" role="dialog" aria-modal="true" aria-label="Chat history">
+  <div class="modal-content" onclick="event.stopPropagation()">
+    <div class="modal-head">
+      <h2>Chat History</h2>
+      <button class="small danger" onclick="closeChatHistory()" aria-label="Close">Close</button>
+    </div>
+    <div id="chatHistoryList" class="chat-history-list">
+      <div class="empty-state"><span class="spinner"></span> Loading…</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Chat ──────────────────────────────────────────── -->
+<div id="view-chat" class="view" role="tabpanel" aria-label="Chat">
+  <div class="chat-container">
+    <div class="chat-header">
+      <div class="header-left">
+        <h1>Chat</h1>
+        <select id="chatInstanceSelect" onchange="selectChatInstance()" aria-label="Select instance"><option value="">— select a running instance —</option></select>
+      </div>
+      <div class="header-actions">
+        <button class="pill-btn history" onclick="showChatHistory()" aria-label="Chat history" title="Chat history">History</button>
+        <button class="pill-btn clear" onclick="clearChat()" aria-label="Clear chat" title="Clear chat">Clear</button>
+      </div>
+    </div>
+    <div id="chatPanel" class="chat-msgs" style="display: none" aria-live="polite"></div>
+    <div id="chatEmpty" class="empty-state">
+      <div class="icon">▚</div>
+      <div class="title">No instance selected</div>
+      <p>Launch an instance from the Dashboard to start chatting</p>
+    </div>
+    <div class="chat-input-row">
+      <div id="contextMeter" style="display:none">
+        <div id="contextBar"></div>
+      </div>
+      <div class="input-wrap">
+        <textarea id="chatInput" rows="1" placeholder="Type a message… (Enter to send)" onkeydown="if(event.key=='Enter'&&!event.shiftKey){event.preventDefault();sendChat()}" autocomplete="off" oninput="autoGrow(this)"></textarea>
+        <button class="primary" onclick="sendChat()">Send</button>
+      </div>
+      <div id="ctxLabelWrap" style="display:none">
+        <span id="ctxLabel" class="ctx-label"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Image Playground ──────────────────────────────── -->
+<div id="view-image" class="view" role="tabpanel" aria-label="Image Generation">
+  <div class="image-container">
+    <div class="image-header">
+      <div class="header-left">
+        <h1>Image Playground</h1>
+      </div>
+      <div class="header-actions">
+        <button class="pill-btn" onclick="clearImageHistory()" title="Clear generation history">Clear History</button>
+      </div>
+    </div>
+    <div class="image-body">
+      <div class="image-prompt-area">
+        <div class="image-input-card">
+          <div class="img-model-head">
+            <label>Model</label>
+            <button class="ghost small" onclick="toggleImageModelSearch()" id="imgModelBrowseBtn">Browse</button>
+          </div>
+          <select id="imageProfileSelect" aria-label="Select profile" onchange="onImageProfileChange()">
+            <option value="">Loading profiles…</option>
+          </select>
+          <div id="imgModelSearchWrap" style="display:none">
+            <input type="text" id="imgModelSearchInput" placeholder="Search image models on HF…" autocomplete="off" oninput="onImageModelSearch(this.value)">
+            <div id="imgModelSearchResults" style="display:none;margin-top:4px"></div>
+          </div>
+          <div id="imgModelList" style="display:none"></div>
+        </div>
+        <div class="image-input-card">
+          <label>Prompt</label>
+          <textarea id="imagePromptInput" placeholder="Describe the image you want to generate…" onkeydown="if(event.key=='Enter'&&!event.shiftKey){event.preventDefault();generateImage()}" oninput="autoGrow(this)"></textarea>
+        </div>
+        <button class="image-gen-btn" onclick="generateImage()" id="imageGenBtn">Generate</button>
+        <details class="advanced-flags">
+          <summary>Advanced settings</summary>
+          <div class="img-adv">
+            <div class="img-adv-item"><label>Images</label><input type="number" id="imageNInput" min="1" max="8" placeholder="profile default"></div>
+            <div class="img-adv-item"><label>Size</label>
+              <select id="imageSizeSelect"><option value="">Profile default</option><option value="512x512">512×512</option><option value="768x768">768×768</option><option value="1024x1024">1024×1024</option><option value="1280x720">1280×720</option><option value="1024x768">1024×768</option><option value="custom">Custom…</option></select>
+              <input type="text" id="imageSizeCustom" placeholder="WIDTHxHEIGHT" style="display:none">
+            </div>
+            <div class="img-adv-item"><label>Steps</label><input type="number" id="imageStepsInput" min="1" max="100" placeholder="profile default"></div>
+            <div class="img-adv-item"><label>Guidance</label><input type="number" id="imageGuidanceInput" min="0" max="30" step="0.5" placeholder="profile default"></div>
+            <div class="img-adv-item"><label>Seed</label><input type="number" id="imageSeedInput" placeholder="random"></div>
+          </div>
+        </details>
+        <div id="imageHistorySection" style="display:none">
+          <div class="img-history-head">
+            <span>History</span>
+            <span id="imageHistoryCount"></span>
+          </div>
+          <div id="imageHistoryGrid" class="image-history-grid"></div>
+        </div>
+      </div>
+      <div class="image-results" id="imageResultsArea">
+        <div class="image-empty" id="imageEmpty">
+          <div class="icon">▦</div>
+          <div class="title">No images generated yet</div>
+          <p>Type a prompt and click Generate to create an image. Results appear here.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Settings ──────────────────────────────────────── -->
+<div id="view-settings" class="view" role="tabpanel" aria-label="Settings">
+  <div class="page-header">
+    <h1>Settings</h1>
+    <p>CONFIGURATION &amp; SYSTEM INFORMATION</p>
+  </div>
+  <div class="card"><div class="card-body">
+    <div class="detail-row">
+      <span class="detail-label">gollama</span>
+      <span class="detail-value"><span class="tag" id="s-version">—</span></span>
+    </div>
+    <div class="detail-row">
+      <span class="detail-label">llama-server</span>
+      <span class="detail-value"><span class="tag" id="s-llama-version">—</span></span>
+    </div>
+    <div class="detail-row">
+      <span class="detail-label">Backend</span>
+      <span class="detail-value"><span class="tag" id="s-backend">—</span></span>
+    </div>
+    <div class="detail-row">
+      <span class="detail-label">Config</span>
+      <span class="detail-value"><code class="path">~/.gollama/config.json</code></span>
+    </div>
+    <div class="detail-row">
+      <span class="detail-label">Models dir</span>
+      <span class="detail-value"><code class="path">~/.gollama/models/</code></span>
+    </div>
+    <div class="detail-row" style="align-items:flex-start">
+      <span class="detail-label">API token</span>
+      <span class="detail-value" style="flex:1;min-width:0">
+        <div class="token-row">
+          <code class="token-value" id="apiTokenValue">—</code>
+          <button class="ghost small" onclick="copyToken()">Copy</button>
+          <button class="secondary small" onclick="regenerateToken()">Regenerate</button>
+          <button class="ghost small" onclick="clearToken()">Disable auth</button>
+        </div>
+        <div class="token-hint">Required on all <code>/api/v1/*</code> and <code>/v1/*</code> routes — <code>Authorization: Bearer &lt;token&gt;</code> or <code>?token=&lt;token&gt;</code>. Empty token = unauthenticated.</div>
+      </span>
+    </div>
+  </div></div>
+  <div class="card" style="margin-top:12px"><div class="card-body">
+    <div class="ttl-row">
+      <label for="idleTtlInput">Auto-stop idle instances after</label>
+      <input type="number" id="idleTtlInput" value="30" min="0" max="1440">
+      <span class="ttl-hint">minutes (0 = disable)</span>
+      <button class="primary small" onclick="saveIdleTTL()">Save</button>
+      <span id="idleTtlStatus" class="save-status"></span>
+    </div>
+  </div></div>
+  <div class="card settings-card" id="settings-ql" style="margin-top:12px"><div class="card-body">
+    <div class="settings-card-head">
+      <div>
+        <div class="settings-card-title">Quick Launch Defaults</div>
+        <div class="settings-card-sub">Pre-fills the Quick Launch form for manual launches</div>
+      </div>
+      <button class="ghost small settings-edit-btn" onclick="toggleEditSettings('ql')">Edit</button>
+    </div>
+    <div class="settings-readonly" id="ql-readonly">
+      <div class="settings-empty">No custom flags set.</div>
+    </div>
+    <div class="settings-form">
+      <div id="settingsFlagsContainer"></div>
+      <button class="ghost small" onclick="addSettingsFlag()">+ Add Flag</button>
+      <div class="settings-form-actions">
+        <button class="primary small" onclick="saveSettingsFlags()">Save</button>
+        <button class="secondary small" onclick="cancelEditSettings('ql')">Cancel</button>
+        <span id="settingsFlagsStatus" class="save-status"></span>
+      </div>
+    </div>
+  </div></div>
+  <div class="card settings-card" id="settings-api" style="margin-top:12px"><div class="card-body">
+    <div class="settings-card-head">
+      <div>
+        <div class="settings-card-title">API Launch Defaults</div>
+        <div class="settings-card-sub">Used when auto-launching via API — acts as fallback when no profile matches</div>
+      </div>
+      <button class="ghost small settings-edit-btn" onclick="toggleEditSettings('api')">Edit</button>
+    </div>
+    <div class="settings-readonly" id="api-readonly">
+      <div class="settings-empty">No custom flags set.</div>
+    </div>
+    <div class="settings-form">
+      <div id="proxyFlagsContainer"></div>
+      <button class="ghost small" onclick="addProxyFlag()">+ Add Flag</button>
+      <div class="settings-form-actions">
+        <button class="primary small" onclick="saveProxyFlags()">Save</button>
+        <button class="secondary small" onclick="cancelEditSettings('api')">Cancel</button>
+        <span id="proxyFlagsStatus" class="save-status"></span>
+      </div>
+    </div>
+  </div></div>
+  <div class="card settings-card" id="settings-profiles" style="margin-top:12px"><div class="card-body">
+    <div class="settings-card-head">
+      <div>
+        <div class="settings-card-title">Model Profiles</div>
+        <div class="settings-card-sub">Named flag sets for auto-launch routing. When a model profile's model matches the request, its flags override proxy defaults.</div>
+      </div>
+      <button class="ghost small settings-edit-btn" onclick="toggleEditSettings('profiles')">Edit</button>
+    </div>
+    <div class="settings-readonly" id="profiles-readonly">
+      <div class="settings-empty">No model profiles configured.</div>
+    </div>
+    <div class="settings-form">
+      <div id="profilesContainer"></div>
+      <button class="ghost small" onclick="addProfile('text')">+ Add Text Profile</button>
+      <div class="settings-form-actions">
+        <button class="primary small" onclick="saveProfiles()">Save</button>
+        <button class="secondary small" onclick="cancelEditSettings('profiles')">Cancel</button>
+        <span id="profilesStatus" class="save-status"></span>
+      </div>
+    </div>
+  </div></div>
+  <div class="card settings-card" id="settings-image-profiles" style="margin-top:12px"><div class="card-body">
+    <div class="settings-card-head">
+      <div>
+        <div class="settings-card-title">Image Profiles</div>
+        <div class="settings-card-sub">Image generation model settings. No llama.cpp flags apply.</div>
+      </div>
+      <button class="ghost small settings-edit-btn" onclick="toggleEditSettings('image-profiles')">Edit</button>
+    </div>
+    <div class="settings-readonly" id="image-profiles-readonly">
+      <div class="settings-empty">No image profiles configured.</div>
+    </div>
+    <div class="settings-form">
+      <div id="imageProfilesContainer"></div>
+      <button class="ghost small" onclick="addProfile('image')">+ Add Image Profile</button>
+      <div class="settings-form-actions">
+        <button class="primary small" onclick="saveProfiles()">Save</button>
+        <button class="secondary small" onclick="cancelEditSettings('image-profiles')">Cancel</button>
+        <span id="imageProfilesStatus" class="save-status"></span>
+      </div>
+    </div>
+  </div></div>
+  <div class="card" style="margin-top:12px"><div class="card-body restart-block">
+    <button class="danger" onclick="restartGollama()">Restart gollama</button>
+    <div class="restart-note">Applies config changes and picks up new version</div>
+  </div></div>
+</div>
+
+</main>
+</div>
+
+<!-- ── Logs Modal ──────────────────────────────────── -->
+<div class="modal" id="logModal" role="dialog" aria-modal="true" aria-label="Instance logs">
+  <div class="modal-content" onclick="event.stopPropagation()">
+    <div class="modal-head">
+      <h2>Logs</h2>
+      <div class="modal-head-actions">
+        <button class="small secondary" onclick="copyLogs()" aria-label="Copy logs">Copy</button>
+        <button class="small danger" onclick="closeLogs()" aria-label="Close logs">Close</button>
+      </div>
+    </div>
+    <pre id="logContent" aria-live="polite"></pre>
+  </div>
+</div>
+
+<!-- ── Token gate (v3.8.0 auth) ──────────────────────── -->
+<div class="token-gate" id="tokenGate" style="display:none" role="dialog" aria-modal="true" aria-label="API token required">
+  <div class="token-gate-box">
+    <div class="token-gate-title">🔒 API token required</div>
+    <p>This gollama instance requires an API token. Get it from the <code>gollama serve</code> startup output, from <code>~/.gollama/config.json</code> (<code>api_token</code>), or from Settings on a browser that already has one.</p>
+    <input type="password" id="tokenGateInput" placeholder="Paste API token" autocomplete="off" onkeydown="if(event.key==='Enter')submitTokenGate()">
+    <button class="primary" onclick="submitTokenGate()">Unlock</button>
+  </div>
+</div>
+<script>
+__GOLLAMA_JS__
+</script>
+</body>
+</html>
