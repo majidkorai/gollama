@@ -83,16 +83,27 @@ func TestProfileFlags(t *testing.T) {
 		}
 	})
 
-	t.Run("standalone flags are not overridden by key — both survive", func(t *testing.T) {
-		// Documents current behavior: the base standalone flag is kept and the
-		// profile's is appended; llama-server takes the last one.
+	t.Run("standalone flags set/unset their counterpart (P5-T3)", func(t *testing.T) {
+		// P5-T3 fix: a standalone flag in the profile unsets its --no-/bare
+		// counterpart from the base. Effective behavior is unchanged — the
+		// profile flag always came last, and llama-server takes the last —
+		// but the redundant base flag is no longer emitted.
 		cfg2 := &Config{
 			ProxyDefaults: []string{"--verbose"},
 			Profiles:      map[string]Profile{"standalone": {Flags: []string{"--no-verbose"}}},
 		}
-		want := []string{"--verbose", "--no-verbose"}
+		want := []string{"--no-verbose"}
 		if got := cfg2.ProfileFlags("standalone"); !reflect.DeepEqual(got, want) {
 			t.Fatalf("ProfileFlags(standalone) = %v, want %v", got, want)
+		}
+		// And the reverse direction: --verbose unsets a base --no-verbose.
+		cfg3 := &Config{
+			ProxyDefaults: []string{"--no-verbose"},
+			Profiles:      map[string]Profile{"standalone": {Flags: []string{"--verbose"}}},
+		}
+		want3 := []string{"--verbose"}
+		if got := cfg3.ProfileFlags("standalone"); !reflect.DeepEqual(got, want3) {
+			t.Fatalf("ProfileFlags(standalone) = %v, want %v", got, want3)
 		}
 	})
 }

@@ -577,28 +577,11 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 		if !hasHost { args = append(args, "--host", "0.0.0.0") }
 		if !hasPort { args = append(args, "--port", strconv.Itoa(port)) }
 	} else {
-		// CLI sent partial flags — merge with defaults
+		// CLI sent partial flags — merge with defaults via the typed flag
+		// model (P5-T3): defaults base overridden by extraArgs.
 		cfg := model.LoadConfig()
-		for i := 0; i < len(cfg.DefaultFlags); i++ {
-			a := cfg.DefaultFlags[i]
-			if !strings.HasPrefix(a, "--") {
-				// Orphaned value without a flag key — skip
-				continue
-			}
-			isStandalone := model.IsStandaloneFlag(a)
-			if extraKeys[a] {
-				if i+1 < len(cfg.DefaultFlags) && !strings.HasPrefix(cfg.DefaultFlags[i+1], "--") && !isStandalone {
-					i++
-				}
-				continue
-			}
-			args = append(args, a)
-			if i+1 < len(cfg.DefaultFlags) && !strings.HasPrefix(cfg.DefaultFlags[i+1], "--") && !isStandalone {
-				args = append(args, cfg.DefaultFlags[i+1])
-				i++
-			}
-		}
-		args = append(args, extraArgs...)
+		merged := model.ParseFlags(cfg.DefaultFlags).Merge(model.ParseFlags(extraArgs))
+		args = append(args, merged.Args()...)
 
 		// Ensure --host and --port are always present
 		hasHost, hasPort := false, false

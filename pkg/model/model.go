@@ -81,8 +81,10 @@ func ConfigFile() string {
 	return filepath.Join(GollamaDir(), "config.json")
 }
 
+// IsStandaloneFlag reports whether name is a boolean (no-value) llama-server
+// flag. See isStandaloneFlag (flags.go) for the derivation rules.
 func IsStandaloneFlag(name string) bool {
-	return standaloneFlags[name]
+	return isStandaloneFlag(name)
 }
 
 var standaloneFlags = map[string]bool{
@@ -111,28 +113,11 @@ func DefaultConfig() *Config {
 	return &Config{DefaultFlags: flags, IdleTTL: 30, Profiles: make(map[string]Profile)}
 }
 
+// sanitizeFlags drops orphaned values (leading values, values after a
+// standalone flag, consecutive values). It is a thin wrapper over the typed
+// flag model (P5-T3); ParseFlags applies the same rules.
 func sanitizeFlags(flags []string) []string {
-	clean := make([]string, 0, len(flags))
-	for _, f := range flags {
-		if strings.HasPrefix(f, "--") {
-			clean = append(clean, f)
-		} else if len(clean) > 0 {
-			last := clean[len(clean)-1]
-			if !strings.HasPrefix(last, "--") {
-				// Consecutive values without a preceding flag key — skip
-				continue
-			}
-			if standaloneFlags[last] {
-				// Standalone boolean flag — skip its orphaned value
-				continue
-			}
-			clean = append(clean, f)
-		} else {
-			// Leading value without a flag key — skip
-			continue
-		}
-	}
-	return clean
+	return ParseFlags(flags).Args()
 }
 
 func LoadConfig() *Config {
@@ -171,38 +156,17 @@ func (c *Config) ProxyFlags() []string {
 	return c.DefaultFlags
 }
 
-// ProfileFlags returns the merged flags: proxy_defaults base overridden by profile flags.
+// ProfileFlags returns the merged flags: proxy_defaults base overridden by
+// profile flags, via the typed flag model (P5-T3). Override wins for valued
+// flags; standalone flags set/unset their counterpart.
 func (c *Config) ProfileFlags(name string) []string {
 	p, ok := c.Profiles[name]
 	if !ok {
 		return c.ProxyFlags()
 	}
-	base := c.ProxyFlags()
-	// Build a map of profile flag keys
-	profileKeys := make(map[string]int)
-	for i := 0; i < len(p.Flags); i++ {
-		if strings.HasPrefix(p.Flags[i], "--") {
-			profileKeys[p.Flags[i]] = i
-		}
-	}
-	// Start with base flags, skipping keys that profile overrides
-	var merged []string
-	for i := 0; i < len(base); i++ {
-		f := base[i]
-		if strings.HasPrefix(f, "--") {
-			if _, ok := profileKeys[f]; ok {
-				// Skip this flag and its value from base — profile has its own
-				if !standaloneFlags[f] {
-					i++ // skip value
-				}
-				continue
-			}
-		}
-		merged = append(merged, f)
-	}
-	// Append profile flags
-	merged = append(merged, p.Flags...)
-	return sanitizeFlags(merged)
+	base := ParseFlags(c.ProxyFlags())
+	profile := ParseFlags(p.Flags)
+	return base.Merge(profile).Args()
 }
 
 // SaveConfig writes the config atomically (tmp + rename) and returns any
