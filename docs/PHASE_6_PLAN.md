@@ -1,6 +1,6 @@
 # Gollama Phase 6 — Ops, Freshness & UI Wins → `v4.3.0`
 
-**Status:** Complete (all T1–T6 done, verified). Ready to tag `v4.3.0` and deploy. The robustness plan (Phases 0–5, `v4.2.0`/`v4.2.1`) is complete.
+**Status:** Complete (all T1–T6 done, verified). `v4.3.0` tagged + pushed + deployed to the gollama VM (2026-08-22). The robustness plan (Phases 0–5, `v4.2.0`/`v4.2.1`) is complete.
 
 ## Why this phase (scope rationale)
 
@@ -84,10 +84,10 @@ Everything else proposed earlier (Prometheus metrics, per-request flags, instanc
    - Both are CSS-only. Verify with device-emulated screenshots: logo fully hidden at 375px (no clipped text), content centered/capped at 2560px, no horizontal overflow at 320px.
    - After T6: regenerate `web/testdata/page_reference.html` (dump test), confirm `TestPageMatchesReference` green.
 
-**Exit criteria (all required for the tag):**
-- `go build ./... && go vet ./... && go test ./...` green; `go test -race ./pkg/server/` green; linux/windows/darwin cross-builds green; zero-dependency check.
-- Local smoke: fresh `serve` → `/healthz` 200 without token (with a token configured); `/api/v1/version` returns freshness fields; `gollama llama-version` prints status; UI: badge renders per state (test by temporarily pointing `releaseAPIBase` at a fake server), Stop button cancels a stream, endpoint row copies.
-- VM smoke (post-deploy): `curl -s http://192.168.1.36:9080/healthz` from another LAN host (no token); `gollama llama-version` on the VM shows the custom build's honest status; Settings badge visible; Kuma monitor added and green (operator task).
+**Exit criteria (all required for the tag) — all verified 2026-08-22:**
+- ✅ `go build ./... && go vet ./... && go test ./...` green; `go test -race ./pkg/server/` green; linux/windows/darwin cross-builds green; zero-dependency check.
+- ✅ Local smoke: fresh `serve` → `/healthz` 200 without token (with a token configured); `/api/v1/version` returns freshness fields; `gollama llama-version` prints status; UI: badge renders per state (amber "499 BEHIND" / green "UP TO DATE" / none, via fake GitHub server), Stop button cancels a stream, endpoint row copies.
+- ✅ VM smoke (post-deploy): `curl -s http://192.168.1.36:9080/healthz` from another LAN host (no token) → `{"status":"ok","version":"v4.3.0"}`; `/api/v1/version` shows `b10437` installed vs `b10580` latest → 143 builds behind; auth gate intact (401 without token); Kuma monitor added and green — operator task, still pending.
 
 ## Risk register
 

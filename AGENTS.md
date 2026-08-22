@@ -4,7 +4,7 @@
 
 Go binary that manages llama.cpp instances. CLI + embedded web UI + OpenAI-compatible API proxy. Zero external dependencies.
 
-**Version:** v4.2.1
+**Version:** v4.3.0
 **Module:** `github.com/majidkorai/gollama`
 **Go:** 1.23
 **Dependencies:** None (stdlib only)
