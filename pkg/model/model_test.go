@@ -11,10 +11,12 @@ import (
 	"time"
 )
 
-// TestMain disables models-dir scan throttling so tests always see a fresh
-// scan regardless of run order or timing within the shared test process.
+// TestMain sets up package-wide test seams: disable models-dir scan
+// throttling (fresh scan every call) and bypass the real disk-space guard so
+// pull tests never depend on a runner's actual free space.
 func TestMain(m *testing.M) {
 	scanInterval = 0
+	diskSpaceFn = func(string) (uint64, error) { return 1 << 40, nil } // 1 TiB
 	os.Exit(m.Run())
 }
 

@@ -500,6 +500,11 @@ var APIClient = &http.Client{
 // hfBaseURL is the HuggingFace API/CDN base. Tests override it to point at a local server.
 var hfBaseURL = "https://huggingface.co"
 
+// diskSpaceFn returns free disk bytes for a path. It is a seam so tests can
+// bypass the real filesystem (whose free space varies by runner/OS) instead of
+// tripping the production disk-space guard. Defaults to freeDiskBytes.
+var diskSpaceFn = freeDiskBytes
+
 type userAgentTransport struct {
 	next http.RoundTripper
 }
@@ -1352,7 +1357,7 @@ func pullModelInternal(ctx context.Context, ref string, fn ProgressFn, progress 
 		totalSize += f.Size
 	}
 	if totalSize > 0 {
-		free, err := freeDiskBytes(ModelsDir())
+		free, err := diskSpaceFn(ModelsDir())
 		if err != nil {
 			return fmt.Errorf("unable to check disk space: %w", err)
 		} else {
