@@ -634,10 +634,11 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 	logDir := filepath.Join(model.GollamaDir(), "logs")
 	model.EnsureDir(logDir)
 	logFile := filepath.Join(logDir, fmt.Sprintf("port-%d.log", port))
-	logF, logErr := os.Create(logFile)
+	prepareInstanceLog(logFile)
+	logW, logErr := newRotatingLogWriter(logFile, instanceLogMaxBytes)
 	if logErr != nil {
 		log.Printf("warning: could not create log file %s: %v", logFile, logErr)
-		logF = nil
+		logW = nil
 	}
 
 	cmd := exec.Command(llamaBin, args...)
@@ -658,9 +659,9 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 	for k, v := range profileEnv {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
-	if logF != nil {
-		cmd.Stdout = io.MultiWriter(logF, os.Stderr)
-		cmd.Stderr = io.MultiWriter(logF, os.Stderr)
+	if logW != nil {
+		cmd.Stdout = io.MultiWriter(logW, os.Stderr)
+		cmd.Stderr = io.MultiWriter(logW, os.Stderr)
 	} else {
 		cmd.Stdout = os.Stderr
 		cmd.Stderr = os.Stderr
@@ -776,8 +777,8 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 			inst.Status = "stopped"
 			if err != nil {
 				log.Printf("instance stopped with error: port=%d err=%v", port, err)
-				// Read log tail to help diagnose
-				if data, readErr := os.ReadFile(logFile); readErr == nil {
+				// Read log tail to help diagnose (P4-T3: tail, not full file)
+				if data, readErr := TailLogFile(logFile, 64*1024); readErr == nil {
 					lines := strings.Split(string(data), "\n")
 					// Find the last non-empty lines (skip progress bars)
 					for i := len(lines) - 1; i >= 0 && i > len(lines)-10; i-- {
@@ -856,14 +857,15 @@ func (m *Manager) StartImage(modelID string, port int, env map[string]string) (*
 	logDir := filepath.Join(model.GollamaDir(), "logs")
 	model.EnsureDir(logDir)
 	logFile := filepath.Join(logDir, fmt.Sprintf("port-%d.log", port))
-	logF, logErr := os.Create(logFile)
+	prepareInstanceLog(logFile)
+	logW, logErr := newRotatingLogWriter(logFile, instanceLogMaxBytes)
 	if logErr != nil {
 		log.Printf("warning: could not create log file %s: %v", logFile, logErr)
-		logF = nil
+		logW = nil
 	}
-	if logF != nil {
-		cmd.Stdout = io.MultiWriter(logF, os.Stderr)
-		cmd.Stderr = io.MultiWriter(logF, os.Stderr)
+	if logW != nil {
+		cmd.Stdout = io.MultiWriter(logW, os.Stderr)
+		cmd.Stderr = io.MultiWriter(logW, os.Stderr)
 	} else {
 		cmd.Stdout = os.Stderr
 		cmd.Stderr = os.Stderr
@@ -1085,6 +1087,12 @@ func (m *Manager) touchActivityLocked(port int) {
 	}
 }
 
+// StopIdle stops running instances that have been idle for at least ttl.
+//
+// Activity heuristic (P4-T3): the instance log's mtime is used to *extend*
+// LastActivity — never to move it backwards. llama-server (run with
+// --verbose) writes to its log while serving, so direct traffic to the
+// llama-server port (bypassing the gollama proxy) keeps the instance alive.
 func (m *Manager) StopIdle(ttl time.Duration) []int {
 	m.mu.Lock()
 	var ports []int

@@ -404,7 +404,8 @@ func (s *Server) handleInstanceLogs(w http.ResponseWriter, r *http.Request) {
 	portStr := r.URL.Query().Get("port")
 	logDir := filepath.Join(model.GollamaDir(), "logs")
 	logFile := filepath.Join(logDir, fmt.Sprintf("port-%s.log", portStr))
-	data, err := os.ReadFile(logFile)
+	// Tail only (P4-T3): logs grow unbounded and carry \r progress spam.
+	data, err := manager.TailLogFile(logFile, 256*1024)
 	if err != nil {
 		jsonError(w, "log not found", 404)
 		return
@@ -772,7 +773,8 @@ func (s *Server) handleChatByID(w http.ResponseWriter, r *http.Request) {
 // used to explain why a model failed to start.
 func instanceLogTail(port int, n int) string {
 	logFile := filepath.Join(model.GollamaDir(), "logs", fmt.Sprintf("port-%d.log", port))
-	data, err := os.ReadFile(logFile)
+	// Tail only (P4-T3): a small window is plenty for last-lines diagnostics.
+	data, err := manager.TailLogFile(logFile, 64*1024)
 	if err != nil {
 		return "no log available"
 	}

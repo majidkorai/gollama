@@ -429,7 +429,9 @@ func main() {
 		}
 		port := os.Args[2]
 		logFile := filepath.Join(model.GollamaDir(), "logs", fmt.Sprintf("port-%s.log", port))
-		data, err := os.ReadFile(logFile)
+		// Tail only (P4-T3): logs are bounded by rotation but can still be
+		// large; 1 MB is plenty for diagnosis and keeps output sane.
+		data, err := manager.TailLogFile(logFile, 1<<20)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error reading logs for port %s: %v\n", port, err)
 			os.Exit(1)
