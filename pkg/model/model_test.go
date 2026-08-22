@@ -274,6 +274,59 @@ func TestSaveIndexReturnsErrorOnWriteFailure(t *testing.T) {
 	}
 }
 
+// TestProgressReaderTTYControlsRendering (P4-T5): the \r progress bar only
+// renders when the output is a terminal; otherwise it stays silent so logs
+// and systemd output are not corrupted.
+func TestProgressReaderTTYControlsRendering(t *testing.T) {
+	// Non-TTY: no \r progress output.
+	var buf bytes.Buffer
+	pr := &ProgressReader{
+		Reader: strings.NewReader("hello world"),
+		Total:  11,
+		Output: &buf,
+		TTY:    false,
+	}
+	io.Copy(io.Discard, pr)
+	if strings.Contains(buf.String(), "\r") {
+		t.Fatalf("non-TTY should not emit \\r progress, got %q", buf.String())
+	}
+
+	// TTY: \r progress output.
+	buf.Reset()
+	pr = &ProgressReader{
+		Reader: strings.NewReader("hello world"),
+		Total:  11,
+		Output: &buf,
+		TTY:    true,
+	}
+	io.Copy(io.Discard, pr)
+	if !strings.Contains(buf.String(), "\r") {
+		t.Fatalf("TTY should emit \\r progress, got %q", buf.String())
+	}
+}
+
+// TestIsTerminalAndProgressOutputTTY (P4-T5): the TTY detection helpers.
+func TestIsTerminalAndProgressOutputTTY(t *testing.T) {
+	// A non-*os.File writer is treated as non-TTY.
+	var buf bytes.Buffer
+	if progressOutputTTY(&buf) {
+		t.Fatal("expected a non-file writer to be non-TTY")
+	}
+	// A pipe is not a TTY.
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Close()
+	defer w.Close()
+	if isTerminal(w) {
+		t.Fatal("expected a pipe to be non-TTY")
+	}
+	if isTerminal(nil) {
+		t.Fatal("expected nil to be non-TTY")
+	}
+}
+
 func TestValidChatID(t *testing.T) {
 	cases := []struct {
 		id   string

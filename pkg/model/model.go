@@ -373,6 +373,37 @@ type ProgressReader struct {
 	ProgressFn ProgressFn
 	Part       int
 	TotalParts int
+	// TTY reports whether the progress output is a terminal. When false, the
+	// \r-based progress bar is suppressed (P4-T5) so logs and systemd output
+	// stay clean.
+	TTY bool
+}
+
+// isTerminal reports whether f is a terminal/TTY (stdlib only).
+func isTerminal(f *os.File) bool {
+	if f == nil {
+		return false
+	}
+	fi, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return fi.Mode()&os.ModeCharDevice != 0
+}
+
+// progressOutputTTY reports whether the given progress output writer is a
+// terminal, so \r progress rendering is appropriate.
+func progressOutputTTY(progress io.Writer) bool {
+	var f *os.File
+	switch w := progress.(type) {
+	case nil:
+		f = os.Stderr
+	case *os.File:
+		f = w
+	default:
+		return false
+	}
+	return isTerminal(f)
 }
 
 func (pr *ProgressReader) Read(p []byte) (int, error) {
@@ -394,7 +425,8 @@ func (pr *ProgressReader) Read(p []byte) (int, error) {
 			pct = float64(pr.Done) * 100 / float64(pr.Total)
 		}
 		pr.ProgressFn(pct, pr.Done, pr.Total, speed, pr.Part, pr.TotalParts)
-	} else {
+	} else if pr.TTY {
+		// Interactive: render an in-place progress bar with \r.
 		out := pr.Output
 		if out == nil {
 			out = os.Stderr
@@ -407,10 +439,12 @@ func (pr *ProgressReader) Read(p []byte) (int, error) {
 			fmt.Fprintf(out, "\r  %s  %s  %s       ",
 				label, FormatSize(pr.Done), speed)
 		}
+		if err == io.EOF {
+			fmt.Fprintln(pr.output())
+		}
 	}
-	if err == io.EOF && pr.ProgressFn == nil {
-		fmt.Fprintln(pr.output())
-	}
+	// Non-TTY with no ProgressFn: no inline progress — the \r spam would
+	// corrupt logs and systemd output; pull prints start/finish to stdout.
 	return n, err
 }
 
@@ -1486,6 +1520,7 @@ func pullModelInternal(ctx context.Context, ref string, fn ProgressFn, progress 
 			ProgressFn: fn,
 			Part:       i + 1,
 			TotalParts: len(targetFiles),
+			TTY:        progressOutputTTY(progress),
 		}
 		_, cpErr := io.Copy(out, pr)
 		out.Close()
