@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -349,7 +350,7 @@ func populateModelInfo(info *ModelInfo) error {
 	}
 
 	if changed {
-		UpdateIndex(func(idx map[string]ModelInfo) error {
+		if err := UpdateIndex(func(idx map[string]ModelInfo) error {
 			if existing, ok := idx[info.Name]; ok {
 				existing.Architecture = info.Architecture
 				existing.Quantization = info.Quantization
@@ -358,7 +359,9 @@ func populateModelInfo(info *ModelInfo) error {
 				idx[info.Name] = existing
 			}
 			return nil
-		})
+		}); err != nil {
+			log.Printf("warning: could not save model metadata for %s: %v", info.Name, err)
+		}
 	}
 
 	return nil

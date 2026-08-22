@@ -612,7 +612,10 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		model.SaveConfig(cfg)
+		if err := model.SaveConfig(cfg); err != nil {
+			jsonError(w, err.Error(), 500)
+			return
+		}
 		jsonResponse(w, map[string]string{"status": "saved"})
 	default:
 		http.Error(w, "method not allowed", 405)
@@ -642,11 +645,17 @@ func (s *Server) handleConfigToken(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		cfg.APIToken = token
-		model.SaveConfig(cfg)
+		if err := model.SaveConfig(cfg); err != nil {
+			jsonError(w, err.Error(), 500)
+			return
+		}
 		jsonResponse(w, map[string]string{"status": "regenerated", "api_token": token})
 	case "clear":
 		cfg.APIToken = ""
-		model.SaveConfig(cfg)
+		if err := model.SaveConfig(cfg); err != nil {
+			jsonError(w, err.Error(), 500)
+			return
+		}
 		log.Printf("API token cleared — gollama is now unauthenticated")
 		jsonResponse(w, map[string]string{"status": "cleared"})
 	default:
@@ -1549,7 +1558,10 @@ func (s *Server) handleImageModelInstall(w http.ResponseWriter, r *http.Request)
 		Size:        strPtr("1024x1024"),
 		N:           intPtr(1),
 	}
-	model.SaveConfig(cfg)
+	if err := model.SaveConfig(cfg); err != nil {
+		jsonError(w, err.Error(), 500)
+		return
+	}
 
 	log.Printf("image profile installed: %s → %s", req.Name, req.ModelID)
 	jsonResponse(w, map[string]string{"status": "installed", "name": req.Name, "model_id": req.ModelID})

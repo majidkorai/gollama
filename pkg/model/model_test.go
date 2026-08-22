@@ -248,6 +248,32 @@ func TestEnsureAPITokenExplicitlyCleared(t *testing.T) {
 	}
 }
 
+// TestSaveConfigReturnsErrorOnWriteFailure (P4-T4): a failed atomic write
+// (tmp path unwritable) surfaces as an error instead of failing silently.
+func TestSaveConfigReturnsErrorOnWriteFailure(t *testing.T) {
+	setTestHome(t)
+	EnsureDir(GollamaDir())
+	// Block the tmp path so the atomic write's WriteFile fails.
+	if err := os.Mkdir(ConfigFile()+".tmp", 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveConfig(DefaultConfig()); err == nil {
+		t.Fatal("expected SaveConfig to return an error when the tmp path is unwritable")
+	}
+}
+
+// TestSaveIndexReturnsErrorOnWriteFailure (P4-T4): same for the model index.
+func TestSaveIndexReturnsErrorOnWriteFailure(t *testing.T) {
+	setTestHome(t)
+	EnsureDir(GollamaDir())
+	if err := os.Mkdir(IndexFile()+".tmp", 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveIndex(map[string]ModelInfo{}); err == nil {
+		t.Fatal("expected SaveIndex to return an error when the tmp path is unwritable")
+	}
+}
+
 func TestValidChatID(t *testing.T) {
 	cases := []struct {
 		id   string

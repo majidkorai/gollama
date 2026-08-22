@@ -140,13 +140,17 @@ func LoadConfig() *Config {
 	data, err := os.ReadFile(ConfigFile())
 	if err != nil {
 		cfg := DefaultConfig()
-		SaveConfig(cfg)
+		if saveErr := SaveConfig(cfg); saveErr != nil {
+			log.Printf("warning: could not save initial config: %v", saveErr)
+		}
 		return cfg
 	}
 	var cfg Config
 	if json.Unmarshal(data, &cfg) != nil || cfg.DefaultFlags == nil {
 		cfg = *DefaultConfig()
-		SaveConfig(&cfg)
+		if saveErr := SaveConfig(&cfg); saveErr != nil {
+			log.Printf("warning: could not save config: %v", saveErr)
+		}
 	}
 	if cfg.Profiles == nil {
 		cfg.Profiles = make(map[string]Profile)
@@ -201,26 +205,35 @@ func (c *Config) ProfileFlags(name string) []string {
 	return sanitizeFlags(merged)
 }
 
-func SaveConfig(cfg *Config) {
+// SaveConfig writes the config atomically (tmp + rename) and returns any
+// error. Callers must handle it — never write config silently (P4-T4).
+func SaveConfig(cfg *Config) error {
 	cfg.DefaultFlags = sanitizeFlags(cfg.DefaultFlags)
 	cfg.ProxyDefaults = sanitizeFlags(cfg.ProxyDefaults)
 	for name, p := range cfg.Profiles {
 		p.Flags = sanitizeFlags(p.Flags)
 		cfg.Profiles[name] = p
 	}
-	data, _ := json.MarshalIndent(cfg, "", "  ")
+	data, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshaling config: %w", err)
+	}
 	path := ConfigFile()
 	// Backup existing config before overwriting
 	if _, err := os.Stat(path); err == nil {
-		input, _ := os.ReadFile(path)
-		if input != nil {
+		if input, err := os.ReadFile(path); err == nil {
 			os.WriteFile(path+".bak", input, 0644)
 		}
 	}
 	// Atomic write: tmp + rename to prevent corruption on crash
 	tmp := path + ".tmp"
-	os.WriteFile(tmp, data, 0644)
-	os.Rename(tmp, path)
+	if err := os.WriteFile(tmp, data, 0644); err != nil {
+		return fmt.Errorf("writing config tmp: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return fmt.Errorf("renaming config into place: %w", err)
+	}
+	return nil
 }
 
 // GenerateAPIToken returns a fresh 32-byte random token as 64 hex chars.
@@ -260,7 +273,9 @@ func EnsureAPIToken() (string, bool) {
 		return "", false
 	}
 	cfg.APIToken = token
-	SaveConfig(cfg)
+	if saveErr := SaveConfig(cfg); saveErr != nil {
+		log.Printf("warning: could not persist API token: %v", saveErr)
+	}
 	if err := os.WriteFile(tokenMarkerFile(), []byte(time.Now().UTC().Format(time.RFC3339)), 0600); err != nil {
 		log.Printf("warning: could not write token marker: %v", err)
 	}
@@ -473,11 +488,21 @@ func unsafeLoadIndex() map[string]ModelInfo {
 	return idx
 }
 
-func unsafeSaveIndex(idx map[string]ModelInfo) {
-	data, _ := json.MarshalIndent(idx, "", "  ")
+// unsafeSaveIndex writes the index atomically (tmp + rename) and returns any
+// error. Caller must hold indexMu (P4-T4).
+func unsafeSaveIndex(idx map[string]ModelInfo) error {
+	data, err := json.MarshalIndent(idx, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshaling index: %w", err)
+	}
 	tmp := IndexFile() + ".tmp"
-	os.WriteFile(tmp, data, 0644)
-	os.Rename(tmp, IndexFile())
+	if err := os.WriteFile(tmp, data, 0644); err != nil {
+		return fmt.Errorf("writing index tmp: %w", err)
+	}
+	if err := os.Rename(tmp, IndexFile()); err != nil {
+		return fmt.Errorf("renaming index into place: %w", err)
+	}
+	return nil
 }
 
 func LoadIndex() map[string]ModelInfo {
@@ -486,10 +511,11 @@ func LoadIndex() map[string]ModelInfo {
 	return unsafeLoadIndex()
 }
 
-func SaveIndex(idx map[string]ModelInfo) {
+// SaveIndex writes the index and returns any error (P4-T4).
+func SaveIndex(idx map[string]ModelInfo) error {
 	indexMu.Lock()
 	defer indexMu.Unlock()
-	unsafeSaveIndex(idx)
+	return unsafeSaveIndex(idx)
 }
 
 func UpdateIndex(fn func(map[string]ModelInfo) error) error {
@@ -499,8 +525,7 @@ func UpdateIndex(fn func(map[string]ModelInfo) error) error {
 	if err := fn(idx); err != nil {
 		return err
 	}
-	unsafeSaveIndex(idx)
-	return nil
+	return unsafeSaveIndex(idx)
 }
 
 type SearchResult struct {
@@ -805,7 +830,7 @@ func doScanModels() {
 	if err != nil {
 		return
 	}
-	UpdateIndex(func(idx map[string]ModelInfo) error {
+	if err := UpdateIndex(func(idx map[string]ModelInfo) error {
 		for _, entry := range entries {
 			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".gguf") || strings.HasSuffix(entry.Name(), ".part") {
 				continue
@@ -916,7 +941,9 @@ func doScanModels() {
 			log.Printf("scanned new model: %s (short=%s, arch=%s, quant=%s)", base, short, info.Architecture, info.Quantization)
 		}
 		return nil
-	})
+	}); err != nil {
+		log.Printf("warning: could not save model index after scan: %v", err)
+	}
 }
 
 func ListModels() ([]ModelInfo, error) {
@@ -1327,21 +1354,25 @@ func pullModelInternal(ctx context.Context, ref string, fn ProgressFn, progress 
 			info.Quantization = meta.Quantization
 			info.ContextLength = meta.ContextLength
 		}
-		UpdateIndex(func(idx map[string]ModelInfo) error {
+		if err := UpdateIndex(func(idx map[string]ModelInfo) error {
 			if _, exists := idx[modelName]; !exists {
 				idx[modelName] = info
 			}
 			return nil
-		})
+		}); err != nil {
+			log.Printf("warning: could not re-index existing model %s: %v", modelName, err)
+		}
 		log.Printf("model %s already exists, skipping download", modelName)
 		return ErrAlreadyExists
 	}
 
 	// Clean up stale index entry
-	UpdateIndex(func(idx map[string]ModelInfo) error {
+	if err := UpdateIndex(func(idx map[string]ModelInfo) error {
 		delete(idx, modelName)
 		return nil
-	})
+	}); err != nil {
+		log.Printf("warning: could not clear stale index entry for %s: %v", modelName, err)
+	}
 
 	// Track files we've started downloading so we can clean up on cancel
 	// Track partial files we've started so we can clean them up on cancel.
@@ -1491,10 +1522,12 @@ func pullModelInternal(ctx context.Context, ref string, fn ProgressFn, progress 
 		info.Size = fi.Size()
 	}
 	populateModelInfo(&info)
-	UpdateIndex(func(idx map[string]ModelInfo) error {
+	if err := UpdateIndex(func(idx map[string]ModelInfo) error {
 		idx[modelName] = info
 		return nil
-	})
+	}); err != nil {
+		return fmt.Errorf("model downloaded but could not be indexed: %w", err)
+	}
 
 	log.Printf("model downloaded: %s (%s, %d files) → %s", modelName, FormatSize(totalSize), len(targetFiles), firstDest)
 	fmt.Printf("Downloaded %s (%s, %d files)\n", modelName, FormatSize(totalSize), len(targetFiles))
