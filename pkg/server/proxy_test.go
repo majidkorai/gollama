@@ -178,6 +178,22 @@ func TestProxyStream(t *testing.T) {
 	}
 }
 
+// TestProxyStreamSynthesizesDone (P5-T1): the OpenAI proxy guarantees exactly
+// one [DONE] even when upstream closes the stream without it.
+func TestProxyStreamSynthesizesDone(t *testing.T) {
+	up := &fakeUpstream{noDone: true}
+	s, _ := startProxyFixture(t, up)
+
+	rec := postCompletions(t, s, `{"model":"fake-1b","stream":true,"messages":[{"role":"user","content":"hi"}]}`)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	out := rec.Body.String()
+	if n := strings.Count(out, "[DONE]"); n != 1 {
+		t.Errorf("[DONE] count = %d, want exactly 1 (synthesized)\n--- stream ---\n%s", n, out)
+	}
+}
+
 // TestProxyStreamHonorsClientDisconnect (P3-T5): when the client goes away
 // mid-stream, the proxy must break its read loop and cancel the upstream
 // request — it must not keep draining a model no one is listening to. The
@@ -299,11 +315,9 @@ func TestProxyUpstreamErrorPassthrough(t *testing.T) {
 	}
 }
 
-// TestHandleChatStream covers the second SSE loop (/api/v1/chat, used by the
-// Web UI). It documents the current divergence from the OpenAI proxy: this
-// loop does NOT forward the [DONE] marker (sentDone is set on [DONE] before
-// the marker is written, and the post-loop write is guarded by !sentDone).
-// P5-T1 merges the two loops; until then this test pins the behavior.
+// TestHandleChatStream covers the /api/v1/chat SSE path (used by the Web UI).
+// P5-T1 merged it with the OpenAI proxy loop (proxySSE): it now forwards
+// exactly one [DONE] and the trailing usage chunk, matching /v1/chat/completions.
 func TestHandleChatStream(t *testing.T) {
 	up := &fakeUpstream{}
 	s, port := startProxyFixture(t, up)
@@ -321,18 +335,66 @@ func TestHandleChatStream(t *testing.T) {
 		t.Fatalf("Content-Type = %q, want text/event-stream", ct)
 	}
 	out := rec.Body.String()
-	for _, want := range []string{"Hel", "lo"} {
+	for _, want := range []string{
+		"Hel", "lo",
+		`"completion_tokens":7`, // trailing usage chunk forwarded (P5-T1 unified loop)
+		"data: [DONE]",          // [DONE] now forwarded, like the OpenAI proxy
+	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("stream missing %q\n--- stream ---\n%s", want, out)
 		}
 	}
-	if n := strings.Count(out, "[DONE]"); n != 0 {
-		t.Errorf("[DONE] count = %d, want 0 (documents divergence from the OpenAI proxy)", n)
+	if n := strings.Count(out, "[DONE]"); n != 1 {
+		t.Errorf("[DONE] count = %d, want exactly 1", n)
 	}
 	inst := instanceOnPort(t, s, port)
 	if inst.TotalTokens != 7 {
-		t.Errorf("TotalTokens = %d, want 7 (usage chunk parsed but not forwarded)", inst.TotalTokens)
+		t.Errorf("TotalTokens = %d, want 7 (from trailing usage chunk)", inst.TotalTokens)
 	}
+}
+
+// TestHandleChatStreamSynthesizesDone (P5-T1): when upstream closes the
+// stream without a [DONE] marker, the merged loop must still send exactly
+// one, so UI clients never hang waiting for it.
+func TestHandleChatStreamSynthesizesDone(t *testing.T) {
+	up := &fakeUpstream{noDone: true}
+	s, port := startProxyFixture(t, up)
+
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/chat?port=%d", port),
+		strings.NewReader(`{"model":"default","stream":true,"messages":[{"role":"user","content":"hi"}]}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	out := rec.Body.String()
+	if n := strings.Count(out, "[DONE]"); n != 1 {
+		t.Errorf("[DONE] count = %d, want exactly 1 (synthesized)\n--- stream ---\n%s", n, out)
+	}
+}
+
+// TestHandleChatRetriesWhileLoading (P5-T1): the /api/v1/chat path shares the
+// proxy's 503 "loading model" retry loop — a short loading window after
+// /health passes must be transparent to the UI.
+func TestHandleChatRetriesWhileLoading(t *testing.T) {
+	up := &fakeUpstream{loading503s: 1}
+	s, port := startProxyFixture(t, up)
+
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/chat?port=%d", port),
+		strings.NewReader(`{"model":"default","stream":true,"messages":[{"role":"user","content":"hi"}]}`))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	s.mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 after 503 retry: %s", rec.Code, rec.Body.String())
+	}
+	if n := up.requestCount(); n != 2 {
+		t.Errorf("upstream saw %d requests, want 2 (one 503 + one success)", n)
+	}
+	_ = instanceOnPort(t, s, port)
 }
 
 // withMergeProfile rewrites the fixture's config to add a profile for

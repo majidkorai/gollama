@@ -869,6 +869,174 @@ func (s *Server) waitForReady(port int, timeout time.Duration, beat func(), abor
 	return fmt.Errorf("model did not become ready within %s: %s", timeout.Round(time.Second), instanceLogTail(port, 5))
 }
 
+// sseOpts carries the per-call knobs for proxySSE.
+type sseOpts struct {
+	strip bool    // strip reasoning_content / think tags from the stream
+	merge bool    // merge reasoning_content into content (takes precedence over strip)
+	touch func()  // called per upstream line (activity touch); nil = no-op
+}
+
+// postToInstance sends a completion request to an instance, retrying the
+// 503 "loading model" responses that llama.cpp can answer for a short window
+// after /health flips to 200. heartbeat (if non-nil) is emitted between
+// retries so streaming clients stay alive; the retry deadline is the same
+// load timeout used for cold starts (model.LoadTimeout). A genuine 503
+// (no "loading" in the body) is returned as-is for the caller to pass
+// through.
+func (s *Server) postToInstance(ctx context.Context, target string, body []byte, port int, heartbeat func()) (*http.Response, error) {
+	if heartbeat == nil {
+		heartbeat = func() {}
+	}
+	loadDeadline := time.Now().Add(model.LoadTimeout())
+	for {
+		proxyReq, err := http.NewRequestWithContext(ctx, http.MethodPost, target, strings.NewReader(string(body)))
+		if err != nil {
+			return nil, err
+		}
+		proxyReq.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(proxyReq)
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode != http.StatusServiceUnavailable {
+			return resp, nil
+		}
+		loadingBody, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if !strings.Contains(strings.ToLower(string(loadingBody)), "loading") {
+			resp.Body = io.NopCloser(bytes.NewReader(loadingBody))
+			return resp, nil // genuine 503 error — caller passes it through
+		}
+		if time.Now().After(loadDeadline) || ctx.Err() != nil {
+			resp.Body = io.NopCloser(bytes.NewReader(loadingBody))
+			return resp, nil
+		}
+		log.Printf("instance on port %d still loading model, retrying", port)
+		heartbeat()
+		time.Sleep(2 * time.Second)
+	}
+}
+
+// proxySSE forwards an upstream SSE response to the client with the shared
+// streaming semantics used by both /v1/chat/completions and /api/v1/chat:
+//   - exactly one "data: [DONE]" (forwarded from upstream, or synthesized
+//     when upstream closes without one),
+//   - a synthesized terminal finish_reason chunk when upstream omits one,
+//   - the trailing usage chunk (include_usage) forwarded after finish_reason
+//     so OpenAI clients receive their token counts,
+//   - reasoning transforms (merge / strip / think-tag extraction) per opts.
+func (s *Server) proxySSE(w http.ResponseWriter, r *http.Request, resp *http.Response, port int, opts sseOpts) {
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		jsonError(w, "streaming not supported", 500)
+		return
+	}
+	touch := opts.touch
+	if touch == nil {
+		touch = func() {}
+	}
+	inThink := false
+	thinkBuf := ""
+	doneSent := false
+	hadFinishReason := false
+	reader := bufio.NewReader(resp.Body)
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil && err != io.EOF {
+			break
+		}
+		if r.Context().Err() != nil {
+			break
+		}
+		touch()
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "data: ") {
+			data := strings.TrimPrefix(trimmed, "data: ")
+			if data == "[DONE]" {
+				if !hadFinishReason {
+					w.Write([]byte("data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n"))
+					flusher.Flush()
+				}
+				if _, werr := w.Write([]byte(line)); werr == nil {
+					flusher.Flush()
+				}
+				doneSent = true
+				break
+			}
+			// After finish_reason, skip content chunks (prevents token leak),
+			// except the trailing usage chunk (choices:[] + usage) that llama.cpp
+			// emits when the client sets stream_options.include_usage. Forward it
+			// so OpenAI clients receive their token usage, matching other providers.
+			if hadFinishReason {
+				var usageOnly struct {
+					Usage struct {
+						CompletionTokens int64 `json:"completion_tokens"`
+					} `json:"usage"`
+				}
+				if json.Unmarshal([]byte(data), &usageOnly) == nil && usageOnly.Usage.CompletionTokens > 0 {
+					s.mgr.AddCompletionTokens(port, usageOnly.Usage.CompletionTokens)
+					if _, werr := w.Write([]byte("data: " + data + "\n")); werr != nil {
+						doneSent = true
+						break
+					}
+					flusher.Flush()
+				}
+				continue
+			}
+			var cleaned []byte
+			if opts.merge {
+				cleaned = mergeReasoningContent([]byte(data))
+			} else if opts.strip {
+				cleaned = stripContentThinkTags([]byte(data))
+				cleaned = stripReasoningContent(cleaned)
+			} else {
+				data = extractThinkStream(data, &inThink, &thinkBuf)
+				cleaned = []byte(data)
+			}
+			if !hadFinishReason {
+				var check struct {
+					Choices []struct {
+						FinishReason *string `json:"finish_reason"`
+					} `json:"choices"`
+				}
+				if json.Unmarshal(cleaned, &check) == nil {
+					for _, c := range check.Choices {
+						if c.FinishReason != nil && *c.FinishReason != "" {
+							hadFinishReason = true
+							break
+						}
+					}
+				}
+			}
+			line = "data: " + string(cleaned) + "\n"
+			var usage struct {
+				Usage *struct {
+					CompletionTokens int64 `json:"completion_tokens"`
+				} `json:"usage"`
+			}
+			if json.Unmarshal([]byte(data), &usage) == nil && usage.Usage != nil {
+				s.mgr.AddCompletionTokens(port, usage.Usage.CompletionTokens)
+			}
+		}
+		if _, err := w.Write([]byte(line)); err != nil {
+			doneSent = true
+			break
+		}
+		flusher.Flush()
+		if err == io.EOF {
+			break
+		}
+	}
+	// Guarantee exactly one [DONE] even when upstream closes without it.
+	if !doneSent {
+		if !hadFinishReason {
+			w.Write([]byte("data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n"))
+		}
+		w.Write([]byte("data: [DONE]\n"))
+		flusher.Flush()
+	}
+}
+
 func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		http.Error(w, "method not allowed", 405)
@@ -904,14 +1072,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Minute)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, "POST", target, strings.NewReader(string(body)))
-	if err != nil {
-		jsonError(w, fmt.Sprintf("proxy error: %v", err), 502)
-		return
-	}
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := s.postToInstance(ctx, target, body, port, nil)
 	if err != nil {
 		jsonError(w, fmt.Sprintf("proxy error: %v", err), 502)
 		return
@@ -932,80 +1093,9 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
-		flusher, ok := w.(http.Flusher)
-		if !ok {
-			jsonError(w, "streaming not supported", 500)
-			return
-		}
-		sentDone := false
-		hadFinishReason := false
-		reader := bufio.NewReader(resp.Body)
-		for {
-			line, err := reader.ReadString('\n')
-			if err != nil && err != io.EOF {
-				sentDone = true
-				break
-			}
-			if r.Context().Err() != nil {
-				sentDone = true
-				break
-			}
-			s.mgr.TouchActivity(port)
-			trimmed := strings.TrimSpace(line)
-			if strings.HasPrefix(trimmed, "data: ") {
-				data := strings.TrimPrefix(trimmed, "data: ")
-				if data == "[DONE]" {
-					sentDone = true
-					if !hadFinishReason {
-						w.Write([]byte("data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n"))
-						flusher.Flush()
-					}
-					break
-				}
-				if !hadFinishReason {
-					var check struct {
-						Choices []struct {
-							FinishReason *string `json:"finish_reason"`
-						} `json:"choices"`
-					}
-					if json.Unmarshal([]byte(data), &check) == nil {
-						for _, c := range check.Choices {
-							if c.FinishReason != nil && *c.FinishReason != "" {
-								hadFinishReason = true
-								break
-							}
-						}
-					}
-				}
-				var payload struct {
-					Usage *struct {
-						CompletionTokens int64 `json:"completion_tokens"`
-					} `json:"usage"`
-				}
-				if json.Unmarshal([]byte(data), &payload) == nil && payload.Usage != nil {
-					s.mgr.AddCompletionTokens(port, payload.Usage.CompletionTokens)
-				}
-			}
-			if !hadFinishReason {
-				if _, werr := w.Write([]byte(line)); werr != nil {
-					sentDone = true
-					break
-				}
-				flusher.Flush()
-			}
-			if err == io.EOF {
-				sentDone = true
-				break
-			}
-		}
-		if !sentDone && !hadFinishReason {
-			w.Write([]byte("data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n"))
-			flusher.Flush()
-		}
-		if !sentDone {
-			w.Write([]byte("data: [DONE]\n"))
-			flusher.Flush()
-		}
+		s.proxySSE(w, r, resp, port, sseOpts{
+			touch: func() { s.mgr.TouchActivity(port) },
+		})
 		return
 	}
 
@@ -1703,38 +1793,13 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 	defer cancel()
 
 	// llama.cpp can still answer 503 "loading model" for a short window
-	// after /health flips to 200. Keep retrying (with heartbeats for
-	// streaming clients) until the model actually accepts the request.
-	var resp *http.Response
-	loadDeadline := time.Now().Add(model.LoadTimeout())
-	for {
-		proxyReq, err := http.NewRequestWithContext(proxyCtx, "POST", target, strings.NewReader(string(body)))
-		if err != nil {
-			proxyFail(w, streamFlusher != nil, fmt.Sprintf("proxy error: %v", err))
-			return
-		}
-		proxyReq.Header.Set("Content-Type", "application/json")
-		resp, err = http.DefaultClient.Do(proxyReq)
-		if err != nil {
-			proxyFail(w, streamFlusher != nil, fmt.Sprintf("proxy error: %v", err))
-			return
-		}
-		if resp.StatusCode != http.StatusServiceUnavailable {
-			break
-		}
-		loadingBody, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if !strings.Contains(strings.ToLower(string(loadingBody)), "loading") {
-			resp.Body = io.NopCloser(bytes.NewReader(loadingBody))
-			break // genuine 503 error — fall through to pass-through below
-		}
-		if time.Now().After(loadDeadline) || r.Context().Err() != nil {
-			resp.Body = io.NopCloser(bytes.NewReader(loadingBody))
-			break
-		}
-		log.Printf("instance on port %d still loading model, retrying", inst.Port)
-		heartbeat()
-		time.Sleep(2 * time.Second)
+	// after /health flips to 200. postToInstance keeps retrying (with
+	// heartbeats for streaming clients) until the model actually accepts
+	// the request.
+	resp, err := s.postToInstance(proxyCtx, target, body, inst.Port, heartbeat)
+	if err != nil {
+		proxyFail(w, streamFlusher != nil, fmt.Sprintf("proxy error: %v", err))
+		return
 	}
 	defer resp.Body.Close()
 
@@ -1793,110 +1858,11 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 			jsonError(w, "streaming not supported", 500)
 			return
 		}
-		shouldStrip := shouldStripReasoning(cfg, profileName)
-		shouldMerge := shouldMergeReasoning(cfg, profileName)
-		inThink := false
-		thinkBuf := ""
-		sentDone := false
-		hadFinishReason := false
-		reader := bufio.NewReader(resp.Body)
-		for {
-			line, err := reader.ReadString('\n')
-			if err != nil && err != io.EOF {
-				sentDone = true
-				break
-			}
-			if r.Context().Err() != nil {
-				sentDone = true
-				break
-			}
-			s.mgr.TouchActivity(inst.Port)
-			trimmed := strings.TrimSpace(line)
-			if strings.HasPrefix(trimmed, "data: ") {
-				data := strings.TrimPrefix(trimmed, "data: ")
-				if data == "[DONE]" {
-					sentDone = true
-					if !hadFinishReason {
-						w.Write([]byte("data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n"))
-						flusher.Flush()
-					}
-					w.Write([]byte(line))
-					flusher.Flush()
-					break
-				}
-				// After finish_reason, skip content chunks (prevents token leak),
-				// except the trailing usage chunk (choices:[] + usage) that llama.cpp
-				// emits when the client sets stream_options.include_usage. Forward it
-				// so OpenAI clients receive their token usage, matching other providers.
-				if hadFinishReason {
-					var usageOnly struct {
-						Usage struct {
-							CompletionTokens int64 `json:"completion_tokens"`
-						} `json:"usage"`
-					}
-					if json.Unmarshal([]byte(data), &usageOnly) == nil && usageOnly.Usage.CompletionTokens > 0 {
-						s.mgr.AddCompletionTokens(inst.Port, usageOnly.Usage.CompletionTokens)
-						if _, werr := w.Write([]byte("data: " + data + "\n")); werr != nil {
-							sentDone = true
-							break
-						}
-						flusher.Flush()
-					}
-					continue
-				}
-			var cleaned []byte
-			if shouldMerge {
-				cleaned = mergeReasoningContent([]byte(data))
-			} else if shouldStrip {
-				cleaned = stripContentThinkTags([]byte(data))
-				cleaned = stripReasoningContent(cleaned)
-			} else {
-				data = extractThinkStream(data, &inThink, &thinkBuf)
-				cleaned = []byte(data)
-			}
-				if !hadFinishReason {
-					var check struct {
-						Choices []struct {
-							FinishReason *string `json:"finish_reason"`
-						} `json:"choices"`
-					}
-					if json.Unmarshal(cleaned, &check) == nil {
-						for _, c := range check.Choices {
-							if c.FinishReason != nil && *c.FinishReason != "" {
-								hadFinishReason = true
-								break
-							}
-						}
-					}
-				}
-				line = "data: " + string(cleaned) + "\n"
-				var usage struct {
-					Usage *struct {
-						CompletionTokens int64 `json:"completion_tokens"`
-					} `json:"usage"`
-				}
-				if json.Unmarshal([]byte(data), &usage) == nil && usage.Usage != nil {
-					s.mgr.AddCompletionTokens(inst.Port, usage.Usage.CompletionTokens)
-				}
-			}
-			if _, err := w.Write([]byte(line)); err != nil {
-				sentDone = true
-				break
-			}
-			flusher.Flush()
-			if err == io.EOF {
-				sentDone = true
-				break
-			}
-		}
-		if !sentDone && !hadFinishReason {
-			w.Write([]byte("data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n"))
-			flusher.Flush()
-		}
-		if !sentDone {
-			w.Write([]byte("data: [DONE]\n"))
-			flusher.Flush()
-		}
+		s.proxySSE(w, r, resp, inst.Port, sseOpts{
+			strip: shouldStripReasoning(cfg, profileName),
+			merge: shouldMergeReasoning(cfg, profileName),
+			touch: func() { s.mgr.TouchActivity(inst.Port) },
+		})
 		return
 	}
 
