@@ -9,7 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -532,7 +532,7 @@ func EnsureLlamaServer() error {
 		checkWindowsDependencies()
 	}
 
-	log.Printf("llama-server installed: version=%s backend=%s path=%s", tagName, selected.Name, installedPath)
+	slog.Info("llama-server installed", "version", tagName, "backend", selected.Name, "path", installedPath)
 	fmt.Printf("\nllama-server %s (%s) installed to %s\n", tagName, selected.Name, installedPath)
 	return nil
 }

@@ -3,7 +3,7 @@ package manager
 import (
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"math"
 	"net"
 	"net/http"
@@ -239,7 +239,7 @@ func (m *Manager) registerOrphan(pid int, cmdLine string) {
 			LastActivity: time.Now(),
 		}
 		m.instances[port] = inst
-		log.Printf("recovered orphan instance: port=%d pid=%d model=%s", port, pid, modelName)
+		slog.Info("recovered orphan instance", "port", port, "pid", pid, "model", modelName)
 		m.confirmOrphanReady(inst)
 	}
 }
@@ -294,7 +294,7 @@ func (m *Manager) windowsCommandLine(pid int) (string, bool) {
 	wmi := exec.Command("wmic", "process", "where", fmt.Sprintf("ProcessId=%d", pid), "get", "CommandLine", "/format:value")
 	wmiOut, wmiErr := wmi.Output()
 	if wmiErr != nil {
-		log.Printf("orphan recovery: cannot read command line of pid %d (%v) — skipping", pid, wmiErr)
+		slog.Warn("orphan recovery: cannot read command line, skipping", "pid", pid, "error", wmiErr)
 		return "", false
 	}
 	for _, wmiLine := range strings.Split(string(wmiOut), "\n") {
@@ -352,7 +352,7 @@ func (m *Manager) registerOrphanFromCommandLine(pid int, cmdLine string) bool {
 		LastActivity: time.Now(),
 	}
 	m.instances[port] = inst
-	log.Printf("recovered orphan instance: port=%d pid=%d model=%s", port, pid, modelName)
+	slog.Info("recovered orphan instance", "port", port, "pid", pid, "model", modelName)
 	m.confirmOrphanReady(inst)
 	return true
 }
@@ -374,7 +374,7 @@ func (m *Manager) confirmOrphanReady(inst *Instance) {
 					inst.Status = "stopped"
 				}
 				m.mu.Unlock()
-				log.Printf("recovered orphan exited before becoming ready: port=%d", inst.Port)
+				slog.Warn("recovered orphan exited before becoming ready", "port", inst.Port)
 				return
 			}
 			resp, err := healthClient.Get(baseURL + "/health")
@@ -392,7 +392,7 @@ func (m *Manager) confirmOrphanReady(inst *Instance) {
 						setGpuUtil(inst, per)
 					}
 					m.mu.Unlock()
-					log.Printf("recovered orphan ready: port=%d cpu=%.0f%% mem=%.0fMB gpu=%.0f%%", inst.Port, cpu, mem, inst.GpuUtil)
+					slog.Info("recovered orphan ready", "port", inst.Port, "cpu", fmt.Sprintf("%.0f%%", cpu), "mem", fmt.Sprintf("%.0fMB", mem), "gpu", fmt.Sprintf("%.0f%%", inst.GpuUtil))
 					return
 				}
 			}
@@ -403,7 +403,7 @@ func (m *Manager) confirmOrphanReady(inst *Instance) {
 		m.mu.Lock()
 		inst.Ready = false
 		m.mu.Unlock()
-		log.Printf("recovered orphan did not confirm readiness: port=%d (check logs)", inst.Port)
+		slog.Warn("recovered orphan did not confirm readiness (check logs)", "port", inst.Port)
 	}()
 }
 
@@ -487,7 +487,7 @@ func (m *Manager) allocateAvailablePort(port int) int {
 	// Port taken by another process — find the next free one
 	for i := port + 1; i < port+100; i++ {
 		if claimed := m.claimPort(i); claimed != 0 {
-			log.Printf("port %d is busy, using %d instead", port, claimed)
+			slog.Info("port busy, using alternate", "port", port, "claimed", claimed)
 			return claimed
 		}
 	}
@@ -606,21 +606,21 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 		if !hasGpuLayers && !hasTensorSplit {
 			if gpuAvailable, gpuLayers := model.DetectGPU(); gpuAvailable {
 				args = append([]string{"--n-gpu-layers", strconv.Itoa(gpuLayers)}, args...)
-				log.Printf("GPU detected, adding --n-gpu-layers %d", gpuLayers)
+				slog.Info("GPU detected, adding --n-gpu-layers", "layers", gpuLayers)
 			}
 		} else if hasTensorSplit {
-			log.Printf("tensor-split detected, skipping auto --n-gpu-layers (let auto-fit decide)")
+			slog.Info("tensor-split detected, skipping auto --n-gpu-layers (let auto-fit decide)")
 		}
 	}
 
-	log.Printf("launching llama-server: %s %s", llamaBin, strings.Join(args, " "))
+	slog.Info("launching llama-server", "binary", llamaBin, "args", strings.Join(args, " "))
 	logDir := filepath.Join(model.GollamaDir(), "logs")
 	model.EnsureDir(logDir)
 	logFile := filepath.Join(logDir, fmt.Sprintf("port-%d.log", port))
 	prepareInstanceLog(logFile)
 	logW, logErr := newRotatingLogWriter(logFile, instanceLogMaxBytes)
 	if logErr != nil {
-		log.Printf("warning: could not create log file %s: %v", logFile, logErr)
+		slog.Warn("could not create log file", "file", logFile, "error", logErr)
 		logW = nil
 	}
 
@@ -721,7 +721,7 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 	delete(m.reserved, port)
 	m.mu.Unlock()
 
-	log.Printf("instance started: model=%s port=%d pid=%d", modelName, port, cmd.Process.Pid)
+	slog.Info("instance started", "model", modelName, "port", port, "pid", cmd.Process.Pid)
 
 	// Wait for instance to be ready before returning
 	go func() {
@@ -746,13 +746,13 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 						setGpuUtil(inst, per)
 					}
 					m.mu.Unlock()
-					log.Printf("instance ready: port=%d cpu=%.0f%% mem=%.0fMB gpu=%.0f%%", port, cpu, mem, inst.GpuUtil)
+					slog.Info("instance ready", "port", port, "cpu", fmt.Sprintf("%.0f%%", cpu), "mem", fmt.Sprintf("%.0fMB", mem), "gpu", fmt.Sprintf("%.0f%%", inst.GpuUtil))
 					return
 				}
 			}
 			time.Sleep(500 * time.Millisecond)
 		}
-		log.Printf("instance did not become ready: port=%d — check logs with 'gollama logs %d'", port, port)
+		slog.Warn("instance did not become ready, check logs", "port", port, "cmd", "gollama logs "+strconv.Itoa(port))
 	}()
 
 	go func() {
@@ -762,7 +762,7 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 		if inst.Status == "running" {
 			inst.Status = "stopped"
 			if err != nil {
-				log.Printf("instance stopped with error: port=%d err=%v", port, err)
+				slog.Error("instance stopped with error", "port", port, "error", err)
 				// Read log tail to help diagnose (P4-T3: tail, not full file)
 				if data, readErr := TailLogFile(logFile, 64*1024); readErr == nil {
 					lines := strings.Split(string(data), "\n")
@@ -770,13 +770,13 @@ func (m *Manager) Start(modelName string, port int, extraArgs []string, replaceF
 					for i := len(lines) - 1; i >= 0 && i > len(lines)-10; i-- {
 						line := strings.TrimSpace(lines[i])
 						if line != "" && !strings.Contains(line, "\r") {
-							log.Printf("port=%d last log: %s", port, line)
+							slog.Info("instance last log line", "port", port, "line", line)
 							break
 						}
 					}
 				}
 			} else {
-				log.Printf("instance stopped: port=%d", port)
+				slog.Info("instance stopped", "port", port)
 			}
 		}
 		m.mu.Unlock()
@@ -846,7 +846,7 @@ func (m *Manager) StartImage(modelID string, port int, env map[string]string) (*
 	prepareInstanceLog(logFile)
 	logW, logErr := newRotatingLogWriter(logFile, instanceLogMaxBytes)
 	if logErr != nil {
-		log.Printf("warning: could not create log file %s: %v", logFile, logErr)
+		slog.Warn("could not create log file", "file", logFile, "error", logErr)
 		logW = nil
 	}
 	if logW != nil {
@@ -886,7 +886,7 @@ func (m *Manager) StartImage(modelID string, port int, env map[string]string) (*
 	delete(m.reserved, port)
 	m.mu.Unlock()
 
-	log.Printf("image instance started: model=%s port=%d pid=%d", modelID, port, cmd.Process.Pid)
+	slog.Info("image instance started", "model", modelID, "port", port, "pid", cmd.Process.Pid)
 
 	go func() {
 		healthClient := &http.Client{Timeout: 2 * time.Second}
@@ -900,13 +900,13 @@ func (m *Manager) StartImage(modelID string, port int, env map[string]string) (*
 					m.mu.Lock()
 					inst.Ready = true
 					m.mu.Unlock()
-					log.Printf("image instance ready: port=%d", port)
+					slog.Info("image instance ready", "port", port)
 					return
 				}
 			}
 			time.Sleep(500 * time.Millisecond)
 		}
-		log.Printf("image instance did not become ready: port=%d — check logs with 'gollama logs %d'", port, port)
+		slog.Warn("image instance did not become ready, check logs", "port", port, "cmd", "gollama logs "+strconv.Itoa(port))
 	}()
 
 	go func() {
@@ -916,9 +916,9 @@ func (m *Manager) StartImage(modelID string, port int, env map[string]string) (*
 		if inst.Status == "running" {
 			inst.Status = "stopped"
 			if err != nil {
-				log.Printf("image instance stopped with error: port=%d err=%v", port, err)
+				slog.Error("image instance stopped with error", "port", port, "error", err)
 			} else {
-				log.Printf("image instance stopped: port=%d", port)
+				slog.Info("image instance stopped", "port", port)
 			}
 		}
 		m.mu.Unlock()
@@ -977,7 +977,7 @@ func (m *Manager) Stop(port int) error {
 		alive = proc.Signal(syscall.Signal(0)) == nil
 	}
 	if alive {
-		log.Printf("instance on port %d did not exit after SIGINT — sending SIGKILL", port)
+		slog.Warn("instance did not exit after SIGINT, sending SIGKILL", "port", port)
 		if proc != nil {
 			proc.Kill()
 		}
@@ -1100,7 +1100,7 @@ func (m *Manager) StopIdle(ttl time.Duration) []int {
 	}
 	m.mu.Unlock()
 	for _, port := range ports {
-		log.Printf("auto-stopping idle instance: port=%d (idle >= %v)", port, ttl)
+		slog.Info("auto-stopping idle instance", "port", port, "idle", ttl)
 		m.Stop(port)
 	}
 	return ports
@@ -1166,7 +1166,7 @@ func (m *Manager) FindInstanceByModel(modelName string) *Instance {
 		}
 	}
 	if best != nil && bestTier == tierSubstring {
-		log.Printf("model %q matched running instance on port %d by substring only — consider an exact model or profile name", modelName, best.Port)
+		slog.Warn("model matched running instance by substring only, consider an exact model or profile name", "model", modelName, "port", best.Port)
 	}
 	return best
 }

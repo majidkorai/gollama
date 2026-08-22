@@ -3,7 +3,7 @@ package manager
 import (
 	"errors"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -143,7 +143,7 @@ func (c *Coordinator) SwitchAndStart(req SwitchRequest) (*Instance, error) {
 			c.mu.Unlock()
 			<-inf.done
 			if waited := time.Since(start); waited > 90*time.Second {
-				log.Printf("model switch for %q waited %v (coalesced on an in-flight switch) — unusually long", req.Model, waited.Round(time.Second))
+				slog.Warn("model switch waited unusually long (coalesced on an in-flight switch)", "model", req.Model, "waited", waited.Round(time.Second))
 			}
 			return c.reuseInflight(req, inf)
 		}
@@ -170,7 +170,7 @@ func (c *Coordinator) runSwitch(req SwitchRequest) (inst *Instance, err error) {
 	inst, err = c.perform(req)
 	c.switchMu.Unlock()
 	if waited := time.Since(start); waited > 90*time.Second {
-		log.Printf("model switch for %q waited %v — unusually long (queued behind another model switch)", req.Model, waited.Round(time.Second))
+		slog.Warn("model switch waited unusually long (queued behind another model switch)", "model", req.Model, "waited", waited.Round(time.Second))
 	}
 	return inst, err
 }
@@ -219,7 +219,7 @@ func (c *Coordinator) perform(req SwitchRequest) (*Instance, error) {
 		if err != nil {
 			return nil, err
 		}
-		log.Printf("model switch: %q (mode %v) starting on port %d", req.Model, req.Mode, inst.Port)
+		slog.Info("model switch starting", "model", req.Model, "mode", req.Mode, "port", inst.Port)
 		if req.Profile != "" {
 			c.mgr.SetProfile(inst.Port, req.Profile)
 		}
@@ -249,7 +249,7 @@ func (c *Coordinator) stopOtherText(modelName string) {
 		}
 		if inst.Type != "image" {
 			if inst.Model != modelName {
-				log.Printf("stopping existing text instance %q (port %d) for new model %q", inst.Model, inst.Port, modelName)
+				slog.Info("stopping existing text instance for new model", "model", inst.Model, "port", inst.Port, "newModel", modelName)
 				c.mgr.Stop(inst.Port)
 				stoppedText = true
 			}
@@ -258,26 +258,26 @@ func (c *Coordinator) stopOtherText(modelName string) {
 		sinceStart := time.Since(inst.StartedAt)
 		sinceActivity := time.Since(inst.LastActivity)
 		if sinceStart < 30*time.Second || sinceActivity < 10*time.Second {
-			log.Printf("image instance %q (port %d) running for %v — deferring text until image finishes", inst.Model, inst.Port, sinceStart.Round(time.Second))
+			slog.Info("deferring text until image finishes", "model", inst.Model, "port", inst.Port, "runningFor", sinceStart.Round(time.Second))
 			deadline := time.Now().Add(60 * time.Second)
 			for time.Now().Before(deadline) {
 				if !c.mgr.HasInstance(inst.Port) {
-					log.Printf("image instance completed, proceeding with text model %q", modelName)
+					slog.Info("image instance completed, proceeding with text model", "model", modelName)
 					break
 				}
 				time.Sleep(1 * time.Second)
 			}
 			if c.mgr.HasInstance(inst.Port) {
-				log.Printf("image instance timed out — forcefully preempting")
+				slog.Warn("image instance timed out, forcefully preempting")
 				c.mgr.Stop(inst.Port)
 			}
 		} else {
-			log.Printf("stopping stale image instance %q (port %d) for new model %q", inst.Model, inst.Port, modelName)
+			slog.Info("stopping stale image instance for new model", "model", inst.Model, "port", inst.Port, "newModel", modelName)
 			c.mgr.Stop(inst.Port)
 		}
 	}
 	if stoppedText {
-		log.Printf("waiting 2s for GPU memory release")
+		slog.Info("waiting 2s for GPU memory release")
 		time.Sleep(2 * time.Second)
 	}
 }
@@ -293,7 +293,7 @@ func (c *Coordinator) stopTextForImage() error {
 		if sinceActivity < time.Duration(BusyRetryAfter)*time.Second && sinceActivity >= 0 {
 			return &BusyError{Model: inst.Model}
 		}
-		log.Printf("stopping idle text instance %q (port %d) for image generation", inst.Model, inst.Port)
+		slog.Info("stopping idle text instance for image generation", "model", inst.Model, "port", inst.Port)
 		c.mgr.Stop(inst.Port)
 	}
 	return nil

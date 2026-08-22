@@ -9,7 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"os/exec"
@@ -125,14 +125,14 @@ func tokenMatches(r *http.Request, token string) bool {
 
 func (s *Server) Start() error {
 	addr := fmt.Sprintf("%s:%s", s.listen, s.port)
-	log.Printf("gollama listening on %s", addr)
+	slog.Info("gollama listening", "addr", addr)
 	if s.listen == "127.0.0.1" || s.listen == "localhost" {
-		log.Printf("Web UI: http://%s:%s (loopback only — use --listen 0.0.0.0 for LAN access)", s.listen, s.port)
+		slog.Info("Web UI available (loopback only — use --listen 0.0.0.0 for LAN access)", "url", fmt.Sprintf("http://%s:%s", s.listen, s.port))
 	} else {
-		log.Printf("Web UI: http://%s:%s", s.listen, s.port)
+		slog.Info("Web UI available", "url", fmt.Sprintf("http://%s:%s", s.listen, s.port))
 	}
 	if model.LoadConfig().APIToken == "" {
-		log.Printf("warning: no API token — gollama is unauthenticated")
+		slog.Warn("no API token, gollama is unauthenticated")
 	}
 	return http.ListenAndServe(addr, s.mux)
 }
@@ -255,7 +255,7 @@ func (s *Server) handleModelDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("model deleted: %s", req.Name)
+	slog.Info("model deleted", "model", req.Name)
 	jsonResponse(w, map[string]string{"status": "deleted", "model": req.Name})
 }
 
@@ -461,10 +461,10 @@ func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 		cmd.Stderr = os.Stderr
 		cmd.Stdin = os.Stdin
 		if err := cmd.Start(); err != nil {
-			log.Printf("restart failed: %v", err)
+			slog.Error("restart failed", "error", err)
 			return
 		}
-		log.Printf("restarted with PID %d", cmd.Process.Pid)
+		slog.Info("restarted", "pid", cmd.Process.Pid)
 		os.Exit(0)
 	}()
 }
@@ -656,7 +656,7 @@ func (s *Server) handleConfigToken(w http.ResponseWriter, r *http.Request) {
 			jsonError(w, err.Error(), 500)
 			return
 		}
-		log.Printf("API token cleared — gollama is now unauthenticated")
+		slog.Warn("API token cleared, gollama is now unauthenticated")
 		jsonResponse(w, map[string]string{"status": "cleared"})
 	default:
 		jsonError(w, "action must be 'regenerate' or 'clear'", 400)
@@ -911,7 +911,7 @@ func (s *Server) postToInstance(ctx context.Context, target string, body []byte,
 			resp.Body = io.NopCloser(bytes.NewReader(loadingBody))
 			return resp, nil
 		}
-		log.Printf("instance on port %d still loading model, retrying", port)
+		slog.Info("instance still loading model, retrying", "port", port)
 		heartbeat()
 		time.Sleep(2 * time.Second)
 	}
@@ -1337,7 +1337,7 @@ func (s *Server) handleV1ImageGenerations(w http.ResponseWriter, r *http.Request
 	})
 	if err != nil {
 		if errors.Is(err, manager.ErrBusy) {
-			log.Printf("deferring image generation: %v", err)
+			slog.Info("deferring image generation", "error", err)
 			w.Header().Set("Retry-After", strconv.Itoa(manager.BusyRetryAfter))
 			jsonError(w, err.Error(), 503)
 			return
@@ -1349,7 +1349,7 @@ func (s *Server) handleV1ImageGenerations(w http.ResponseWriter, r *http.Request
 	if !alreadyRunning {
 		// Just spawned: keep the 503 + Retry-After: 5 contract (clients
 		// retry; readiness is polled in the background).
-		log.Printf("auto-started image model %q on port %d", modelName, inst.Port)
+		slog.Info("auto-started image model", "model", modelName, "port", inst.Port)
 		go s.waitForInstanceReady(inst.Port)
 		w.Header().Set("Retry-After", "5")
 		jsonError(w, fmt.Sprintf("image model %q is starting, retry in a few seconds", modelName), 503)
@@ -1470,7 +1470,7 @@ func (s *Server) handleWarmup(w http.ResponseWriter, r *http.Request) {
 		})
 		if err != nil {
 			if errors.Is(err, manager.ErrBusy) {
-				log.Printf("warmup: deferring image warmup for %q: %v", modelName, err)
+				slog.Info("warmup: deferring image warmup", "model", modelName, "error", err)
 				w.Header().Set("Retry-After", strconv.Itoa(manager.BusyRetryAfter))
 				jsonError(w, err.Error(), 503)
 				return
@@ -1479,7 +1479,7 @@ func (s *Server) handleWarmup(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		go s.waitForInstanceReady(inst.Port)
-		log.Printf("warmup: image model %q starting on port %d", modelName, inst.Port)
+		slog.Info("warmup: image model starting", "model", modelName, "port", inst.Port)
 		jsonResponse(w, map[string]interface{}{
 			"status": "starting", "port": inst.Port, "model": inst.Model,
 			"profile": profileName, "type": "image",
@@ -1515,7 +1515,7 @@ func (s *Server) handleWarmup(w http.ResponseWriter, r *http.Request) {
 	launchFlags := cfg.ProxyFlags()
 	if profileName != "" {
 		launchFlags = cfg.ProfileFlags(profileName)
-		log.Printf("warmup: using model profile %q for model %q", profileName, modelName)
+		slog.Info("warmup: using model profile", "profile", profileName, "model", modelName)
 	}
 	inst, err := s.coord.SwitchAndStart(manager.SwitchRequest{
 		Model:      modelName,
@@ -1529,7 +1529,7 @@ func (s *Server) handleWarmup(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, fmt.Sprintf("starting model %q: %v", modelName, err), 500)
 		return
 	}
-	log.Printf("warmup: model %q starting on port %d", modelName, inst.Port)
+	slog.Info("warmup: model starting", "model", modelName, "port", inst.Port)
 	jsonResponse(w, map[string]interface{}{
 		"status": "starting", "port": inst.Port, "model": inst.Model,
 		"profile": profileName, "type": "text",
@@ -1621,7 +1621,7 @@ func (s *Server) handleImageModelInstall(w http.ResponseWriter, r *http.Request)
 	cacheDir := filepath.Join(home, ".cache", "huggingface")
 	free, err := model.FreeDiskBytes(cacheDir)
 	if err == nil && free < 10<<30 { // warn if less than 10GB
-		log.Printf("disk space warning for image model %s: %s free", req.ModelID, model.FormatSize(int64(free)))
+		slog.Warn("low disk space for image model", "model", req.ModelID, "free", model.FormatSize(int64(free)))
 	}
 
 	// Set sensible defaults based on model name
@@ -1653,7 +1653,7 @@ func (s *Server) handleImageModelInstall(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	log.Printf("image profile installed: %s → %s", req.Name, req.ModelID)
+	slog.Info("image profile installed", "name", req.Name, "model", req.ModelID)
 	jsonResponse(w, map[string]string{"status": "installed", "name": req.Name, "model_id": req.ModelID})
 }
 
@@ -1693,7 +1693,7 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 	var launchFlags []string
 	if profileName != "" {
 		launchFlags = cfg.ProfileFlags(profileName)
-		log.Printf("using model profile %q for model %q", profileName, modelName)
+		slog.Info("using model profile", "profile", profileName, "model", modelName)
 	} else {
 		launchFlags = cfg.ProxyFlags()
 	}
@@ -1816,7 +1816,7 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 		errMsg := strings.ToLower(string(bodyBytes))
 		// If grammar parsing failed, retry with simplified tool schemas to avoid GBNF complexity limits
 		if (strings.Contains(errMsg, "grammar") || strings.Contains(errMsg, "parse error")) && reqMap["tools"] != nil {
-			log.Printf("grammar parse error, retrying with simplified tools")
+			slog.Warn("grammar parse error, retrying with simplified tools")
 			simplifyToolSchemas(reqMap)
 			retryBody, _ := json.Marshal(reqMap)
 			retryCtx, retryCancel := context.WithTimeout(r.Context(), 10*time.Minute)
@@ -1835,7 +1835,7 @@ func (s *Server) proxyToInstance(w http.ResponseWriter, r *http.Request, targetP
 					return
 				}
 				if err2 != nil {
-					log.Printf("retry also failed: %v", err2)
+					slog.Error("retry also failed", "error", err2)
 				}
 				if resp2 != nil {
 					resp2.Body.Close()

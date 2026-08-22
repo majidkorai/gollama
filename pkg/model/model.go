@@ -8,7 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
@@ -126,7 +126,7 @@ func LoadConfig() *Config {
 	if err != nil {
 		cfg := DefaultConfig()
 		if saveErr := SaveConfig(cfg); saveErr != nil {
-			log.Printf("warning: could not save initial config: %v", saveErr)
+			slog.Warn("could not save initial config", "error", saveErr)
 		}
 		return cfg
 	}
@@ -134,7 +134,7 @@ func LoadConfig() *Config {
 	if json.Unmarshal(data, &cfg) != nil || cfg.DefaultFlags == nil {
 		cfg = *DefaultConfig()
 		if saveErr := SaveConfig(&cfg); saveErr != nil {
-			log.Printf("warning: could not save config: %v", saveErr)
+			slog.Warn("could not save config", "error", saveErr)
 		}
 	}
 	if cfg.Profiles == nil {
@@ -238,10 +238,10 @@ func EnsureAPIToken() (string, bool) {
 	}
 	cfg.APIToken = token
 	if saveErr := SaveConfig(cfg); saveErr != nil {
-		log.Printf("warning: could not persist API token: %v", saveErr)
+		slog.Warn("could not persist API token", "error", saveErr)
 	}
 	if err := os.WriteFile(tokenMarkerFile(), []byte(time.Now().UTC().Format(time.RFC3339)), 0600); err != nil {
-		log.Printf("warning: could not write token marker: %v", err)
+		slog.Warn("could not write token marker", "error", err)
 	}
 	return token, true
 }
@@ -891,10 +891,10 @@ func doScanModels() {
 				info.ShortName = short
 				if existing, exists := idx[base]; !exists {
 					idx[base] = info
-					log.Printf("scanned split model: %s (%s, %s, %s)", base, info.Architecture, info.Quantization, FormatSize(info.Size))
+					slog.Info("scanned split model", "model", base, "arch", info.Architecture, "quant", info.Quantization, "size", FormatSize(info.Size))
 				} else if _, err := os.Stat(existing.BlobPath); os.IsNotExist(err) {
 					idx[base] = info
-					log.Printf("replaced stale split model: %s (%s, %s, %s)", base, info.Architecture, info.Quantization, FormatSize(info.Size))
+					slog.Info("replaced stale split model", "model", base, "arch", info.Architecture, "quant", info.Quantization, "size", FormatSize(info.Size))
 				}
 				continue
 			}
@@ -940,11 +940,11 @@ func doScanModels() {
 			short = strings.ReplaceAll(short, " ", "-")
 			info.ShortName = short
 			idx[base] = info
-			log.Printf("scanned new model: %s (short=%s, arch=%s, quant=%s)", base, short, info.Architecture, info.Quantization)
+			slog.Info("scanned new model", "model", base, "short", short, "arch", info.Architecture, "quant", info.Quantization)
 		}
 		return nil
 	}); err != nil {
-		log.Printf("warning: could not save model index after scan: %v", err)
+		slog.Warn("could not save model index after scan", "error", err)
 	}
 }
 
@@ -1362,9 +1362,9 @@ func pullModelInternal(ctx context.Context, ref string, fn ProgressFn, progress 
 			}
 			return nil
 		}); err != nil {
-			log.Printf("warning: could not re-index existing model %s: %v", modelName, err)
+			slog.Warn("could not re-index existing model", "model", modelName, "error", err)
 		}
-		log.Printf("model %s already exists, skipping download", modelName)
+		slog.Info("model already exists, skipping download", "model", modelName)
 		return ErrAlreadyExists
 	}
 
@@ -1373,7 +1373,7 @@ func pullModelInternal(ctx context.Context, ref string, fn ProgressFn, progress 
 		delete(idx, modelName)
 		return nil
 	}); err != nil {
-		log.Printf("warning: could not clear stale index entry for %s: %v", modelName, err)
+		slog.Warn("could not clear stale index entry", "model", modelName, "error", err)
 	}
 
 	// Track files we've started downloading so we can clean up on cancel
@@ -1416,8 +1416,8 @@ func pullModelInternal(ctx context.Context, ref string, fn ProgressFn, progress 
 			done = fi.Size()
 			if remoteSize > 0 {
 				if done > remoteSize {
-					log.Printf("partial file %s is larger than the remote file (%s > %s) — restarting",
-						part, FormatSize(done), FormatSize(remoteSize))
+					slog.Warn("partial file larger than remote file, restarting",
+						"file", part, "local", FormatSize(done), "remote", FormatSize(remoteSize))
 					os.Remove(part)
 					done = 0
 				} else if done == remoteSize {
@@ -1532,7 +1532,7 @@ func pullModelInternal(ctx context.Context, ref string, fn ProgressFn, progress 
 		return fmt.Errorf("model downloaded but could not be indexed: %w", err)
 	}
 
-	log.Printf("model downloaded: %s (%s, %d files) → %s", modelName, FormatSize(totalSize), len(targetFiles), firstDest)
+	slog.Info("model downloaded", "model", modelName, "size", FormatSize(totalSize), "files", len(targetFiles), "dest", firstDest)
 	fmt.Printf("Downloaded %s (%s, %d files)\n", modelName, FormatSize(totalSize), len(targetFiles))
 	return nil
 }

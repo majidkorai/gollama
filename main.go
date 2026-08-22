@@ -6,6 +6,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"log/slog"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -27,7 +28,33 @@ import (
 // local builds fall back to this default
 var version = "3.8.0"
 
+// setupLogging configures the default slog logger (P5-T5). Output goes to
+// stderr as text by default; set GOLLAMA_LOG_FORMAT=json for JSON logs. The
+// level defaults to INFO and can be overridden with GOLLAMA_LOG_LEVEL
+// (debug|info|warn|error).
+func setupLogging() {
+	var level slog.Level
+	switch strings.ToLower(os.Getenv("GOLLAMA_LOG_LEVEL")) {
+	case "debug":
+		level = slog.LevelDebug
+	case "warn", "warning":
+		level = slog.LevelWarn
+	case "error":
+		level = slog.LevelError
+	default:
+		level = slog.LevelInfo
+	}
+	opts := &slog.HandlerOptions{Level: level}
+	if strings.EqualFold(os.Getenv("GOLLAMA_LOG_FORMAT"), "json") {
+		slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, opts)))
+	} else {
+		slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, opts)))
+	}
+}
+
 func main() {
+	setupLogging()
+
 	if len(os.Args) < 2 || os.Args[1] == "--version" || os.Args[1] == "-v" {
 		if len(os.Args) > 1 && (os.Args[1] == "--version" || os.Args[1] == "-v") {
 			fmt.Printf("gollama %s\n", version)

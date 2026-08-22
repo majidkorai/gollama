@@ -5,7 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -354,7 +354,7 @@ func populateModelInfo(info *ModelInfo) error {
 			}
 			return nil
 		}); err != nil {
-			log.Printf("warning: could not save model metadata for %s: %v", info.Name, err)
+			slog.Warn("could not save model metadata", "model", info.Name, "error", err)
 		}
 	}
 
