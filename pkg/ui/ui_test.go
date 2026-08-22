@@ -44,6 +44,20 @@ func around(s string, i int) string {
 	return s[lo:hi]
 }
 
+// TestDumpPage regenerates testdata/page_reference.html from the current
+// assembled Page. It is a no-op unless GOLLAMA_DUMP_PAGE=1 is set, so it never
+// mutates the reference during a normal `go test ./...` run. After any
+// intentional web/ edit, run:  GOLLAMA_DUMP_PAGE=1 go test ./pkg/ui/ -run TestDumpPage -v
+func TestDumpPage(t *testing.T) {
+	if os.Getenv("GOLLAMA_DUMP_PAGE") != "1" {
+		t.Skip("set GOLLAMA_DUMP_PAGE=1 to regenerate testdata/page_reference.html")
+	}
+	if err := os.WriteFile("testdata/page_reference.html", []byte(Page), 0o644); err != nil {
+		t.Fatalf("write reference: %v", err)
+	}
+	t.Logf("wrote testdata/page_reference.html (%d bytes)", len(Page))
+}
+
 // TestPageInlinesAssets sanity-checks that the CSS and JS are inlined (not left
 // as placeholders) and that the page has the expected shell.
 func TestPageInlinesAssets(t *testing.T) {

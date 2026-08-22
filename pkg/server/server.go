@@ -19,6 +19,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/majidkorai/gollama/pkg/llama"
 	"github.com/majidkorai/gollama/pkg/manager"
 	"github.com/majidkorai/gollama/pkg/model"
 	"github.com/majidkorai/gollama/pkg/ui"
@@ -59,6 +60,9 @@ func NewWithListen(mgr *manager.Manager, port, version, listen string) *Server {
 
 func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/logo.svg", s.handleLogo)
+	// /healthz is a token-free liveness probe (for Uptime Kuma). It reports
+	// only gollama's own liveness + version — never instances/models/config.
+	s.mux.HandleFunc("/healthz", s.handleHealthz)
 	// All API + OpenAI-proxy routes are behind the shared-secret token
 	// (no-op while the config has no token). UI assets stay open — the UI
 	// is a viewer and attaches the token to its own fetches.
@@ -141,6 +145,17 @@ func (s *Server) handleLogo(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "image/svg+xml")
 	w.Header().Set("Cache-Control", "public, max-age=86400")
 	w.Write([]byte(ui.LogoSVG))
+}
+
+// handleHealthz is a token-free liveness probe for uptime monitors (Kuma).
+// It answers 200 as long as gollama's HTTP server is up and reports the
+// version. It deliberately does NOT inspect instances: a dead llama-server
+// is not a gollama failure (auto-launch recovers on demand).
+func (s *Server) handleHealthz(w http.ResponseWriter, r *http.Request) {
+	jsonResponse(w, map[string]string{
+		"status":  "ok",
+		"version": s.version,
+	})
 }
 
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
@@ -421,11 +436,30 @@ func (s *Server) handleInstanceLogs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
-	jsonResponse(w, map[string]string{
+	resp := map[string]interface{}{
 		"version":      s.version,
 		"llama_server": model.LlamaServerVersion(),
 		"backend":      model.LlamaServerBackend(),
-	})
+	}
+
+	// Freshness check (T2): compare the installed llama-server build against
+	// the latest upstream release. On lookup failure the fields are present
+	// with llama_server_latest null + a check_error — never a 500, because an
+	// unreachable GitHub is not a gollama failure.
+	installed := llama.InstalledLlamaServerVersion()
+	latest, releaseURL, lookupErr := llama.LatestReleaseInfo()
+	if lookupErr != nil {
+		resp["llama_server_latest"] = nil
+		resp["llama_server_check_error"] = lookupErr.Error()
+	} else {
+		behind, comparable := llama.CompareBuildNumbers(installed, latest)
+		resp["llama_server_latest"] = latest
+		resp["llama_server_comparable"] = comparable
+		resp["llama_server_outdated"] = comparable && behind > 0
+		resp["llama_server_builds_behind"] = behind
+		resp["llama_server_release_url"] = releaseURL
+	}
+	jsonResponse(w, resp)
 }
 
 func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
@@ -592,15 +626,15 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 						profiles[name] = p
 					}
 				}
-			// Only prune missing profiles when we actually received profiles
-			// (prevents accidental wipe when saveProfiles sends an empty set)
-			if len(profiles) > 0 {
-				for name := range cfg.Profiles {
-					if _, ok := profiles[name]; !ok {
-						delete(cfg.Profiles, name)
+				// Only prune missing profiles when we actually received profiles
+				// (prevents accidental wipe when saveProfiles sends an empty set)
+				if len(profiles) > 0 {
+					for name := range cfg.Profiles {
+						if _, ok := profiles[name]; !ok {
+							delete(cfg.Profiles, name)
+						}
 					}
 				}
-			}
 				for name, p := range profiles {
 					cfg.Profiles[name] = p
 				}
@@ -865,9 +899,9 @@ func (s *Server) waitForReady(port int, timeout time.Duration, beat func(), abor
 
 // sseOpts carries the per-call knobs for proxySSE.
 type sseOpts struct {
-	strip bool    // strip reasoning_content / think tags from the stream
-	merge bool    // merge reasoning_content into content (takes precedence over strip)
-	touch func()  // called per upstream line (activity touch); nil = no-op
+	strip bool   // strip reasoning_content / think tags from the stream
+	merge bool   // merge reasoning_content into content (takes precedence over strip)
+	touch func() // called per upstream line (activity touch); nil = no-op
 }
 
 // postToInstance sends a completion request to an instance, retrying the
@@ -2218,7 +2252,7 @@ func stripContentThinkTags(data []byte) []byte {
 }
 
 func strPtr(s string) *string { return &s }
-func intPtr(i int) *int { return &i }
+func intPtr(i int) *int       { return &i }
 
 func jsonResponse(w http.ResponseWriter, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")

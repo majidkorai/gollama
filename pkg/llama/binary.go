@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -14,9 +15,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/majidkorai/gollama/pkg/model"
@@ -91,40 +94,190 @@ func DetectGPUBackends() []BackendOption {
 	return options
 }
 
-func GetReleaseData() (string, map[string]string, error) {
-	req, err := http.NewRequest("GET", "https://api.github.com/repos/ggml-org/llama.cpp/releases/latest", nil)
+// releaseAPIBase is the GitHub releases LIST endpoint; a package var seam so
+// tests can point it at a fake server (same pattern as checksumURLBase). The
+// GOLLAMA_RELEASE_API_BASE env var overrides it — this is what cross-package
+// tests (pkg/server) use, since they can't touch the private var.
+//
+// Note: it is the list endpoint (not /releases/latest) on purpose — llama.cpp
+// marks its build releases (bXXX) as *prereleases*, so /releases/latest returns
+// the stale non-prerelease tag (v0.2.0) instead of the current build. We fetch
+// a page of releases and pick the highest build number.
+var releaseAPIBase = "https://api.github.com/repos/ggml-org/llama.cpp/releases"
+
+// effectiveReleaseAPIBase resolves the base URL: env override first, then the
+// package var. Reading it per call (rather than once) is what lets tests
+// change the target and invalidate the release-info cache.
+func effectiveReleaseAPIBase() string {
+	if u := os.Getenv("GOLLAMA_RELEASE_API_BASE"); u != "" {
+		return u
+	}
+	return releaseAPIBase
+}
+
+// fetchLatestRelease performs one GitHub releases-list call and returns the
+// release with the highest llama.cpp build number (bXXX): its tag, its
+// html_url (release notes page), and the asset map.
+//
+// llama.cpp marks build releases as *prereleases*, so /releases/latest returns
+// the stale non-prerelease tag (v0.2.0), not the current build. We fetch a page
+// of releases and pick the highest build number — robust against the stale tag
+// and against any out-of-order tags.
+func fetchLatestRelease() (tag, htmlURL string, assets map[string]string, err error) {
+	url := effectiveReleaseAPIBase()
+	if !strings.Contains(url, "?") {
+		url += "?per_page=15"
+	}
+	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return "", nil, fmt.Errorf("creating request: %w", err)
+		return "", "", nil, fmt.Errorf("creating request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", "gollama")
 
 	resp, err := model.APIClient.Do(req)
 	if err != nil {
-		return "", nil, fmt.Errorf("fetching latest release: %w", err)
+		return "", "", nil, fmt.Errorf("fetching latest release: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", nil, fmt.Errorf("GitHub API returned HTTP %d", resp.StatusCode)
+		return "", "", nil, fmt.Errorf("GitHub API returned HTTP %d", resp.StatusCode)
 	}
 
-	var release struct {
+	var releases []struct {
 		TagName string `json:"tag_name"`
+		HTMLURL string `json:"html_url"`
 		Assets  []struct {
 			Name               string `json:"name"`
 			BrowserDownloadURL string `json:"browser_download_url"`
 		} `json:"assets"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
-		return "", nil, fmt.Errorf("parsing release: %w", err)
+	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
+		return "", "", nil, fmt.Errorf("parsing releases: %w", err)
 	}
 
-	assets := make(map[string]string)
-	for _, a := range release.Assets {
+	bestN := int64(-1)
+	best := -1
+	for i := range releases {
+		if n := extractBuildNumber(releases[i].TagName); n > bestN {
+			bestN, best = n, i
+		}
+	}
+	if best == -1 {
+		return "", "", nil, fmt.Errorf("no build-number release found in list")
+	}
+
+	r := releases[best]
+	assets = make(map[string]string)
+	for _, a := range r.Assets {
 		assets[a.Name] = a.BrowserDownloadURL
 	}
-	return release.TagName, assets, nil
+	return r.TagName, r.HTMLURL, assets, nil
+}
+
+func GetReleaseData() (string, map[string]string, error) {
+	tag, _, assets, err := fetchLatestRelease()
+	return tag, assets, err
+}
+
+// LatestReleaseInfo returns the latest upstream llama.cpp release tag and its
+// release-notes URL, memoized behind a mutex with a 1h TTL. The UI calls this
+// on every Settings open, and unauthenticated GitHub is rate-limited to
+// 60 req/h/IP, so a fresh fetch happens only on cache miss. A cached error is
+// returned for a short backoff so a GitHub outage doesn't hammer the API on
+// every call.
+var (
+	releaseInfoMu    sync.Mutex
+	releaseInfoBase  string // base URL the cached result was fetched from
+	releaseInfoTag   string
+	releaseInfoURL   string
+	releaseInfoAt    time.Time
+	releaseInfoErr   error
+	releaseInfoErrAt time.Time
+)
+
+const (
+	releaseInfoTTL    = time.Hour
+	releaseInfoErrTTL = 5 * time.Minute
+)
+
+func LatestReleaseInfo() (tag, releaseURL string, err error) {
+	base := effectiveReleaseAPIBase()
+	releaseInfoMu.Lock()
+	defer releaseInfoMu.Unlock()
+	now := time.Now()
+	// The cache is only valid for the same base URL; a change (e.g. a test
+	// swapping in a fake server) is a cache miss.
+	if base == releaseInfoBase && releaseInfoAt.Add(releaseInfoTTL).After(now) {
+		return releaseInfoTag, releaseInfoURL, nil
+	}
+	if base == releaseInfoBase && releaseInfoErr != nil && releaseInfoErrAt.Add(releaseInfoErrTTL).After(now) {
+		return "", "", releaseInfoErr
+	}
+	tag, url, _, err := fetchLatestRelease()
+	if err != nil {
+		releaseInfoBase, releaseInfoErr, releaseInfoErrAt = base, err, now
+		return "", "", err
+	}
+	releaseInfoBase, releaseInfoTag, releaseInfoURL, releaseInfoAt, releaseInfoErr = base, tag, url, now, nil
+	return tag, url, nil
+}
+
+// InstalledLlamaServerVersion returns the installed llama-server version: the
+// recorded version file first, then a `llama-server --version` exec fallback
+// (custom builds like the VM's hand-built binary may lack the version file).
+func InstalledLlamaServerVersion() string {
+	if v := model.LlamaServerVersion(); v != "" {
+		return v
+	}
+	bin := FindLlamaServer()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, bin, "--version").Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
+// buildNumberRe matches a llama.cpp "b1234" build tag.
+var buildNumberRe = regexp.MustCompile(`b(\d{3,})`)
+
+// digitsRe matches the first run of >=3 digits (e.g. in --version output).
+var digitsRe = regexp.MustCompile(`\d{3,}`)
+
+// extractBuildNumber pulls the build number out of a version-ish string: a
+// "b1234" tag, or the first run of >=3 digits. Returns -1 when unparseable.
+func extractBuildNumber(s string) int64 {
+	if m := buildNumberRe.FindStringSubmatch(s); m != nil {
+		if n, err := strconv.ParseInt(m[1], 10, 64); err == nil {
+			return n
+		}
+	}
+	if m := digitsRe.FindString(s); m != "" {
+		if n, err := strconv.ParseInt(m, 10, 64); err == nil {
+			return n
+		}
+	}
+	return -1
+}
+
+// CompareBuildNumbers reports how many builds `installed` lags `latest` by, and
+// whether the two are comparable. comparable is false when either side has no
+// parseable build number (custom/unknown builds) — callers should then show no
+// badge rather than a misleading "outdated".
+func CompareBuildNumbers(installed, latest string) (behind int, comparable bool) {
+	inst := extractBuildNumber(installed)
+	lat := extractBuildNumber(latest)
+	if inst < 0 || lat < 0 {
+		return 0, false
+	}
+	b := int(lat - inst)
+	if b < 0 {
+		b = 0
+	}
+	return b, true
 }
 
 func FindAsset(tagName, kind string, assets map[string]string) (string, error) {
@@ -526,7 +679,7 @@ func EnsureLlamaServer() error {
 	os.WriteFile(model.VersionFile(), []byte(tagName), 0644)
 	os.WriteFile(model.BackendFile(), []byte(selected.Name), 0644)
 
-		if runtime.GOOS == "linux" {
+	if runtime.GOOS == "linux" {
 		checkDependencies(installedPath)
 	} else if runtime.GOOS == "windows" {
 		checkWindowsDependencies()

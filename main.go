@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
-	"log/slog"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -27,6 +27,14 @@ import (
 // version is set at build time via -ldflags=-X main.version=v0.x.x
 // local builds fall back to this default
 var version = "3.8.0"
+
+// orDash renders an empty string as a dash for tidy CLI output.
+func orDash(s string) string {
+	if s == "" {
+		return "—"
+	}
+	return s
+}
 
 // setupLogging configures the default slog logger (P5-T5). Output goes to
 // stderr as text by default; set GOLLAMA_LOG_FORMAT=json for JSON logs. The
@@ -93,6 +101,27 @@ func main() {
 		if err := llama.SelfUpdate(version); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
+		}
+
+	case "llama-version":
+		// Informational: report the installed llama-server build vs upstream.
+		// Always exits 0 (it is a status check, not an action).
+		installed := llama.InstalledLlamaServerVersion()
+		fmt.Printf("installed: %s\n", orDash(installed))
+		latest, releaseURL, err := llama.LatestReleaseInfo()
+		if err != nil {
+			fmt.Printf("latest:    unknown (lookup failed: %v)\n", err)
+			return
+		}
+		fmt.Printf("latest:    %s\n", latest)
+		if behind, comparable := llama.CompareBuildNumbers(installed, latest); comparable {
+			if behind > 0 {
+				fmt.Printf("status:    %d builds behind — %s\n", behind, releaseURL)
+			} else {
+				fmt.Printf("status:    up to date\n")
+			}
+		} else {
+			fmt.Printf("status:    unknown (custom/unknown build — not comparable)\n")
 		}
 
 	case "pull":

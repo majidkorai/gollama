@@ -1,4 +1,5 @@
 var chatPort = 0, chatHistory = [], chatSessionId = null;
+var chatAbortController = null; // T4: in-flight chat stream controller
 var currentView = 'dashboard';
 var cachedModelCount = 0;
 var cachedModels = [];
@@ -40,6 +41,11 @@ function submitTokenGate() {
 }
 function copyToken() {
   var el = document.getElementById('apiTokenValue');
+  if (!el || el.textContent === '—') return;
+  fallbackCopy(el.textContent);
+}
+function copyOpenaiEndpoint() {
+  var el = document.getElementById('openaiEndpoint');
   if (!el || el.textContent === '—') return;
   fallbackCopy(el.textContent);
 }
@@ -114,7 +120,7 @@ async function loadModels(refresh) {
       if (quant) badges.push('<span class="badge badge-blue">' + escHtml(quant) + '</span>');
       if (arch) badges.push('<span class="badge badge-amber">' + escHtml(arch) + '</span>');
       if (ctx) badges.push('<span class="badge badge-green">' + (ctx > 999 ? Math.round(ctx / 1000) + 'K' : '<1K') + ' ctx</span>');
-      return '<div class="model-row" onclick="showModelDetails(\'' + escAttr(name.replace(/'/g, '')) + '\')"><div><div class="name">' + escHtml(name.length > 55 ? name.slice(0, 55) + '…' : name) + ' <span class="info-icon">ⓘ</span></div><div class="info">' + size + ' ' + (badges.length ? badges.join(' ') : '') + '</div></div><button class="small danger" onclick="event.stopPropagation();deleteModel(\'' + escAttr(name.replace(/'/g, '')) + '\')" aria-label="Delete ' + escAttr(name) + '">🗑</button></div>';
+      return '<div class="model-row" onclick="showModelDetails(\'' + escAttr(name.replace(/'/g, '')) + '\')"><div><div class="name">' + escHtml(name.length > 55 ? name.slice(0, 55) + '…' : name) + ' <span class="info-icon">ⓘ</span></div><div class="info">' + size + ' ' + (badges.length ? badges.join(' ') : '') + '</div></div><button class="small danger" onclick="event.stopPropagation();deleteModel(\'' + escAttr(name.replace(/'/g, '')) + '\')" aria-label="Delete ' + escAttr(name) + '"><span class="icon">🗑</span></button></div>';
     }).join('') + '</div>';
   } catch (e) {
     mc.textContent = 'Error loading models';
@@ -1141,8 +1147,11 @@ async function sendChat() {
   trimHistory();
   updateContextMeter();
   var content = '', reasoning = '', msgEl = null, reasoningEl = null, thinking = false, chatPanel = document.getElementById('chatPanel');
+  // T4: create an AbortController so the user can stop the stream.
+  chatAbortController = new AbortController();
+  setChatBusy(true);
   try {
-    var r = await apiFetch('/api/v1/chat?port=' + chatPort, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'default', messages: chatHistory.slice(-20), max_tokens: 4096, stream: true }) });
+    var r = await apiFetch('/api/v1/chat?port=' + chatPort, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model: 'default', messages: chatHistory.slice(-20), max_tokens: 4096, stream: true }), signal: chatAbortController.signal });
     if (!r.ok) {
       var errText = await r.text();
       var msg;
@@ -1231,7 +1240,31 @@ async function sendChat() {
       saveChatHistory();
     }
     updateContextMeter();
-  } catch (e) { if (msgEl) { msgEl.innerHTML = 'Error: ' + escHtml(e.message); msgEl.className = 'msg system'; } else { var em = addMsg('assistant', ''); em.innerHTML = 'Error: ' + escHtml(e.message); em.className = 'msg system'; } }
+  } catch (e) {
+    // T4: an abort (user pressed Stop) is not an error. Preserve any partial
+    // content so the next turn's context stays coherent (deliberate choice —
+    // see the Phase 6 plan, T4).
+    if (e.name === 'AbortError') {
+      var partial = reasoning ? '<think>' + reasoning + '</think>' + content : content;
+      if (partial) { chatHistory.push({ role: 'assistant', content: partial }); saveChatHistory(); }
+      addSystemMsg('Stopped');
+    }
+    else { if (msgEl) { msgEl.innerHTML = 'Error: ' + escHtml(e.message); msgEl.className = 'msg system'; } else { var em = addMsg('assistant', ''); em.innerHTML = 'Error: ' + escHtml(e.message); em.className = 'msg system'; } }
+  } finally {
+    chatAbortController = null;
+    setChatBusy(false);
+  }
+}
+
+// T4: toggle the Send button into a Stop button while a stream is in flight.
+function setChatBusy(busy) {
+  var btn = document.getElementById('chatSendBtn');
+  if (!btn) return;
+  if (busy) { btn.textContent = 'Stop'; btn.classList.add('danger'); btn.setAttribute('onclick', 'stopChat()'); btn.disabled = false; }
+  else { btn.textContent = 'Send'; btn.classList.remove('danger'); btn.setAttribute('onclick', 'sendChat()'); }
+}
+function stopChat() {
+  if (chatAbortController) chatAbortController.abort();
 }
 
 // ── Chat History ────────────────────────────────────────
@@ -1284,7 +1317,7 @@ async function showChatHistory() {
     list.innerHTML = chats.map(function(c) {
       var title = c.title || c.preview || '(empty)';
       var shortModel = c.model ? c.model.split('/').pop().split(':')[0].replace(/-GGUF$/i, '').slice(0, 25) : '';
-      return '<div class="chat-history-item" data-id="' + c.id + '"><div class="chat-history-main" onclick="loadChat(\'' + c.id + '\')"><div class="chat-history-title">' + escHtml(title.length > 50 ? title.slice(0, 50) + '…' : title) + '</div><div class="chat-history-meta">' + c.msg_count + ' msgs · ' + escHtml(shortModel) + ' · ' + new Date(c.updated_at).toLocaleDateString() + '</div></div><div class="chat-history-actions"><button class="small ghost" onclick="event.stopPropagation();renameChat(\'' + c.id + '\', \'' + escAttr(title.replace(/'/g, '')) + '\')" title="Rename">✏️</button><button class="small danger" onclick="event.stopPropagation();deleteChat(\'' + c.id + '\')" title="Delete">🗑</button></div></div>';
+      return '<div class="chat-history-item" data-id="' + c.id + '"><div class="chat-history-main" onclick="loadChat(\'' + c.id + '\')"><div class="chat-history-title">' + escHtml(title.length > 50 ? title.slice(0, 50) + '…' : title) + '</div><div class="chat-history-meta">' + c.msg_count + ' msgs · ' + escHtml(shortModel) + ' · ' + new Date(c.updated_at).toLocaleDateString() + '</div></div><div class="chat-history-actions"><button class="small ghost" onclick="event.stopPropagation();renameChat(\'' + c.id + '\', \'' + escAttr(title.replace(/'/g, '')) + '\')" title="Rename">✏️</button><button class="small danger" onclick="event.stopPropagation();deleteChat(\'' + c.id + '\')" title="Delete"><span class="icon">🗑</span></button></div></div>';
     }).join('');
   } catch (e) { list.innerHTML = '<div class="empty-state"><div class="title">Error loading chats</div></div>'; }
 }
@@ -1483,13 +1516,41 @@ function renderReadOnlyProfileList(containerId, items, emptyMsg, renderFn) {
   container.innerHTML = html;
 }
 
+// T3: render the llama-server freshness badge next to the version tag.
+//  - outdated && comparable → amber "N BEHIND" (links to release notes)
+//  - comparable && current  → green "UP TO DATE"
+//  - not comparable / unknown / lookup error → no badge (no false alarms on
+//    custom builds, and an unreachable GitHub is not shown as "outdated").
+function renderLlamaFreshness(vd) {
+  var el = document.getElementById('s-llama-freshness');
+  if (!el) return;
+  el.innerHTML = '';
+  if (vd.llama_server_comparable !== true) return;
+  if (vd.llama_server_outdated === true) {
+    var n = vd.llama_server_builds_behind || 0;
+    var text = n + ' BEHIND';
+    var href = vd.llama_server_release_url || '';
+    if (href) {
+      el.innerHTML = '<a class="badge badge-amber" href="' + escAttr(href) + '" target="_blank" rel="noopener" title="llama.cpp release notes">' + escHtml(text) + '</a>';
+    } else {
+      el.innerHTML = '<span class="badge badge-amber">' + escHtml(text) + '</span>';
+    }
+  } else {
+    el.innerHTML = '<span class="badge badge-green">UP TO DATE</span>';
+  }
+}
+
 async function loadSettings() {
   try {
     var vr = await apiFetch('/api/v1/version'), vd = await vr.json();
     if (vd.version) { document.getElementById('s-version').textContent = vd.version; var fv = document.getElementById('faceVersion'); if (fv) fv.textContent = vd.version; }
     if (vd.llama_server) document.getElementById('s-llama-version').textContent = vd.llama_server;
     if (vd.backend) document.getElementById('s-backend').textContent = vd.backend;
+    renderLlamaFreshness(vd);
   } catch (e) {}
+  // T5: OpenAI-compatible endpoint (always derivable from the current origin).
+  var ep = document.getElementById('openaiEndpoint');
+  if (ep) ep.textContent = location.origin + '/v1';
   try {
     var r = await apiFetch('/api/v1/config'), cfg = await r.json();
     // API token: show it and keep this browser's stored copy in sync

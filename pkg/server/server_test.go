@@ -17,6 +17,14 @@ import (
 	"github.com/majidkorai/gollama/pkg/model"
 )
 
+// TestMain points the llama.cpp release lookup at a fast-failing local URL so
+// tests that hit /api/v1/version never reach the real GitHub API. Tests that
+// need the success path override GOLLAMA_RELEASE_API_BASE with a fake server.
+func TestMain(m *testing.M) {
+	os.Setenv("GOLLAMA_RELEASE_API_BASE", "http://127.0.0.1:1/releases")
+	os.Exit(m.Run())
+}
+
 // newTestServer returns a Server backed by a manager isolated under a
 // temporary HOME so no real config/instances are touched. Both HOME and
 // USERPROFILE are set so isolation holds on Windows too (os.UserHomeDir
@@ -187,6 +195,112 @@ func TestAuthRequiresToken(t *testing.T) {
 	}
 	if rec := getWithAuth(t, s, "/api/v1/version", "Bearer rotated-token", ""); rec.Code != http.StatusOK {
 		t.Fatalf("rotated token = %d, want 200", rec.Code)
+	}
+}
+
+// TestHealthzOpen verifies the token-free liveness probe: 200 with no token
+// even when auth is on, and a body carrying status + version.
+func TestHealthzOpen(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	s := NewWithVersion(manager.NewManagerNoRecovery(), "8080", "v4.3.0-test")
+	saveTestConfig(t, "test-token-healthz")
+	rec := getWithAuth(t, s, "/healthz", "", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("/healthz without token = %d, want 200 (open liveness probe)", rec.Code)
+	}
+	var body map[string]string
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("healthz body not JSON: %v (%s)", err, rec.Body.String())
+	}
+	if body["status"] != "ok" {
+		t.Errorf("healthz status = %q, want ok", body["status"])
+	}
+	if body["version"] != "v4.3.0-test" {
+		t.Errorf("healthz version = %q, want v4.3.0-test", body["version"])
+	}
+}
+
+// TestHealthzNotOnAPIPrefix guards that /healthz is an open top-level route and
+// not accidentally registered under the token-guarded /api/v1/* prefix.
+func TestHealthzNotOnAPIPrefix(t *testing.T) {
+	s := newTestServer(t)
+	saveTestConfig(t, "test-token-healthz")
+	if rec := getWithAuth(t, s, "/api/v1/version", "", ""); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("/api/v1/version without token = %d, want 401 (auth gate intact)", rec.Code)
+	}
+	if rec := getWithAuth(t, s, "/healthz", "", ""); rec.Code != http.StatusOK {
+		t.Fatalf("/healthz without token = %d, want 200 (open)", rec.Code)
+	}
+}
+
+// newFakeGitHubServer serves a releases-list JSON payload (an array) for the
+// freshness check. It emits a stale non-build tag plus the target build tag to
+// exercise the "pick the highest build number" logic.
+func newFakeGitHubServer(t *testing.T, tag, htmlURL string) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `[{"tag_name":"v0.2.0","html_url":"https://github.com/ggml-org/llama.cpp/releases/tag/v0.2.0","assets":[]},`+
+			`{"tag_name":%q,"html_url":%q,"assets":[]}]`, tag, htmlURL)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// TestVersionEndpointFreshness verifies the /api/v1/version freshness fields:
+// installed build vs a known latest → outdated/builds_behind/release_url.
+func TestVersionEndpointFreshness(t *testing.T) {
+	s := newTestServer(t)
+	saveTestConfig(t, "")
+	srv := newFakeGitHubServer(t, "b999", "https://github.com/ggml-org/llama.cpp/releases/tag/b999")
+	t.Setenv("GOLLAMA_RELEASE_API_BASE", srv.URL+"/releases/latest")
+	// A known, comparable installed build (version file is read before any exec).
+	if err := os.WriteFile(model.VersionFile(), []byte("b500"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	rec := getWithAuth(t, s, "/api/v1/version", "", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("/api/v1/version = %d, want 200: %s", rec.Code, rec.Body.String())
+	}
+	var body map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("version body not JSON: %v", err)
+	}
+	if body["llama_server_latest"] != "b999" {
+		t.Errorf("llama_server_latest = %v, want b999", body["llama_server_latest"])
+	}
+	if outdated, _ := body["llama_server_outdated"].(bool); !outdated {
+		t.Errorf("llama_server_outdated = %v, want true (b500 < b999)", body["llama_server_outdated"])
+	}
+	if behind, ok := body["llama_server_builds_behind"].(float64); !ok || int(behind) != 499 {
+		t.Errorf("llama_server_builds_behind = %v, want 499", body["llama_server_builds_behind"])
+	}
+	if body["llama_server_release_url"] != "https://github.com/ggml-org/llama.cpp/releases/tag/b999" {
+		t.Errorf("llama_server_release_url = %v, want the fake release url", body["llama_server_release_url"])
+	}
+}
+
+// TestVersionEndpointFreshnessDegradesOnLookupError verifies that a failed
+// GitHub lookup degrades gracefully (llama_server_latest null + check_error)
+// instead of returning 500. TestMain points the lookup at a dead local URL.
+func TestVersionEndpointFreshnessDegradesOnLookupError(t *testing.T) {
+	s := newTestServer(t)
+	saveTestConfig(t, "")
+	rec := getWithAuth(t, s, "/api/v1/version", "", "")
+	if rec.Code != http.StatusOK {
+		t.Fatalf("/api/v1/version with failed lookup = %d, want 200 (graceful)", rec.Code)
+	}
+	var body map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("version body not JSON: %v", err)
+	}
+	if body["llama_server_latest"] != nil {
+		t.Errorf("llama_server_latest = %v, want null on lookup failure", body["llama_server_latest"])
+	}
+	if _, ok := body["llama_server_check_error"]; !ok {
+		t.Errorf("llama_server_check_error missing on lookup failure")
 	}
 }
 

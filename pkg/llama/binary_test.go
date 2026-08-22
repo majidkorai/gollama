@@ -3,6 +3,7 @@ package llama
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -108,5 +109,68 @@ func TestVerifyChecksumMissingFile(t *testing.T) {
 	// Ask for a different tag than the server knows → 404.
 	if err := verifyChecksum("v8.0.0", "gollama-linux-amd64", binPath); err != nil {
 		t.Fatalf("missing checksums.txt should warn, not fail: %v", err)
+	}
+}
+
+func TestCompareBuildNumbers(t *testing.T) {
+	cases := []struct {
+		name       string
+		installed  string
+		latest     string
+		wantBehind int
+		wantComp   bool
+	}{
+		{"equal", "b500", "b500", 0, true},
+		{"behind", "b500", "b999", 499, true},
+		{"ahead", "b999", "b500", 0, true},
+		{"b-prefixed both", "b123", "b456", 333, true},
+		{"bare numbers", "300", "350", 50, true},
+		{"version output format", "version 396 (b396)", "b400", 4, true},
+		{"unparseable installed", "custom-build", "b500", 0, false},
+		{"unparseable latest", "b500", "unknown", 0, false},
+		{"both unparseable", "custom", "unknown", 0, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			behind, comparable := CompareBuildNumbers(tc.installed, tc.latest)
+			if behind != tc.wantBehind || comparable != tc.wantComp {
+				t.Errorf("CompareBuildNumbers(%q, %q) = (%d, %v), want (%d, %v)",
+					tc.installed, tc.latest, behind, comparable, tc.wantBehind, tc.wantComp)
+			}
+		})
+	}
+}
+
+// TestLatestReleaseInfoTTL verifies the 1h TTL cache: the second call within
+// the TTL is served from cache (no second upstream fetch).
+func TestLatestReleaseInfoTTL(t *testing.T) {
+	var hits int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprintf(w, `[{"tag_name":"v0.2.0","html_url":"https://example.com/v0.2.0","assets":[]},`+
+			`{"tag_name":"b500","html_url":"https://example.com/b500","assets":[]}]`)
+	}))
+	defer srv.Close()
+	old := releaseAPIBase
+	releaseAPIBase = srv.URL
+	defer func() { releaseAPIBase = old }()
+	os.Unsetenv("GOLLAMA_RELEASE_API_BASE") // ensure the package var is used
+
+	tag, url, err := LatestReleaseInfo()
+	if err != nil {
+		t.Fatalf("LatestReleaseInfo: %v", err)
+	}
+	if tag != "b500" || url != "https://example.com/b500" {
+		t.Errorf("LatestReleaseInfo = (%q, %q), want (b500, https://example.com/b500)", tag, url)
+	}
+	if hits != 1 {
+		t.Fatalf("first call hits = %d, want 1", hits)
+	}
+	if _, _, err := LatestReleaseInfo(); err != nil {
+		t.Fatalf("second LatestReleaseInfo: %v", err)
+	}
+	if hits != 1 {
+		t.Errorf("second call re-fetched: hits = %d, want 1 (served from cache)", hits)
 	}
 }
