@@ -438,6 +438,9 @@ var APIClient = &http.Client{
 	},
 }
 
+// hfBaseURL is the HuggingFace API/CDN base. Tests override it to point at a local server.
+var hfBaseURL = "https://huggingface.co"
+
 type userAgentTransport struct {
 	next http.RoundTripper
 }
@@ -760,11 +763,11 @@ func ScanModels() {
 	}
 	UpdateIndex(func(idx map[string]ModelInfo) error {
 		for _, entry := range entries {
-			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".gguf") {
+			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".gguf") || strings.HasSuffix(entry.Name(), ".part") {
 				continue
 			}
 			path := filepath.Join(ModelsDir(), entry.Name())
-			if _, err := os.Stat(path); err != nil {
+			if fi, err := os.Stat(path); err != nil || fi.Size() == 0 {
 				continue
 			}
 			// Handle split files (e.g. -00002-of-00004.gguf)
@@ -1079,6 +1082,50 @@ func PullModelWithCallbackContext(ctx context.Context, ref string, fn ProgressFn
 	return pullModelInternal(ctx, ref, fn, nil)
 }
 
+// probeRemoteFileSize returns the remote size of url. It prefers an already
+// known size, then a HEAD request, then a ranged GET and the Content-Range
+// header. Returns 0 when unknown.
+func probeRemoteFileSize(ctx context.Context, url string, known int64) int64 {
+	if known > 0 {
+		return known
+	}
+	headReq, _ := http.NewRequestWithContext(ctx, "HEAD", url, nil)
+	if headResp, err := HTTPClient.Do(headReq); err == nil {
+		remoteSize := headResp.ContentLength
+		headResp.Body.Close()
+		if remoteSize > 0 {
+			return remoteSize
+		}
+	}
+	rangeReq, _ := http.NewRequestWithContext(ctx, "GET", url, nil)
+	rangeReq.Header.Set("Range", "bytes=0-0")
+	if rangeResp, err := HTTPClient.Do(rangeReq); err == nil {
+		defer rangeResp.Body.Close()
+		cr := rangeResp.Header.Get("Content-Range")
+		if cr != "" {
+			parts := strings.Split(cr, "/")
+			if len(parts) == 2 {
+				if sz, err := strconv.ParseInt(parts[1], 10, 64); err == nil {
+					return sz
+				}
+			}
+		}
+	}
+	return 0
+}
+
+// openPartialFile opens a download partial file for writing: appending when
+// resuming, truncating when starting fresh.
+func openPartialFile(path string, append bool) (*os.File, error) {
+	flags := os.O_CREATE | os.O_WRONLY
+	if append {
+		flags |= os.O_APPEND
+	} else {
+		flags |= os.O_TRUNC
+	}
+	return os.OpenFile(path, flags, 0644)
+}
+
 func pullModelInternal(ctx context.Context, ref string, fn ProgressFn, progress io.Writer) error {
 	if !strings.HasPrefix(ref, "hf.co/") {
 		ref = "hf.co/" + ref
@@ -1091,7 +1138,7 @@ func pullModelInternal(ctx context.Context, ref string, fn ProgressFn, progress 
 		quant = parts[1]
 	}
 
-	apiURL := fmt.Sprintf("https://huggingface.co/api/models/%s", modelID)
+	apiURL := fmt.Sprintf("%s/api/models/%s", hfBaseURL, modelID)
 	resp, err := APIClient.Get(apiURL)
 	if err != nil {
 		return fmt.Errorf("fetching model info: %w", err)
@@ -1246,10 +1293,11 @@ func pullModelInternal(ctx context.Context, ref string, fn ProgressFn, progress 
 	})
 
 	// Track files we've started downloading so we can clean up on cancel
-	var downloadedFiles []string
+	// Track partial files we've started so we can clean them up on cancel.
+	var pendingParts []string
 	defer func() {
 		if ctx.Err() != nil {
-			for _, path := range downloadedFiles {
+			for _, path := range pendingParts {
 				os.Remove(path)
 			}
 		}
@@ -1260,36 +1308,16 @@ func pullModelInternal(ctx context.Context, ref string, fn ProgressFn, progress 
 			return ctx.Err()
 		}
 		dest := filepath.Join(ModelsDir(), filepath.Base(f.Filename))
-		downloadURL := fmt.Sprintf("https://huggingface.co/%s/resolve/main/%s", modelID, f.Filename)
+		part := dest + ".part"
+		downloadURL := fmt.Sprintf("%s/%s/resolve/main/%s", hfBaseURL, modelID, f.Filename)
 
-		remoteSize := f.Size
-		if remoteSize <= 0 {
-			headReq, _ := http.NewRequestWithContext(ctx, "HEAD", downloadURL, nil)
-			if headResp, headErr := HTTPClient.Do(headReq); headErr == nil {
-				remoteSize = headResp.ContentLength
-				headResp.Body.Close()
-			}
-		}
-		if remoteSize <= 0 {
-			rangeReq, _ := http.NewRequestWithContext(ctx, "GET", downloadURL, nil)
-			rangeReq.Header.Set("Range", "bytes=0-0")
-			if rangeResp, rangeErr := HTTPClient.Do(rangeReq); rangeErr == nil {
-				cr := rangeResp.Header.Get("Content-Range")
-				if cr != "" {
-					parts := strings.Split(cr, "/")
-					if len(parts) == 2 {
-						if sz, err := strconv.ParseInt(parts[1], 10, 64); err == nil {
-							remoteSize = sz
-						}
-					}
-				}
-				rangeResp.Body.Close()
-			}
-		}
+		remoteSize := probeRemoteFileSize(ctx, downloadURL, f.Size)
+
 		// Skip if file already exists with correct size
 		if remoteSize > 0 {
 			if fi, err := os.Stat(dest); err == nil && fi.Size() == remoteSize {
 				fmt.Printf("[%d/%d] %s already exists, skipping\n", i+1, len(targetFiles), f.Filename)
+				os.Remove(part) // clean up any stale partial file
 				continue
 			}
 		}
@@ -1298,33 +1326,70 @@ func pullModelInternal(ctx context.Context, ref string, fn ProgressFn, progress 
 			return ctx.Err()
 		}
 
+		// Resume from an existing partial file, if any.
+		var done int64
+		if fi, err := os.Stat(part); err == nil {
+			done = fi.Size()
+			if remoteSize > 0 {
+				if done > remoteSize {
+					log.Printf("partial file %s is larger than the remote file (%s > %s) — restarting",
+						part, FormatSize(done), FormatSize(remoteSize))
+					os.Remove(part)
+					done = 0
+				} else if done == remoteSize {
+					// A previous run finished the bytes but died before the rename.
+					fmt.Printf("[%d/%d] %s partial already complete — finalizing\n", i+1, len(targetFiles), f.Filename)
+					if err := os.Rename(part, dest); err != nil {
+						return fmt.Errorf("finalizing %s: %w", f.Filename, err)
+					}
+					continue
+				}
+			}
+		}
+
 		if remoteSize > 0 {
 			fmt.Printf("[%d/%d] Downloading %s (%s)\n", i+1, len(targetFiles), f.Filename, FormatSize(remoteSize))
 		} else {
 			fmt.Printf("[%d/%d] Downloading %s\n", i+1, len(targetFiles), f.Filename)
 		}
-
-		out, err := os.Create(dest)
-		if err != nil {
-			return fmt.Errorf("creating file %s: %w", f.Filename, err)
+		if done > 0 {
+			fmt.Printf("  resuming from %s\n", FormatSize(done))
 		}
 
+		out, err := openPartialFile(part, done > 0)
+		if err != nil {
+			return fmt.Errorf("creating partial file for %s: %w", f.Filename, err)
+		}
+		pendingParts = append(pendingParts, part)
+
 		dlReq, _ := http.NewRequestWithContext(ctx, "GET", downloadURL, nil)
+		if done > 0 {
+			dlReq.Header.Set("Range", fmt.Sprintf("bytes=%d-", done))
+		}
 		dlResp, err := HTTPClient.Do(dlReq)
 		if err != nil {
 			out.Close()
-			os.Remove(dest)
+			os.Remove(part)
 			return fmt.Errorf("downloading %s: %w", f.Filename, err)
 		}
 
-		if dlResp.StatusCode != 200 {
+		if dlResp.StatusCode == 200 && done > 0 {
+			// Server ignored our Range request — start over from zero.
+			dlResp.Body.Close()
+			out.Close()
+			out, err = openPartialFile(part, false)
+			if err != nil {
+				return fmt.Errorf("creating partial file for %s: %w", f.Filename, err)
+			}
+			done = 0
+		} else if dlResp.StatusCode != 200 && dlResp.StatusCode != 206 {
 			out.Close()
 			dlResp.Body.Close()
-			os.Remove(dest)
+			os.Remove(part)
 			return fmt.Errorf("download failed for %s (HTTP %d)", f.Filename, dlResp.StatusCode)
 		}
 
-		dlSize := f.Size
+		dlSize := remoteSize
 		if dlSize == 0 && dlResp.ContentLength > 0 {
 			dlSize = dlResp.ContentLength
 		}
@@ -1332,6 +1397,7 @@ func pullModelInternal(ctx context.Context, ref string, fn ProgressFn, progress 
 		pr := &ProgressReader{
 			Reader:     dlResp.Body,
 			Total:      dlSize,
+			Done:       done,
 			Name:       "▸",
 			Start:      time.Now(),
 			Output:     progress,
@@ -1343,14 +1409,23 @@ func pullModelInternal(ctx context.Context, ref string, fn ProgressFn, progress 
 		out.Close()
 		dlResp.Body.Close()
 		if cpErr != nil {
+			os.Remove(part)
 			if ctx.Err() != nil {
-				os.Remove(dest)
 				return ctx.Err()
 			}
-			os.Remove(dest)
 			return fmt.Errorf("downloading %s: %w", f.Filename, cpErr)
 		}
-		downloadedFiles = append(downloadedFiles, dest)
+
+		// Verify final size (when known) before promoting the partial file.
+		if fi, err := os.Stat(part); err == nil && remoteSize > 0 && fi.Size() != remoteSize {
+			os.Remove(part)
+			return fmt.Errorf("size mismatch for %s: got %s, expected %s",
+				f.Filename, FormatSize(fi.Size()), FormatSize(remoteSize))
+		}
+
+		if err := os.Rename(part, dest); err != nil {
+			return fmt.Errorf("finalizing %s: %w", f.Filename, err)
+		}
 	}
 
 	// Index using the first split file (llama-server discovers the rest by naming convention)

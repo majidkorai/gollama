@@ -214,12 +214,7 @@ No behavior changes. This makes Phases 3–5 safe.
 
 ## Phase 4 — Robustness → `v4.1.0`
 
-- [ ] **P4-T1: Safe model downloads** (`pkg/model/model.go:1163-1259`)
-  - Write to `<name>.gguf.part`; on success `os.Rename` to final name.
-  - **Resume:** if `.part` exists, `HEAD`/`Content-Range` (size probe already exists at 1171-1193 — reuse), open with `O_APPEND`, send `Range: bytes=<done>-`.
-  - Verify final size == expected (when known); size mismatch → delete `.part`, error.
-  - `ScanModels` skips `*.part` and zero-byte files.
-  - Cancel path (ctx) deletes the `.part`.
+- [x] **P4-T1: Safe model downloads** — **done**: downloads write to `<name>.gguf.part` and `os.Rename` to the final name on success. Resume: an existing `.part` opens with `O_APPEND` + `Range: bytes=<done>-` (server returning 200 instead of 206 → truncate + restart from 0); a part already at the remote size is just renamed (no download); a part *larger* than the remote is stale → deleted + restarted. Size verified against the probed remote size before the rename (mismatch → delete `.part` + error). Size probe extracted to `probeRemoteFileSize` (known size → HEAD → ranged GET / Content-Range). Cancel path (ctx) deletes the `.part` (in-loop on copy error + deferred safety net). `ScanModels` now skips `*.part` and zero-byte files. `hfBaseURL` package var is the test seam for hermetic tests. Tests (`pkg/model/pull_test.go`, fake HF server with Range support): fresh download, resume-from-partial (asserts the Range header), stale-oversized-part restart, complete-part finalize-without-download, size-mismatch deletes part, mid-download cancel deletes part, ScanModels skip rules.
 - [ ] **P4-T2: Cheap `GET /api/v1/models`** (`pkg/server/server.go:90-100`, `pkg/model/model.go:792-813`)
   - `ScanModels` throttled: runs at startup and at most once per 60s; `?refresh=1` forces it (UI refresh button uses it).
   - `populateModelInfo` skipped when the index entry already has arch/quant/ctx/short-name (it re-parses GGUF headers of *every* file today on *every* list call).
