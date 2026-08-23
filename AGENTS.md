@@ -4,12 +4,15 @@
 
 Go binary that manages llama.cpp instances. CLI + embedded web UI + OpenAI-compatible API proxy. Zero external dependencies.
 
-**Version:** v4.3.1
+**Version:** v4.3.2
 **Module:** `github.com/majidkorai/gollama`
 **Go:** 1.23
 **Dependencies:** None (stdlib only)
 
 ## Current Plan
+
+**v4.3.2 (2026-08-23) — UD-IQ* quant suffixes:** `knownQuantSuffixes` gained the Unsloth `UD-IQ*` compounds (UD-IQ2_XXS … UD-IQ4_XS, UD-IQ1_S/UD-IQ1_M) so `DeepSeek-V4-Flash-0731-UD-IQ4_XS` scans as `deepseek-v4-flash-0731` instead of leaving a dangling `-ud` in the name. (The v4.3.1 binary deployed to the gollama VM already contains this; the tag was cut before the change, hence v4.3.2.)
+
 
 **v4.3.1 (2026-08-23) — model-list duplicate fix + GGUF v3 parser repair:** the model list showed split (multi-file) models twice — once per index key — because the pull path and the scan path disagreed on the index key for the same blob (e.g. `deepseek-v4-flash-0731-ud` vs `deepseek-v4-flash-0731-ud-iq4-xs`, same 4-part set). Fixes: (1) one index key per blob file — `collapseIndexBlob`/`dedupIndexByBlob` (pkg/model/model.go) run on every scan, the scan's split branch refreshes an existing entry in place instead of adding a second key, and both pull index sites (fresh + already-exists) collapse to the existing key; `ListModels` has a defensive in-memory dedup (largest size wins, lexicographic tie-break) so a corrupt index never shows one file twice. (2) Pull path indexed split sets with part-1's size only (10 GB instead of 136 GB) — now the sum of all parts, both at fresh-download and re-index time. (3) **GGUF parser was silently failing on every recent file** (v4.3.1): `skipGGUFValue` skipped FLOAT32 as 8 bytes (spec: 4), desynchronizing the metadata stream at the first float key (`general.sampling.*` in modern quant repos) so architecture/quant/ctx badges were empty for *all* models; `ggufTypeNames` was also stale (23: IQ4_XS not IQ2_M, missing I8/I16/I32/I64/F64/IQ1_M@29/BF16@30/TQ1_0/TQ2_0/MXFP4/NVFP4/Q1_0/Q2_0); `<arch>.block_count` and `<arch>.context_length` are now accepted as UINT32 (type 4) in addition to the standard INT32/UINT64 (recent writers, e.g. deepseek4/qwen35). Verified e2e against the real DeepSeek-V4-Flash-0731 UD-IQ4_XS part-1 (arch=deepseek4, ctx=1M, blocks=43) and Qwen3.8-27B (qwen35, 262144, 65). Deployed to the gollama VM; the VM's stale index (69 entries, 59 dead-blob, 2 duplicate-blob groups) was repaired in place (backup `/root/.gollama/index.json.bak-20260823-dedup`) — 10 live models remain.
 

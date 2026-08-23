@@ -290,6 +290,11 @@ func TestStripQuantSuffix(t *testing.T) {
 		{"llama-3-8b-instruct-ud-q3_k_l", "llama-3-8b-instruct"},
 		{"llama-3-8b-instruct-arm-q4_k_m", "llama-3-8b-instruct"},
 		{"llama-3-8b-instruct-arm-q8_0", "llama-3-8b-instruct"},
+		// UD-IQ* compounds (Unsloth dynamic IQ quants, e.g. DeepSeek-V4-Flash-0731-UD-IQ4_XS):
+		// the whole UD-IQ4_XS suffix must strip, leaving the model name — not "…-ud".
+		{"deepseek-v4-flash-0731-ud-iq4_xs", "deepseek-v4-flash-0731"},
+		{"DeepSeek-V4-Flash-0731-UD-IQ4_XS.gguf", "DeepSeek-V4-Flash-0731"},
+		{"deepseek-v3-ud-iq2_xxs", "deepseek-v3"},
 		// FP formats
 		{"gemma-2-2b-it-bf16", "gemma-2-2b-it"},
 		{"llama-3-8b-f16", "llama-3-8b"},

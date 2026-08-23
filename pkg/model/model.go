@@ -745,6 +745,7 @@ type RepoGGUFFile struct {
 // Ordered by specificity (longer matches first) to avoid partial matches.
 var knownQuantSuffixes = []string{
 	"UD-Q3_K_S", "UD-Q3_K_M", "UD-Q3_K_L", "UD-Q4_K_M", "UD-Q4_K_S", "UD-Q5_K_M", "UD-Q5_K_S", "UD-Q6_K", "UD-Q8_0",
+	"UD-IQ2_XXS", "UD-IQ2_XS", "UD-IQ2_S", "UD-IQ2_M", "UD-IQ3_XXS", "UD-IQ3_S", "UD-IQ4_NL", "UD-IQ4_XS", "UD-IQ1_S", "UD-IQ1_M",
 	"ARM-Q4_K_M", "ARM-Q4_K_S", "ARM-Q5_K_M", "ARM-Q5_K_S", "ARM-Q8_0",
 	"IQ1_S", "IQ1_M", "IQ2_XXS", "IQ2_XS", "IQ2_S", "IQ2_M", "IQ3_XXS", "IQ3_S", "IQ4_NL", "IQ4_XS",
 	"Q2_K", "Q3_K_S", "Q3_K_M", "Q3_K_L", "Q4_0", "Q4_1", "Q4_K_S", "Q4_K_M", "Q5_0", "Q5_1", "Q5_K_S", "Q5_K_M", "Q6_K", "Q8_0", "Q8_1", "Q8_K",
