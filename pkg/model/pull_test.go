@@ -211,6 +211,79 @@ func TestPullModelQuantMatchCaseInsensitive(t *testing.T) {
 	}
 }
 
+// TestPullModelSplitIndexesTotalSize (v4.3.1): a split pull indexes the sum
+// of all parts, not part 1 alone (a stat of part 1 under-reports by an order
+// of magnitude).
+func TestPullModelSplitIndexesTotalSize(t *testing.T) {
+	setTestHome(t)
+	part1 := []byte(strings.Repeat("part-one-content----", 100))
+	part2 := []byte(strings.Repeat("part-two-content----", 200))
+	setTestHF(t, map[string][]byte{
+		"test/split/Split-Model-Q4_K_M-00001-of-00002.gguf": part1,
+		"test/split/Split-Model-Q4_K_M-00002-of-00002.gguf": part2,
+	})
+
+	if err := PullModel("test/split:Q4_K_M"); err != nil {
+		t.Fatalf("PullModel: %v", err)
+	}
+
+	idx := LoadIndex()
+	if len(idx) != 1 {
+		t.Fatalf("index = %v, want exactly one entry", idx)
+	}
+	var info ModelInfo
+	for _, v := range idx {
+		info = v
+	}
+	want := int64(len(part1) + len(part2))
+	if info.Size != want {
+		t.Errorf("indexed Size = %d, want %d (sum of all parts)", info.Size, want)
+	}
+}
+
+// TestPullModelReindexNoDuplicateKey (v4.3.1): when the files already exist
+// and are indexed under a different key (scan style), the pull's re-index
+// refreshes that entry in place — no second key for the same blob, and the
+// size becomes the sum of all parts.
+func TestPullModelReindexNoDuplicateKey(t *testing.T) {
+	setTestHome(t)
+	part1 := []byte(strings.Repeat("part-one-content----", 100))
+	part2 := []byte(strings.Repeat("part-two-content----", 200))
+	setTestHF(t, map[string][]byte{
+		"test/split/Split-Model-Q4_K_M-00001-of-00002.gguf": part1,
+		"test/split/Split-Model-Q4_K_M-00002-of-00002.gguf": part2,
+	})
+	d1 := filepath.Join(ModelsDir(), "Split-Model-Q4_K_M-00001-of-00002.gguf")
+	d2 := filepath.Join(ModelsDir(), "Split-Model-Q4_K_M-00002-of-00002.gguf")
+	EnsureDir(ModelsDir())
+	if err := os.WriteFile(d1, part1, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(d2, part2, 0644); err != nil {
+		t.Fatal(err)
+	}
+	SaveIndex(map[string]ModelInfo{
+		"split-model": {Name: "split-model", ShortName: "split-model", BlobPath: d1, Size: 100},
+	})
+
+	if err := PullModel("test/split:Q4_K_M"); !errors.Is(err, ErrAlreadyExists) {
+		t.Fatalf("PullModel err = %v, want ErrAlreadyExists", err)
+	}
+
+	idx := LoadIndex()
+	if len(idx) != 1 {
+		t.Fatalf("index = %v, want the existing key kept (no duplicate)", idx)
+	}
+	info, ok := idx["split-model"]
+	if !ok {
+		t.Fatalf("existing key should be kept: %v", idx)
+	}
+	want := int64(len(part1) + len(part2))
+	if info.Size != want {
+		t.Errorf("indexed Size = %d, want %d (sum of all parts)", info.Size, want)
+	}
+}
+
 func TestPullModelResumesPartial(t *testing.T) {
 	setTestHome(t)
 	content := []byte(strings.Repeat("resume-resume-resume-", 100))

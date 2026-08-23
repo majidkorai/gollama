@@ -196,6 +196,105 @@ func TestResolveModelBlobFuzzyDeterministic(t *testing.T) {
 	}
 }
 
+// TestScanSplitModelKeepsExistingKey (v4.3.1): when an entry under a
+// different key already points at a split set's part-1 file (a pull indexed
+// it first, or an older gollama version named it differently), the scan
+// refreshes that entry in place instead of adding a duplicate key — the same
+// model must never appear twice in the list.
+func TestScanSplitModelKeepsExistingKey(t *testing.T) {
+	setTestHome(t)
+	writeModelFile(t, "Deep-Seek-0731-UD-IQ4_XS-00001-of-00002.gguf", 100)
+	writeModelFile(t, "Deep-Seek-0731-UD-IQ4_XS-00002-of-00002.gguf", 200)
+	part1 := filepath.Join(ModelsDir(), "Deep-Seek-0731-UD-IQ4_XS-00001-of-00002.gguf")
+	SaveIndex(map[string]ModelInfo{
+		"deep-seek-0731-ud-iq4-xs": {Name: "deep-seek-0731-ud-iq4-xs", ShortName: "deep-seek-0731-ud-iq4-xs", BlobPath: part1, Size: 100},
+	})
+	ScanModels()
+
+	idx := LoadIndex()
+	if len(idx) != 1 {
+		t.Fatalf("index = %v, want exactly one entry (no duplicate key)", idx)
+	}
+	info, ok := idx["deep-seek-0731-ud-iq4-xs"]
+	if !ok {
+		t.Fatalf("pre-existing key should be kept: %v", idx)
+	}
+	if info.Size != 300 {
+		t.Errorf("Size = %d, want 300 (sum of all parts)", info.Size)
+	}
+}
+
+// TestScanDedupsDuplicateBlobKeys (v4.3.1): a corrupt index holding two keys
+// for the same blob file is repaired on the next scan. The larger size
+// survives (a part-1-only size loses to the split total); ties go to the
+// lexicographically first key.
+func TestScanDedupsDuplicateBlobKeys(t *testing.T) {
+	setTestHome(t)
+	writeModelFile(t, "Solo-Q8_0.gguf", 100)
+	p := filepath.Join(ModelsDir(), "Solo-Q8_0.gguf")
+	SaveIndex(map[string]ModelInfo{
+		"big-key":   {Name: "big-key", ShortName: "big-key", BlobPath: p, Size: 100},
+		"small-key": {Name: "small-key", ShortName: "small-key", BlobPath: p, Size: 42},
+	})
+	ScanModels()
+
+	idx := LoadIndex()
+	if len(idx) != 1 {
+		t.Fatalf("index = %v, want the duplicate removed", idx)
+	}
+	if _, ok := idx["big-key"]; !ok {
+		t.Fatalf("the larger-size entry should survive: %v", idx)
+	}
+}
+
+func TestScanDedupTieBreaksLexicographic(t *testing.T) {
+	setTestHome(t)
+	writeModelFile(t, "Twin.gguf", 100)
+	p := filepath.Join(ModelsDir(), "Twin.gguf")
+	SaveIndex(map[string]ModelInfo{
+		"zeta":  {Name: "zeta", ShortName: "zeta", BlobPath: p, Size: 100},
+		"alpha": {Name: "alpha", ShortName: "alpha", BlobPath: p, Size: 100},
+	})
+	ScanModels()
+
+	idx := LoadIndex()
+	if len(idx) != 1 {
+		t.Fatalf("index = %v, want the duplicate removed", idx)
+	}
+	if _, ok := idx["alpha"]; !ok {
+		t.Fatalf("lexicographically first key should survive: %v", idx)
+	}
+}
+
+// TestListModelsDedupsDuplicateBlobs (v4.3.1): even before a scan repairs
+// the index on disk, the model list never shows the same blob twice. The
+// scan is throttled here so the in-memory dedup is what does the job.
+func TestListModelsDedupsDuplicateBlobs(t *testing.T) {
+	setTestHome(t)
+	scanInterval = time.Hour
+	defer func() { scanInterval = 0 }()
+	scanMu.Lock()
+	lastScanTime = time.Now()
+	scanMu.Unlock()
+
+	writeModelFile(t, "Dup-Q4_K_M.gguf", 100)
+	p := filepath.Join(ModelsDir(), "Dup-Q4_K_M.gguf")
+	SaveIndex(map[string]ModelInfo{
+		"dup-big":   {Name: "dup-big", ShortName: "dup-big", BlobPath: p, Size: 100},
+		"dup-small": {Name: "dup-small", ShortName: "dup-small", BlobPath: p, Size: 10},
+	})
+	models, err := ListModels()
+	if err != nil {
+		t.Fatalf("ListModels: %v", err)
+	}
+	if len(models) != 1 {
+		t.Fatalf("ListModels returned %d entries, want 1: %+v", len(models), models)
+	}
+	if models[0].Name != "dup-big" {
+		t.Fatalf("survivor = %q, want dup-big (larger size)", models[0].Name)
+	}
+}
+
 // TestScanModelsMaybeThrottles (P4-T2): the throttled scan runs at most once
 // per interval; ScanModelsForce bypasses the throttle.
 func TestScanModelsMaybeThrottles(t *testing.T) {

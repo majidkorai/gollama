@@ -531,6 +531,84 @@ func UpdateIndex(fn func(map[string]ModelInfo) error) error {
 	return unsafeSaveIndex(idx)
 }
 
+// collapseIndexBlob removes every index entry pointing at blobPath except
+// the winner (largest size; lexicographically smallest key on ties) and
+// returns the surviving key ("" when no entry points at blobPath) plus the
+// number of entries removed. The index must hold at most one key per blob
+// file: pull and scan used to disagree on the key for a split set, which
+// left the same model listed twice (v4.3.1).
+func collapseIndexBlob(idx map[string]ModelInfo, blobPath string) (string, int) {
+	winner := ""
+	removed := 0
+	for key, info := range idx {
+		if info.BlobPath != blobPath {
+			continue
+		}
+		if winner == "" {
+			winner = key
+			continue
+		}
+		w := idx[winner]
+		if info.Size > w.Size || (info.Size == w.Size && key < winner) {
+			delete(idx, winner)
+			winner = key
+		} else {
+			delete(idx, key)
+		}
+		removed++
+	}
+	return winner, removed
+}
+
+// dedupIndexByBlob repairs a corrupt index: for every blob path with more
+// than one key, keeps the winner (see collapseIndexBlob) and removes the
+// rest. Returns the number of entries removed.
+func dedupIndexByBlob(idx map[string]ModelInfo) int {
+	seen := make(map[string]bool)
+	removed := 0
+	for key := range idx {
+		blob := idx[key].BlobPath
+		if blob == "" || seen[blob] {
+			continue
+		}
+		seen[blob] = true
+		if _, n := collapseIndexBlob(idx, blob); n > 0 {
+			removed += n
+		}
+	}
+	return removed
+}
+
+// refreshIndexEntry updates the entry at key in place with the fresh size
+// and any metadata it is missing. Name, ShortName and Source are
+// preserved: profiles and API callers already know the model by that name,
+// and renaming it would break them.
+func refreshIndexEntry(idx map[string]ModelInfo, key string, fresh ModelInfo) {
+	ex := idx[key]
+	if fresh.Size > 0 {
+		ex.Size = fresh.Size
+	}
+	if ex.Name == "" {
+		ex.Name = fresh.Name
+	}
+	if ex.ShortName == "" {
+		ex.ShortName = fresh.ShortName
+	}
+	if ex.Architecture == "" {
+		ex.Architecture = fresh.Architecture
+	}
+	if ex.Quantization == "" {
+		ex.Quantization = fresh.Quantization
+	}
+	if ex.ContextLength == 0 {
+		ex.ContextLength = fresh.ContextLength
+	}
+	if ex.BlockCount == 0 {
+		ex.BlockCount = fresh.BlockCount
+	}
+	idx[key] = ex
+}
+
 type SearchResult struct {
 	ID          string `json:"id"`
 	Likes       int    `json:"likes"`
@@ -889,6 +967,15 @@ func doScanModels() {
 				}
 				short := strings.ToLower(base)
 				info.ShortName = short
+				if keep, _ := collapseIndexBlob(idx, path); keep != "" {
+					// Another key already tracks this file set (a pull
+					// indexed it first, or an older gollama version named
+					// it differently). Refresh that entry in place — never
+					// add a second key for the same blob.
+					refreshIndexEntry(idx, keep, info)
+					slog.Info("refreshed existing split model", "key", keep, "model", idx[keep].Name, "size", FormatSize(idx[keep].Size))
+					continue
+				}
 				if existing, exists := idx[base]; !exists {
 					idx[base] = info
 					slog.Info("scanned split model", "model", base, "arch", info.Architecture, "quant", info.Quantization, "size", FormatSize(info.Size))
@@ -942,6 +1029,13 @@ func doScanModels() {
 			idx[base] = info
 			slog.Info("scanned new model", "model", base, "short", short, "arch", info.Architecture, "quant", info.Quantization)
 		}
+
+		// Repair corrupt indexes: never keep two keys for the same blob
+		// file (pull and scan used to disagree on the key for a split
+		// set, leaving the same model listed twice).
+		if removed := dedupIndexByBlob(idx); removed > 0 {
+			slog.Warn("removed duplicate index entries", "removed", removed)
+		}
 		return nil
 	}); err != nil {
 		slog.Warn("could not save model index after scan", "error", err)
@@ -975,7 +1069,21 @@ func ListModels() ([]ModelInfo, error) {
 		}
 		populateModelInfo(info)
 	}
-	return modelList, nil
+	// Defensive dedup: an index corrupted before the scan-side repair may
+	// still hold several keys for the same blob. Never show one file
+	// twice; the survivor is the largest size (ties: lexicographically
+	// first name).
+	deduped := make([]ModelInfo, 0, len(modelList))
+	best := make(map[string]int)
+	for _, info := range modelList {
+		if i, ok := best[info.BlobPath]; !ok {
+			best[info.BlobPath] = len(deduped)
+			deduped = append(deduped, info)
+		} else if cur := deduped[i]; info.Size > cur.Size || (info.Size == cur.Size && info.Name < cur.Name) {
+			deduped[i] = info
+		}
+	}
+	return deduped, nil
 }
 
 // ImagePythonPath returns the absolute path to the Python interpreter for image generation.
@@ -1353,8 +1461,16 @@ func pullModelInternal(ctx context.Context, ref string, fn ProgressFn, progress 
 	if allExist {
 		firstDest := filepath.Join(ModelsDir(), filepath.Base(targetFiles[0].Filename))
 		info := ModelInfo{Name: modelName, BlobPath: firstDest, ShortName: DeriveShortNameFromRepo(modelID)}
-		if fi, err := os.Stat(firstDest); err == nil {
-			info.Size = fi.Size()
+		// The size is the sum across all parts — a stat of part 1 alone
+		// under-reports a split set by an order of magnitude.
+		var localSize int64
+		for _, f := range targetFiles {
+			if fi, err := os.Stat(filepath.Join(ModelsDir(), filepath.Base(f.Filename))); err == nil {
+				localSize += fi.Size()
+			}
+		}
+		if localSize > 0 {
+			info.Size = localSize
 		}
 		if meta, err := readGGUFMetadata(firstDest); err == nil && meta != nil {
 			info.Architecture = meta.Architecture
@@ -1362,6 +1478,10 @@ func pullModelInternal(ctx context.Context, ref string, fn ProgressFn, progress 
 			info.ContextLength = meta.ContextLength
 		}
 		if err := UpdateIndex(func(idx map[string]ModelInfo) error {
+			if keep, _ := collapseIndexBlob(idx, firstDest); keep != "" {
+				refreshIndexEntry(idx, keep, info)
+				return nil
+			}
 			if _, exists := idx[modelName]; !exists {
 				idx[modelName] = info
 			}
@@ -1526,11 +1646,23 @@ func pullModelInternal(ctx context.Context, ref string, fn ProgressFn, progress 
 		BlobPath: firstDest,
 		Size:     totalSize,
 	}
-	if fi, err := os.Stat(firstDest); err == nil {
-		info.Size = fi.Size()
+	// For a single file the local stat is authoritative; for a split set
+	// the size must stay the sum of all parts (a stat of part 1 alone
+	// under-reports by an order of magnitude).
+	if len(targetFiles) == 1 {
+		if fi, err := os.Stat(firstDest); err == nil {
+			info.Size = fi.Size()
+		}
 	}
 	populateModelInfo(&info)
 	if err := UpdateIndex(func(idx map[string]ModelInfo) error {
+		if keep, _ := collapseIndexBlob(idx, firstDest); keep != "" {
+			// The scan (or an earlier pull under a different ref) already
+			// tracks this file set. Refresh that entry in place — never
+			// add a second key for the same blob.
+			refreshIndexEntry(idx, keep, info)
+			return nil
+		}
 		idx[modelName] = info
 		return nil
 	}); err != nil {

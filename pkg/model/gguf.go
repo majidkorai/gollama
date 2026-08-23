@@ -37,10 +37,20 @@ var ggufTypeNames = map[uint32]string{
 	20: "IQ4_NL",
 	21: "IQ3_S",
 	22: "IQ2_S",
-	23: "IQ2_M",
-	24: "IQ4_XS",
-	25: "IQ1_M",
-	26: "BF16",
+	23: "IQ4_XS",
+	24: "I8",
+	25: "I16",
+	26: "I32",
+	27: "I64",
+	28: "F64",
+	29: "IQ1_M",
+	30: "BF16",
+	34: "TQ1_0",
+	35: "TQ2_0",
+	39: "MXFP4",
+	40: "NVFP4",
+	41: "Q1_0",
+	42: "Q2_0",
 }
 
 // GGUFMeta is the subset of GGUF metadata gollama cares about.
@@ -171,6 +181,13 @@ func readGGUFMetadata(path string) (*GGUFMeta, error) {
 					}
 					meta.BlockCount = uint32(val)
 					continue
+				case 4: // UINT32 (recent writers, e.g. deepseek4/qwen35)
+					var val uint32
+					if err := binary.Read(r, binary.LittleEndian, &val); err != nil {
+						return nil, fmt.Errorf("reading block_count: %w", err)
+					}
+					meta.BlockCount = val
+					continue
 				case 0: // UINT8 (defensive: some writers)
 					var val uint8
 					if err := binary.Read(r, binary.LittleEndian, &val); err != nil {
@@ -187,13 +204,23 @@ func readGGUFMetadata(path string) (*GGUFMeta, error) {
 				key == "falcon.context_length" || key == "baichuan.context_length" ||
 				key == "xverse.context_length" || key == "phi2.context_length" ||
 				key == "phi3.context_length" || key == "stablelm.context_length" ||
-				strings.HasSuffix(key, ".context_length")) && valueType == 10 {
-				var val uint64
-				if err := binary.Read(r, binary.LittleEndian, &val); err != nil {
-					return nil, fmt.Errorf("reading context_length for %q: %w", key, err)
+				strings.HasSuffix(key, ".context_length")) {
+				switch valueType {
+				case 10: // UINT64 (standard)
+					var val uint64
+					if err := binary.Read(r, binary.LittleEndian, &val); err != nil {
+						return nil, fmt.Errorf("reading context_length for %q: %w", key, err)
+					}
+					meta.ContextLength = val
+					continue
+				case 4, 5: // UINT32/INT32 (recent writers)
+					var val uint32
+					if err := binary.Read(r, binary.LittleEndian, &val); err != nil {
+						return nil, fmt.Errorf("reading context_length for %q: %w", key, err)
+					}
+					meta.ContextLength = uint64(val)
+					continue
 				}
-				meta.ContextLength = val
-				continue
 			}
 		}
 
@@ -224,18 +251,25 @@ func readGGUFString(r io.Reader) (string, error) {
 	return s, nil
 }
 
+// skipGGUFValue discards a metadata value of the given type. The sizes
+// follow the GGUF spec (ggml docs/gguf.md): UINT8/INT8/BOOL=1, UINT16/
+// INT16/BF16=2, UINT32/INT32/FLOAT32=4, UINT64/INT64/FLOAT64=8. Getting
+// these wrong desynchronizes the metadata stream and makes every later
+// key unreadable (v4.3.1: FLOAT32 was skipped as 8 bytes, which broke
+// parsing of any file containing a float metadata value — common in
+// recent quant repos' general.sampling.* keys).
 func skipGGUFValue(r io.Reader, valueType uint32) error {
 	switch valueType {
 	case 0, 1, 7: // UINT8, INT8, BOOL
 		_, err := io.CopyN(io.Discard, r, 1)
 		return err
-	case 2, 3, 12, 13: // UINT16, INT16, FLOAT16, BF16
+	case 2, 3, 13: // UINT16, INT16, BF16
 		_, err := io.CopyN(io.Discard, r, 2)
 		return err
-	case 4, 5: // FLOAT32, INT32
+	case 4, 5, 6: // UINT32, INT32, FLOAT32
 		_, err := io.CopyN(io.Discard, r, 4)
 		return err
-	case 6, 10, 11: // FLOAT64, UINT64, INT64
+	case 10, 11, 12: // UINT64, INT64, FLOAT64
 		_, err := io.CopyN(io.Discard, r, 8)
 		return err
 	case 8: // STRING

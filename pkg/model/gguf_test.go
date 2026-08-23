@@ -1,6 +1,7 @@
 package model
 
 import (
+	"math"
 	"os"
 	"testing"
 )
@@ -67,8 +68,13 @@ func buildGGUFWithTypes(t *testing.T, entries ...interface{}) string {
 		buf = append(buf, ggufString(key)...)
 		buf = append(buf, u32le(typ)...)
 		switch typ {
+		case 4: // uint32
+			buf = append(buf, u32le(val.(uint32))...)
 		case 5: // int32
 			buf = append(buf, i32le(val.(int32))...)
+		case 6: // float32
+			bits := math.Float32bits(val.(float32))
+			buf = append(buf, u32le(bits)...)
 		case 8: // string
 			buf = append(buf, ggufString(val.(string))...)
 		case 10: // uint64
@@ -164,6 +170,62 @@ func TestReadGGUFMetadata_UnknownFileType(t *testing.T) {
 	}
 	if meta.Quantization != "type_999" {
 		t.Errorf("expected quantization=type_999, got %q", meta.Quantization)
+	}
+}
+
+// TestReadGGUFMetadata_Float32DoesNotDesync (v4.3.1): a FLOAT32 metadata
+// value (type 6, 4 bytes) used to be skipped as 8 bytes, desynchronizing
+// the stream and failing the whole parse — so architecture/quant/context
+// went missing on every file with general.sampling.* or other float keys
+// (common in recent quant repos).
+func TestReadGGUFMetadata_Float32DoesNotDesync(t *testing.T) {
+	path := buildGGUFWithTypes(t,
+		"general.architecture", uint32(8), "deepseek4",
+		"general.sampling.top_p", uint32(6), float32(0.95),
+		"general.sampling.temp", uint32(6), float32(1.0),
+		"general.name", uint32(8), "Test-Model-0731",
+		"general.file_type", uint32(5), int32(23), // IQ4_XS
+	)
+	defer os.Remove(path)
+
+	meta, err := readGGUFMetadata(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if meta == nil {
+		t.Fatal("expected metadata, got nil")
+	}
+	if meta.Architecture != "deepseek4" {
+		t.Errorf("architecture = %q, want deepseek4 (parse desynced?)", meta.Architecture)
+	}
+	if meta.Quantization != "IQ4_XS" {
+		t.Errorf("quantization = %q, want IQ4_XS (parse desynced?)", meta.Quantization)
+	}
+}
+
+// TestReadGGUFMetadata_UInt32ContextAndBlocks (v4.3.1): recent writers
+// store <arch>.context_length and <arch>.block_count as UINT32 (type 4);
+// the parser only understood UINT64/INT32, so the ctx badge went missing.
+func TestReadGGUFMetadata_UInt32ContextAndBlocks(t *testing.T) {
+	path := buildGGUFWithTypes(t,
+		"general.architecture", uint32(8), "qwen35",
+		"qwen35.context_length", uint32(4), uint32(262144),
+		"qwen35.block_count", uint32(4), uint32(65),
+	)
+	defer os.Remove(path)
+
+	meta, err := readGGUFMetadata(path)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if meta == nil {
+		t.Fatal("expected metadata, got nil")
+	}
+	if meta.ContextLength != 262144 {
+		t.Errorf("context_length = %d, want 262144", meta.ContextLength)
+	}
+	if meta.BlockCount != 65 {
+		t.Errorf("block_count = %d, want 65", meta.BlockCount)
 	}
 }
 
