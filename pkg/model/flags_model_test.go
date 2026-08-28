@@ -43,9 +43,9 @@ func TestParseFlagsForms(t *testing.T) {
 		},
 		{
 			name: "valued flag not made standalone by its no-form",
-			// --flash-attn is valued even though --no-flash-attn is standalone.
-			in:   []string{"--flash-attn", "on"},
-			want: []string{"--flash-attn", "on"},
+			// --host is valued even though --no-host is standalone.
+			in:   []string{"--host", "0.0.0.0"},
+			want: []string{"--host", "0.0.0.0"},
 		},
 		{
 			name: "leading orphan dropped",
@@ -148,8 +148,8 @@ func TestStandaloneFlagDerivation(t *testing.T) {
 	if !IsStandaloneFlag("--verbose") {
 		t.Error("--verbose should be standalone")
 	}
-	if !IsStandaloneFlag("--no-flash-attn") {
-		t.Error("--no-flash-attn should be standalone")
+	if !IsStandaloneFlag("--no-host") {
+		t.Error("--no-host should be standalone")
 	}
 	// Derived: --no-X is standalone when --X is.
 	if !IsStandaloneFlag("--no-verbose") {
@@ -169,7 +169,7 @@ func TestStandaloneCounterpart(t *testing.T) {
 	tests := []struct{ in, want string }{
 		{"--no-verbose", "--verbose"},
 		{"--verbose", "--no-verbose"},
-		{"--no-flash-attn", "--flash-attn"},
+		{"--no-host", "--host"},
 		{"not-a-flag", ""},
 	}
 	for _, tt := range tests {

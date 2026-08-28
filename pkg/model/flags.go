@@ -137,7 +137,7 @@ func standaloneCounterpart(name string) string {
 // --no-X form whose positive --X is a known standalone flag (deriving the
 // negation form without hardcoding every --no-* variant). The derivation is
 // one-way on purpose: --X is NOT made standalone just because --no-X is
-// (e.g. --flash-attn stays valued even though --no-flash-attn is standalone).
+// (e.g. --host stays valued even though --no-host is standalone).
 func isStandaloneFlag(name string) bool {
 	if standaloneFlags[name] {
 		return true

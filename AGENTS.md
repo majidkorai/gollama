@@ -4,12 +4,15 @@
 
 Go binary that manages llama.cpp instances. CLI + embedded web UI + OpenAI-compatible API proxy. Zero external dependencies.
 
-**Version:** v4.3.2
+**Version:** v4.4.0
 **Module:** `github.com/majidkorai/gollama`
 **Go:** 1.23
 **Dependencies:** None (stdlib only)
 
 ## Current Plan
+
+**v4.4.0 (2026-08-28) — llama.cpp flag list refresh (b10665):** the flag catalog was re-derived against the live VM build (4e97ac86e, b10665+PR27836) by probing every candidate flag through the real binary (VALUED / STANDALONE / INVALID) instead of trusting `--help` text. Dropped from the UI catalog: 5 flags the binary now **rejects** with `error: invalid argument` — `--no-flash-attn`, `--hf-file-v`, `--hf-repo-v`, `--model-vocoder`, `--tts-use-guide-tokens` (the old TTS/vocoder stack is gone) — plus 3 duplicate alias entries (`--log-verbosity`→`--verbosity`, `--no-webui`→`--no-ui`, `--no-webui-mcp-proxy`→`--no-ui-mcp-proxy`). Added 36 new flags with hints, headliners: `--load-mode` (auto/none/mmap/mlock/mmap+mlock/dio — the replacement for the deprecated `--mmap`/`--mlock`/`--direct-io`, which stay in the catalog but are now marked DEPRECATED in their hints, and **stay in both standalone sets** because live configs on the gollama VM still use `--mlock`/`--no-mmap` and the parsers need them to not swallow the next token), `--reasoning-effort` (minimal…xhigh/max — the first-class flag behind the `reasoning_effort` chat_template_kwargs already in use), `--tensor-read-lazy`, `--n-cpu-ffn`, `--kv-unified-per-slot`, `--mmproj-device`, the full CORS quartet, `--tools-runtime` + `--mcp-servers-{config,json}`, `--reasoning-preserve`/`--no-reasoning-preserve`, `--spec-default`, `--spec-synth-{len,rates}` (benchmarking), `--spec-draft-{cpu-mask,cpu-range,cpu-strict,prio,poll}` + batch/draft variants, `--video-{fps,timestamp-interval,ffmpeg-dir}`, and the positive forms `--warmup`/`--slots`/`--kv-offload`/`--mmap` (negatives were already cataloged). The `standaloneFlags` set is mirrored in `pkg/model/model.go` (parse/merge path) and `pkg/ui/web/app.js` (UI path, no derivation — every `--no-*` must be listed explicitly); pinned tests in `flags_model_test.go` that used `--no-flash-attn` as their example now use `--no-host`/`--host` (the quirk they pin — one-way standalone derivation — is unchanged). Page reference regenerated (`TestDumpPage`); full suite green; served page verified byte-identical against a live `serve` on a temp HOME.
+
 
 **v4.3.2 (2026-08-23) — UD-IQ* quant suffixes:** `knownQuantSuffixes` gained the Unsloth `UD-IQ*` compounds (UD-IQ2_XXS … UD-IQ4_XS, UD-IQ1_S/UD-IQ1_M) so `DeepSeek-V4-Flash-0731-UD-IQ4_XS` scans as `deepseek-v4-flash-0731` instead of leaving a dangling `-ud` in the name. (The v4.3.1 binary deployed to the gollama VM already contains this; the tag was cut before the change, hence v4.3.2.)
 
