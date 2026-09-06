@@ -330,6 +330,8 @@ button:disabled { opacity: 0.4; cursor: default; pointer-events: none; }
 .flag-row .flag-dropdown-item-custom { color: var(--text-muted); font-family: var(--font); }
 .flag-row .flag-dropdown-item-custom:hover { color: var(--text); }
 .flag-row .flag-dropdown-empty { color: var(--text-dim); cursor: default; font-family: var(--font); }
+/* Flag not in the catalog: shown in the search field as typed — amber dotted underline marks it as unverified. */
+.flag-row .flag-search.flag-unknown { border-bottom: 2px dotted var(--amber); }
 .flag-row input.flag-custom, .flag-row input.flag-value { flex: 1; font-family: var(--font-mono); font-size: 12px; padding: 7px 10px; }
 
 /* ── Settings edit mode ──────────────────────────────── */
